@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>tedit</AssemblyName>
+    <RootNamespace>TableEditor.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TableEditor.Engine\TableEditor.Engine.csproj" />
+  </ItemGroup>
+
+</Project>
