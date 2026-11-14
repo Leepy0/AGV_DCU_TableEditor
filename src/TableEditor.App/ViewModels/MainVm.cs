@@ -58,7 +58,14 @@ public sealed class MainVm : Observable
     public IEnumerable<TabVm> OpsTabs => Tabs.Where(t => t.Group == 1);
     public TabVm SettingsTab => Tabs[^1];
     public TagVm Tag { get; }
+    public ProfileVm Profile { get; }
+    public ManualVm Manual { get; }
+    public SeqVm Seq { get; }
+    public MapVm Map { get; }
+    public IoVm Io { get; }
     public SettingsVm Config { get; }
+
+    public const string ProfileTab = "프로파일", IoTab = "IO 맵", SeqTab = "시퀀스", MapTab = "대응표", ManualTab = "수동";
 
     readonly DispatcherTimer draftTimer;
     readonly DispatcherTimer noticeTimer;
@@ -70,6 +77,11 @@ public sealed class MainVm : Observable
             .Select(t => new TabVm(t.Item1, t.Item2, this)).ToList();
         tab = Tabs.First(t => t.Name == TagTab);
         Tag = new TagVm(this);
+        Profile = new ProfileVm(this);
+        Manual = new ManualVm(this);
+        Seq = new SeqVm(this);
+        Map = new MapVm(this);
+        Io = new IoVm();
         Config = new SettingsVm(settings, this);
         GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
@@ -207,8 +219,10 @@ public sealed class MainVm : Observable
     /// <summary>사이트가 열렸다(창이 뮤텍스·제목 등을 맞춘다).</summary>
     public event Action? Opened;
 
+    /// <summary>저장한 때의 표 줄 글자(바뀐 줄 점). 모든 표 구역 + 구역 밖 문장(적재 조건 등).</summary>
     static IReadOnlyDictionary<string, int> Baseline(Site s) =>
-        s.ZonesOf("TAG_TABLE_BEGIN").SelectMany(z => z.Body).GroupBy(p => p.Text).ToDictionary(g => g.Key, g => g.Count());
+        s.Files.SelectMany(f => f.Pieces).Where(p => p.Kind is PieceKind.Statement or PieceKind.Raw)
+            .GroupBy(p => p.Text).ToDictionary(g => g.Key, g => g.Count());
 
     // ---- 편집 ----
 
@@ -246,6 +260,11 @@ public sealed class MainVm : Observable
         var s = Site!;
         var list = Checker.Run(s);
         Tag.Reload(s, list, baseline, touched);
+        Profile.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
+        Manual.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
+        Seq.Reload(s, list, baseline, touched);
+        Map.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
+        Io.Reload(s, list);
         SetFindings(s, list.Concat(packFindings).ToList());
         Raise(nameof(Site));
         Raise(nameof(ChangeCount));
@@ -511,16 +530,20 @@ public sealed class MainVm : Observable
             if (!Set(ref tab, value)) return;
             old.Changed();
             value.Changed();
-            Raise(nameof(IsTagTab));
-            Raise(nameof(IsSettingsTab));
-            Raise(nameof(IsOtherTab));
+            foreach (var n in new[] { nameof(IsTagTab), nameof(IsSettingsTab), nameof(IsOtherTab), nameof(IsProfileTab), nameof(IsIoTab), nameof(IsSeqTab), nameof(IsMapTab), nameof(IsManualTab) })
+                Raise(n);
             if (IsSettingsTab && Config.Tools.Count == 0 && Settings.Volatile == false) _ = Config.ProbeAsync();
         }
     }
 
     public bool IsTagTab => Tab.Name == TagTab;
     public bool IsSettingsTab => Tab.Name == SettingsName;
-    public bool IsOtherTab => !IsTagTab && !IsSettingsTab;
+    public bool IsProfileTab => Tab.Name == ProfileTab;
+    public bool IsIoTab => Tab.Name == IoTab;
+    public bool IsSeqTab => Tab.Name == SeqTab;
+    public bool IsMapTab => Tab.Name == MapTab;
+    public bool IsManualTab => Tab.Name == ManualTab;
+    public bool IsOtherTab => Tab.Group == 1;
 
     public ICommand GoTo { get; }
 
@@ -528,8 +551,27 @@ public sealed class MainVm : Observable
     public void Go(FindingVm f)
     {
         if (f.Tab != null) Tab = f.Tab;
-        if (f.Tab?.Name == TagTab && f.Finding.Piece is { } p) Tag.SelectPiece(p);
+        if (f.Finding.Piece is { } p)
+            switch (f.Tab?.Name)
+            {
+                case TagTab: Tag.SelectPiece(p); break;
+                case ProfileTab:
+                    if (p is Statement { Zone: "PROFILE_TABLE_BEGIN" }) Profile.SelectPiece(p);
+                    else if (p is Statement st) Profile.SelectName(st.Shape == StatementShape.Macro && st.Args.Count > 0 ? st.Args[0].Text : st.Name);
+                    break;
+                case ManualTab: Manual.SelectPiece(p); break;
+                case SeqTab: Seq.SelectPiece(p); break;
+                case MapTab: Map.SelectPiece(p); break;
+                case IoTab: if (p is Statement d) Io.SelectName(d.Name); break;
+            }
         Went?.Invoke(f);
+    }
+
+    /// <summary>대응표의 표 이름 → 시퀀스 화면의 그 표.</summary>
+    public void GoTable(string name)
+    {
+        Tab = Tabs.First(t => t.Name == SeqTab);
+        Seq.SelectTable(name);
     }
 
     /// <summary>줄로 간 뒤 화면이 스크롤·포커스를 맞춘다.</summary>

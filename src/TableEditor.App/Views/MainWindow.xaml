@@ -153,6 +153,16 @@
 
                     <v:TagView x:Name="TagPane" DataContext="{Binding Tag}"
                                Visibility="{Binding DataContext.IsTagTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:ProfileView x:Name="ProfilePane" DataContext="{Binding Profile}"
+                                   Visibility="{Binding DataContext.IsProfileTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:IoView DataContext="{Binding Io}"
+                              Visibility="{Binding DataContext.IsIoTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:SeqView x:Name="SeqPane" DataContext="{Binding Seq}"
+                               Visibility="{Binding DataContext.IsSeqTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:MapView x:Name="MapPane" DataContext="{Binding Map}"
+                               Visibility="{Binding DataContext.IsMapTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:ManualView DataContext="{Binding Manual}"
+                                  Visibility="{Binding DataContext.IsManualTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
                     <v:SettingsView DataContext="{Binding Config}"
                                     Visibility="{Binding DataContext.IsSettingsTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
                     <TextBlock Text="준비 중" Style="{StaticResource T.Empty}"

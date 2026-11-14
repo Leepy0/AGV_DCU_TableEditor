@@ -27,7 +27,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = vm;
         CommandBindings.Add(new CommandBinding(SwitchPane, (_, _) => Switch()));
-        vm.Went += _ => TagPane.FocusRows();
+        vm.Went += _ => FocusPane();
         vm.DialogShown += _ => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog);
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
         if (remember) Restore();
@@ -46,7 +46,16 @@ public partial class MainWindow : Window
                 else Keyboard.Focus(Checks);
             }, DispatcherPriority.Input);
         }
-        else TagPane.FocusRows();
+        else FocusPane();
+    }
+
+    /// <summary>지금 탭의 줄 목록에 포커스.</summary>
+    void FocusPane()
+    {
+        if (vm.IsTagTab) TagPane.FocusRows();
+        else if (vm.IsProfileTab) ProfilePane.FocusRows();
+        else if (vm.IsSeqTab) SeqPane.FocusRows();
+        else if (vm.IsMapTab) MapPane.FocusRows();
     }
 
     /// <summary>팝업 처음 포커스: 기본 단추(Tag = true), 없으면 첫 글 상자, 없으면 첫 단추.</summary>
