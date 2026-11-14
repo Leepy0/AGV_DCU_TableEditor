@@ -108,7 +108,7 @@ public static partial class TagEdit
         return new(rows, lines, null);
     }
 
-    /// <summary>미리 보기의 <c>새 줄</c> 을 쓴다. 넣는 자리는 <see cref="InsertIndex"/>.</summary>
+    /// <summary>미리 보기의 <c>새 줄</c> 을 쓴다. 넣는 자리는 <see cref="Placer"/>.</summary>
     public static EditResult Add(Site site, string tags, IReadOnlyList<string> profiles, TagRule? template, TagRunMode mode)
     {
         var plan = PlanAdd(site, tags, profiles, template, mode);
@@ -118,6 +118,7 @@ public static partial class TagEdit
         var sp = new Splice(site);
         var cond = template?.Cond?.Text;
         var actions = template?.Actions.Select(a => a.Text).ToList() ?? ["AGV_STOP"];
+        var placer = new Placer(site, zone, null);
         foreach (var l in plan.Lines.OrderBy(l => l.First).ThenBy(l => IsAny(l.Profile) ? 1 : 0))
         {
             bool range = l.First != l.Last;
@@ -127,39 +128,94 @@ public static partial class TagEdit
             args.Add(l.Profile);
             if (cond != null) args.Add(cond);
             args.AddRange(actions);
-            SiteEdit.InsertAt(sp, zone, InsertIndex(site, zone, l.First, null), [new NewStatement(name, args)]);
+            if (Probe(Form.Statement("", name, args, null, null)) is not { } rule) return EditResult.Fail($"문장으로 읽히지 않음 · {name}");
+            placer.Place(rule, new NewStatement(name, args));
         }
+        foreach (var (at, item) in placer.Placed) SiteEdit.InsertAt(sp, zone, at, [(NewStatement)item]);
         return sp.Commit();
     }
 
-    /// <summary>
-    /// 새 규칙(첫 태그 tag)을 넣을 Body 자리. 같은 태그 묶음(첫 태그가 같은 규칙)이 있으면 그 묶음의 첫 ANY_PROFILE 줄 앞
-    /// (없으면 묶음 끝 줄 뒤). 없으면 더 작은 태그 가운데 가장 가까운 묶음의 끝 줄 뒤, 그것도 없으면 첫 규칙 앞.
-    /// skip = 셈에서 뺄 규칙(옮기는 줄).
-    /// </summary>
-    internal static int InsertIndex(Site site, ZoneBlock zone, long tag, ISet<Piece>? skip)
+    /// <summary>줄 글자 하나를 태그 규칙으로 읽어 본다(자리 계산용. 사이트에 넣지 않는다). 규칙 한 줄이 아니면 null.</summary>
+    static TagRule? Probe(string line)
     {
-        var rules = zone.Statements.Where(s => skip == null || !skip.Contains(s))
-            .Select(s => (St: s, Rule: new TagRule(s), First: site.Num(new TagRule(s).FirstArg))).ToList();
-        var group = rules.Where(r => r.First == tag).ToList();
-        if (group.Count > 0)
+        var text = "TAG_TABLE_BEGIN( probe )\n" + line + (line.EndsWith('\n') ? "" : "\n") + "TAG_TABLE_END\n";
+        var f = SourceFile.Parse("tag_table.c", System.Text.Encoding.UTF8.GetBytes(text));
+        var st = f.Statements.Where(s => s.Zone != null).ToList();
+        return f.ReadOnly || f.RawInZones.Any() || st.Count != 1 ? null : new TagRule(st[0]);
+    }
+
+    /// <summary>
+    /// 새 규칙을 넣을 Body 자리를 정한다. 한 명령이 넣는 줄을 차례로 받아, 있는 줄과 앞서 넣은 줄을 함께 본다.
+    /// 바라는 자리: 같은 태그 묶음(첫 태그가 같은 규칙)이 있으면 그 묶음의 첫 ANY_PROFILE 줄 앞(없으면 묶음 끝 줄 뒤),
+    /// 없으면 더 작은 태그 가운데 가장 가까운 묶음의 끝 줄 뒤, 그것도 없으면 첫 규칙 앞.
+    /// 그 자리가 죽은 줄(T-10·T-11)을 만들면 옮긴다: 새 줄을 가리는 규칙(범위 규칙, ANY_PROFILE, 조건 없는 줄)이 있으면 그 앞,
+    /// 새 줄이 가리는 규칙이 있으면 그 뒤. 둘을 다 지킬 수 없으면 새 줄이 죽지 않는 쪽으로 넣는다(가려진 줄은 검사가 알린다).
+    /// </summary>
+    internal sealed class Placer
+    {
+        /// <summary>표 차례의 줄 하나. At = 있는 줄이면 Body 자리, 넣는 줄이면 그 줄이 들어갈 Body 자리(그 조각 앞).</summary>
+        sealed record Row(TagRule Rule, long? First, int At, object? Item);
+
+        readonly Site site;
+        readonly ZoneBlock zone;
+        readonly Check.Facts facts;
+        readonly List<Row> order;
+
+        /// <param name="skip">셈에서 뺄 규칙(옮기는 줄).</param>
+        public Placer(Site site, ZoneBlock zone, ISet<Piece>? skip)
         {
-            var anyRow = group.FirstOrDefault(r => r.Rule.AnyProfile);
-            return anyRow.St != null ? SiteEdit.BodyIndex(zone, anyRow.St) : SiteEdit.BodyIndex(zone, group[^1].St) + 1;
+            this.site = site;
+            this.zone = zone;
+            facts = new Check.Facts(site);
+            order = zone.Statements.Where(s => skip == null || !skip.Contains(s))
+                .Select(s => new Row(new TagRule(s), site.Num(s.Args[0]), SiteEdit.BodyIndex(zone, s), null)).ToList();
         }
-        var smaller = rules.Where(r => r.First < tag).ToList();
-        if (smaller.Count > 0)
+
+        /// <summary>넣은 줄들(표 차례)과 그 Body 자리. 이 차례로 넣으면 같은 자리의 줄끼리도 차례가 맞는다.</summary>
+        public IEnumerable<(int At, object Item)> Placed => order.Where(r => r.Item != null).Select(r => (r.At, r.Item!));
+
+        public void Place(TagRule rule, object item)
         {
-            var m = smaller.Max(r => r.First);
-            return SiteEdit.BodyIndex(zone, smaller.Last(r => r.First == m).St) + 1;
+            long? tag = site.Num(rule.FirstArg);
+            var group = Enumerable.Range(0, order.Count).Where(i => order[i].First == tag).ToList();
+            int pos;
+            bool before; // true = order[pos] 바로 앞에 붙는다, false = order[pos - 1] 바로 뒤에 붙는다
+            if (group.Count > 0)
+            {
+                int any = group.FindIndex(i => order[i].Rule.AnyProfile);
+                (pos, before) = any >= 0 ? (group[any], true) : (group[^1] + 1, false);
+            }
+            else
+            {
+                var smaller = Enumerable.Range(0, order.Count).Where(i => order[i].First < tag).ToList();
+                if (smaller.Count > 0)
+                {
+                    var m = smaller.Max(i => order[i].First);
+                    (pos, before) = (smaller.Last(i => order[i].First == m) + 1, false);
+                }
+                else (pos, before) = (0, true);
+            }
+
+            int lower = 0, upper = order.Count;
+            for (int i = 0; i < order.Count; i++)
+            {
+                if (upper == order.Count && Check.Checker.Hides(facts, order[i].Rule, rule)) upper = i;
+                if (Check.Checker.Hides(facts, rule, order[i].Rule)) lower = i + 1;
+            }
+            if (pos < lower) (pos, before) = (lower, false);
+            if (pos > upper) (pos, before) = (upper, true);
+
+            int at = before
+                ? (pos < order.Count ? order[pos].At : zone.Body.Count)
+                : order[pos - 1].At + (order[pos - 1].Item == null ? 1 : 0);
+            order.Insert(pos, new Row(rule, tag, at, item));
         }
-        return rules.Count > 0 ? SiteEdit.BodyIndex(zone, rules[0].St) : zone.Body.Count;
     }
 
     // ---- 번호 바꾸기 ----
 
     /// <summary>
-    /// 고른 규칙들의 첫 태그를 tag 로(범위 규칙은 끝도 같은 만큼 민다). 바뀐 줄은 새 번호의 자리(<see cref="InsertIndex"/>)로 옮긴다.
+    /// 고른 규칙들의 첫 태그를 tag 로(범위 규칙은 끝도 같은 만큼 민다). 바뀐 줄은 새 번호의 자리(<see cref="Placer"/>)로 옮긴다.
     /// </summary>
     public static EditResult Renumber(Site site, IReadOnlyList<TagRule> rules, long tag)
     {
@@ -184,10 +240,16 @@ public static partial class TagEdit
         var skip = new HashSet<Piece>(moves.Select(m => (Piece)m.Rule.St), ReferenceEqualityComparer.Instance);
         var sp = new Splice(site);
         foreach (var m in moves) sp.Delete(m.Rule.St);
+        var placer = new Placer(site, zone, skip);
         foreach (var m in moves.OrderBy(m => m.Rule.AnyProfile ? 1 : 0))
         {
-            var (anchor, before) = SiteEdit.Anchor(zone, InsertIndex(site, zone, tag, skip));
-            sp.Insert(anchor, before, m.Text);
+            if (Probe(m.Text) is not { } rule) return EditResult.Fail($"문장으로 읽히지 않음 · {m.Rule.FirstArg.Text}");
+            placer.Place(rule, m.Text);
+        }
+        foreach (var (at, item) in placer.Placed)
+        {
+            var (anchor, before) = SiteEdit.Anchor(zone, at);
+            sp.Insert(anchor, before, (string)item);
         }
         return sp.Commit();
     }

@@ -49,10 +49,14 @@ public sealed class EditHistory
         return Current;
     }
 
-    /// <summary>저장했다. 지금 자리를 저장 뒤 다시 읽은 사이트로 바꾸고 저장 지점으로 둔다.</summary>
+    /// <summary>
+    /// 저장했다. 지금 자리를 저장 뒤 다시 읽은 사이트로 바꾸고 저장 지점으로 둔다.
+    /// 앞뒤 단계도 그 디스크 기록을 같이 본다: 되돌린 뒤 저장하면 되돌린 표가 디스크에 쓰인다.
+    /// </summary>
     public void MarkSaved(Site reread)
     {
         sites[index] = reread;
         saved = index;
+        foreach (var s in sites) s.ShareDisk(reread);
     }
 }

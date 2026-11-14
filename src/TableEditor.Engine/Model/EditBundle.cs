@@ -19,10 +19,11 @@ public static partial class BundleEdit
         if (NewName(site, name, "PF_") is { } why) return EditResult.Fail(why);
         var zone = site.ZonesOf("PROFILE_TABLE_BEGIN").FirstOrDefault();
         if (zone == null) return EditResult.Fail("프로파일 표 없음");
-        var lastPf = site.File("site.h")?.Statements.LastOrDefault(s => s.Shape == StatementShape.Enumerator && s.Name.StartsWith("PF_", StringComparison.Ordinal));
-        if (lastPf == null) return EditResult.Fail("site.h 프로파일 enum 없음");
+        static bool IsPf(Statement s) => s.Name.StartsWith("PF_", StringComparison.Ordinal);
+        var group = site.File("site.h") is { } siteH ? Site.EnumGroups(siteH).LastOrDefault(g => g.Any(IsPf)) : null;
+        if (group == null) return EditResult.Fail("site.h 프로파일 enum 없음");
         var sp = new Splice(site);
-        AppendEnumerator(sp, lastPf, name);
+        AddEnumerator(sp, group, group.Last(IsPf), name);
         SiteEdit.InsertInto(sp, zone, zone.Statements.Count, [new NewStatement("PROFILE", [name, type.ToString(), first.ToString(), last.ToString()])]);
         return sp.Commit();
     }
@@ -103,18 +104,10 @@ public static partial class BundleEdit
         if (NewName(site, name, "SEQ_") is { } why) return EditResult.Fail(why);
         var f = site.File("seq_custom.h");
         if (f == null) return EditResult.Fail("seq_custom.h 없음");
-        Statement? last = null;
-        bool hasSeq = false;
-        foreach (var p in f.Pieces)
-        {
-            if (p.Zone == null) { if (hasSeq) break; last = null; continue; }
-            if (p is not Statement { Shape: StatementShape.Enumerator } st) continue;
-            last = st;
-            hasSeq |= st.Name.StartsWith("SEQ_", StringComparison.Ordinal) && !st.Name.EndsWith("_COUNT", StringComparison.Ordinal);
-        }
-        if (!hasSeq || last == null) return EditResult.Fail("seq_custom.h SEQ_ enum 없음");
+        var group = Site.EnumGroups(f).FirstOrDefault(g => g.Any(st => st.Name.StartsWith("SEQ_", StringComparison.Ordinal) && !Site.IsCountName(st.Name)));
+        if (group == null) return EditResult.Fail("seq_custom.h SEQ_ enum 없음");
         var sp = new Splice(site);
-        AppendEnumerator(sp, last, name);
+        AddEnumerator(sp, group, group[^1], name);
         return sp.Commit();
     }
 
@@ -146,6 +139,15 @@ public static partial class BundleEdit
     }
 
     // ---- 같이 쓰는 것 ----
+
+    /// <summary>
+    /// enum 에 열거자 하나: 개수 표지(<see cref="Site.CountMark"/>)가 있으면 그 앞 줄에(표지 값이 하나 는다), 없으면 last 뒤에.
+    /// </summary>
+    static void AddEnumerator(Splice sp, IReadOnlyList<Statement> group, Statement last, string name)
+    {
+        if (Site.CountMark(group) is { } mark) sp.Insert(mark, true, mark.Indent + name + "," + sp.Eol(mark));
+        else AppendEnumerator(sp, last, name);
+    }
 
     /// <summary>enum 끝에 열거자 하나. 끝 열거자에 쉼표가 없으면 붙인다(새 줄은 끝 열거자의 쉼표 꼴을 따른다).</summary>
     static void AppendEnumerator(Splice sp, Statement last, string name)
@@ -180,7 +182,7 @@ public static partial class BundleEdit
     static string StripComments(string s) => CommentRx().Replace(s, m => new string('\n', m.Value.Count(c => c == '\n')));
 
     /// <summary>
-    /// N-6: 이름이 원문 블록(읽은 파일 안) 또는 읽지 않는 파일(사이트 폴더의 그 밖 <c>.c</c>·<c>.h</c>, 생성물 <c>*_packed.c</c> 제외)에서 쓰이는 곳. 없으면 null.
+    /// N-6: 이름이 원문 블록(읽은 파일 안) 또는 읽지 않는 파일(사이트 폴더와 그 하위 폴더의 그 밖 <c>.c</c>·<c>.h</c>, 생성물 <c>*_packed.c</c> 제외)에서 쓰이는 곳. 없으면 null.
     /// </summary>
     internal static string? RawUse(Site site, params string[] names)
     {
@@ -193,14 +195,17 @@ public static partial class BundleEdit
                 if (m.Success) return $"{f.Name}:{p.StartLine + t.AsSpan(0, m.Index).Count('\n')}";
             }
         if (site.Folder.Length > 0 && Directory.Exists(site.Folder))
-            foreach (var path in Directory.GetFiles(site.Folder))
+            foreach (var path in Directory.GetFiles(site.Folder, "*", SearchOption.AllDirectories))
             {
+                var rel = Path.GetRelativePath(site.Folder, path).Replace('\\', '/');
                 var n = Path.GetFileName(path);
                 var ext = Path.GetExtension(n).ToLowerInvariant();
-                if (ext is not (".c" or ".h") || FileZones.IsReadTarget(n) || n.EndsWith("_packed.c", StringComparison.OrdinalIgnoreCase)) continue;
+                // 읽기 대상은 사이트 폴더 바로 밑의 것만이다. 하위 폴더의 같은 이름은 읽지 않는 파일이다
+                bool read = !rel.Contains('/') && FileZones.IsReadTarget(n);
+                if (ext is not (".c" or ".h") || read || n.EndsWith("_packed.c", StringComparison.OrdinalIgnoreCase)) continue;
                 var t = StripComments(File.ReadAllText(path));
                 var m = rx.Match(t);
-                if (m.Success) return $"{n}:{1 + t.AsSpan(0, m.Index).Count('\n')}";
+                if (m.Success) return $"{rel}:{1 + t.AsSpan(0, m.Index).Count('\n')}";
             }
         return null;
     }

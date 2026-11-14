@@ -46,6 +46,12 @@ internal sealed partial class Reader
     [GeneratedRegex(@"^[ \t]*\}[ \t]*([A-Za-z_]\w*)?[ \t]*;[ \t]*(/\*.*?\*/[ \t]*)?(//.*)?$")]
     private static partial Regex EnumCloseRx();
 
+    [GeneratedRegex(@"^[ \t]*#[ \t]*if[ \t]+0[ \t]*(/\*.*?\*/[ \t]*)?(//.*)?$")]
+    private static partial Regex IfZeroRx();
+
+    [GeneratedRegex(@"^[ \t]*#[ \t]*(if|ifdef|ifndef|endif)(?![A-Za-z0-9_])")]
+    private static partial Regex IfWordRx();
+
     void ReadAll()
     {
         while (pos < s.Length)
@@ -77,7 +83,9 @@ internal sealed partial class Reader
 
             if (s[ind] == '#')
             {
-                Directive(ind, prevIfndef);
+                // 구역 안 #if 0 … #endif: 컴파일되지 않는 줄이다. 문장으로 읽지 않고 통째 원문으로 둔다
+                if (zone != null && IfZeroRx().IsMatch(content)) Emit(PieceKind.Raw, DeadEnd(pos), zone.Open);
+                else Directive(ind, prevIfndef);
                 continue;
             }
 
@@ -139,6 +147,38 @@ internal sealed partial class Reader
 
     void EmitRaw() => Emit(PieceKind.Raw, RawEnd(pos), zone?.Open);
 
+    /// <summary><c>#if 0</c> 줄(p)부터 짝 맞는 <c>#endif</c> 줄 끝까지. 짝이 없으면 파일 끝(구역이 안 닫혀 R-2 가 된다).</summary>
+    int DeadEnd(int p)
+    {
+        int depth = 0;
+        while (p < s.Length)
+        {
+            int eol = s.IndexOf('\n', p);
+            int next = eol < 0 ? s.Length : eol + 1;
+            var m = IfWordRx().Match(s[p..next]);
+            if (m.Success)
+            {
+                if (m.Groups[1].Value != "endif") depth++;
+                else if (--depth == 0) return next;
+            }
+            p = next;
+        }
+        return s.Length;
+    }
+
+    /// <summary>
+    /// 줄 주석(<c>//</c>)이 줄 잇기로 끝나는가: 줄 끝(eol = <c>\n</c> 자리) 바로 앞이 <c>\</c>. C 는 다음 줄까지 주석으로 본다.
+    /// <c>\</c> 뒤에 공백이 있어도 잇는 컴파일러가 있어 그것도 잇는 것으로 본다(모르면 원문).
+    /// </summary>
+    bool Continues(int eol)
+    {
+        if (eol >= s.Length) return false;
+        int q = eol - 1;
+        if (q >= 0 && s[q] == '\r') q--;
+        while (q >= 0 && s[q] is ' ' or '\t') q--;
+        return q >= 0 && s[q] == '\\';
+    }
+
     /// <summary>
     /// 원문 줄의 끝. 열린 괄호·블록 주석·줄 잇기(<c>\</c>)가 줄 끝에 남아 있으면 닫힐 때까지 다음 줄로 늘린다.
     /// </summary>
@@ -164,6 +204,12 @@ internal sealed partial class Reader
             if (c == '/' && At(p + 1, '/'))
             {
                 while (p < s.Length && s[p] != '\n') p++;
+                // 줄 잇기로 끝난 줄 주석: 다음 줄도 그 주석이다
+                while (Continues(p))
+                {
+                    p++;
+                    while (p < s.Length && s[p] != '\n') p++;
+                }
                 continue;
             }
             if (c is '"' or '\'')
@@ -205,6 +251,7 @@ internal sealed partial class Reader
             if (s[p] == '/' && At(p + 1, '/'))
             {
                 while (p < s.Length && s[p] != '\n') p++;
+                if (Continues(p)) return -1; // 다음 줄을 삼키는 주석: 원문으로
                 return p < s.Length ? p + 1 : p;
             }
             return -1;
@@ -375,6 +422,7 @@ internal sealed partial class Reader
             if (s[p] == '/' && At(p + 1, '/'))
             {
                 while (p < s.Length && s[p] != '\n') p++;
+                if (Continues(p)) return -1; // 꼬리 주석이 다음 줄을 삼킨다: 문장이 아니라 원문
                 return p > 0 && p < s.Length && s[p - 1] == '\r' ? p - 1 : p;
             }
             return -1;

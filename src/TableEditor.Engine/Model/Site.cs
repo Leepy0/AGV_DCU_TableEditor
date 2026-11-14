@@ -28,10 +28,29 @@ public sealed partial class Site
     public IReadOnlyList<ManChain> ManualChains { get; }
 
     /// <summary>
-    /// 읽을 때의 디스크 상태(파일 이름 → 크기·시각·해시). 저장 전에 바깥에서 바뀌었는지 본다(사양 5.7절).
+    /// 읽을 때(또는 마지막으로 저장한 때)의 디스크 상태(파일 이름 → 크기·시각·해시). 저장 전에 바깥에서 바뀌었는지 본다(사양 5.7절).
+    /// 편집 명령이 만든 사이트들은 한 기록을 같이 본다. 그래서 저장한 뒤 되돌린 사이트도 지금 디스크를 기준으로 견준다.
     /// <see cref="FromFiles"/> 로 연 사이트는 비었다.
     /// </summary>
-    public IReadOnlyDictionary<string, FileStamp> Stamps { get; }
+    public IReadOnlyDictionary<string, FileStamp> Stamps => disk.Stamps;
+
+    /// <summary>디스크 기록 한 벌. 되돌리기 단계(조각 목록)와 따로 간다.</summary>
+    internal sealed class DiskRecord(IReadOnlyDictionary<string, FileStamp> stamps)
+    {
+        public IReadOnlyDictionary<string, FileStamp> Stamps = stamps;
+    }
+
+    DiskRecord disk;
+
+    /// <summary>저장했다: other(저장 뒤 다시 읽은 사이트)의 디스크 기록을 이 사이트와 같은 기록을 보는 사이트 모두가 쓴다.</summary>
+    internal void AdoptDisk(Site other)
+    {
+        disk.Stamps = other.disk.Stamps;
+        other.disk = disk;
+    }
+
+    /// <summary>other 의 디스크 기록을 같이 본다(되돌리기 단계들을 저장 뒤의 기록에 맞춘다).</summary>
+    internal void ShareDisk(Site other) => disk = other.disk;
 
     public static Site Open(string siteFolder, string? coreFolder = null)
     {
@@ -45,22 +64,26 @@ public sealed partial class Site
             var b = f.ToBytes();
             stamps[f.Name] = new FileStamp(b.Length, times.GetValueOrDefault(f.Name), FileStamp.Hash(b));
         }
-        return new(siteFolder, coreFolder, files, stamps);
+        return new(siteFolder, coreFolder, files, new DiskRecord(stamps));
     }
 
     /// <summary>이미 읽은 파일로 연다(시험, 편집 뒤 다시 보기).</summary>
     public static Site FromFiles(IEnumerable<SourceFile> files, string folder = "", string? coreFolder = null) =>
-        new(folder, coreFolder, files.ToList(), new Dictionary<string, FileStamp>());
+        new(folder, coreFolder, files.ToList(), new DiskRecord(new Dictionary<string, FileStamp>()));
 
     /// <summary>같은 폴더·읽은 기록으로 파일만 바꾼 새 사이트(편집 명령의 결과).</summary>
-    internal Site With(IReadOnlyList<SourceFile> files) => new(Folder, CoreFolder, files, Stamps);
+    internal Site With(IReadOnlyList<SourceFile> files) => new(Folder, CoreFolder, files, disk);
 
-    Site(string folder, string? coreFolder, IReadOnlyList<SourceFile> files, IReadOnlyDictionary<string, FileStamp> stamps)
+    /// <summary>파일과 디스크 기록을 바꾼 새 사이트(초안 복원: 낡은 파일은 초안을 쓴 때의 해시를 기록으로 둔다).</summary>
+    internal Site With(IReadOnlyList<SourceFile> files, IReadOnlyDictionary<string, FileStamp> stamps) =>
+        new(Folder, CoreFolder, files, new DiskRecord(stamps));
+
+    Site(string folder, string? coreFolder, IReadOnlyList<SourceFile> files, DiskRecord disk)
     {
         Folder = folder;
         CoreFolder = coreFolder;
         Files = files;
-        Stamps = stamps;
+        this.disk = disk;
         if (coreFolder != null)
         {
             var v = Path.Combine(coreFolder, "VERSION");
@@ -173,13 +196,13 @@ public sealed partial class Site
 
         Enumerators("site.h", n => n.StartsWith("PF_", StringComparison.Ordinal) ? NameKind.Profile : NameKind.Constant);
         Enumerators("seq_custom.h", n =>
-            n.EndsWith("_COUNT", StringComparison.Ordinal) ? NameKind.Constant
+            IsCountName(n) ? NameKind.Constant
             : n.StartsWith("SEQ_", StringComparison.Ordinal) ? NameKind.SeqId
             : n.StartsWith("CALL_", StringComparison.Ordinal) ? NameKind.CallNo
             : n.StartsWith("ST_", StringComparison.Ordinal) ? NameKind.State
             : NameKind.Constant);
-        Enumerators("act_ids.h", n => n.StartsWith("ACT_", StringComparison.Ordinal) && !n.EndsWith("_COUNT", StringComparison.Ordinal) ? NameKind.ActId : NameKind.Constant);
-        Enumerators("tag_custom.h", n => n.StartsWith("TAGC_", StringComparison.Ordinal) && !n.EndsWith("_COUNT", StringComparison.Ordinal) ? NameKind.CallNo : NameKind.Constant);
+        Enumerators("act_ids.h", n => n.StartsWith("ACT_", StringComparison.Ordinal) && !IsCountName(n) ? NameKind.ActId : NameKind.Constant);
+        Enumerators("tag_custom.h", n => n.StartsWith("TAGC_", StringComparison.Ordinal) && !IsCountName(n) ? NameKind.CallNo : NameKind.Constant);
 
         var belts = new Dictionary<string, (Statement? Cw, Statement? Ccw, List<long> CwPins, List<long> CcwPins)>(StringComparer.Ordinal);
         foreach (var fname in new[] { "io_map.h", "custom_io.h", "act_ids.h", "tag_table.c" })
@@ -226,18 +249,46 @@ public sealed partial class Site
         return long.TryParse(hex ? s[2..] : s, hex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.AllowLeadingSign, null, out var v) ? v : null;
     }
 
-    /// <summary>enum 열거자: 값 = 적은 식, 없으면 앞 값 + 1(enum 마다 0 부터).</summary>
+    /// <summary>개수 표지 이름 꼴: <c>…_COUNT</c>, <c>…_COUNT_</c>.</summary>
+    internal static bool IsCountName(string name) =>
+        name.EndsWith("_COUNT", StringComparison.Ordinal) || name.EndsWith("_COUNT_", StringComparison.Ordinal);
+
+    /// <summary>파일의 enum 마다 그 안 열거자들(파일 차례).</summary>
+    internal static List<List<Statement>> EnumGroups(SourceFile f)
+    {
+        var groups = new List<List<Statement>>();
+        List<Statement>? cur = null;
+        foreach (var p in f.Pieces)
+        {
+            if (p.Zone == null) { cur = null; continue; }
+            if (p is not Statement { Shape: StatementShape.Enumerator } st) continue;
+            if (cur == null) groups.Add(cur = []);
+            cur.Add(st);
+        }
+        return groups;
+    }
+
+    /// <summary>
+    /// 그 enum 의 개수 표지 = 값 없는 끝 열거자 <c>…_COUNT</c>·<c>…_COUNT_</c>(없으면 null).
+    /// 새 열거자는 그 앞에 넣고, 프로파일·ID 목록에는 넣지 않는다.
+    /// </summary>
+    internal static Statement? CountMark(IReadOnlyList<Statement> group) =>
+        group.Count > 0 && group[^1] is { Args.Count: 0 } last && IsCountName(last.Name) ? last : null;
+
+    /// <summary>enum 열거자: 값 = 적은 식, 없으면 앞 값 + 1(enum 마다 0 부터). 개수 표지는 상수다.</summary>
     void Enumerators(string fileName, Func<string, NameKind> kind)
     {
         if (File(fileName) is not { } f) return;
-        long? next = 0;
-        foreach (var p in f.Pieces)
+        foreach (var group in EnumGroups(f))
         {
-            if (p.Zone == null) { next = 0; continue; }
-            if (p is not Statement { Shape: StatementShape.Enumerator } st) continue;
-            long? v = st.Args.Count > 0 ? Names.Value(st.Args[0].Node, f) : next;
-            Names.Add(new(st.Name, kind(st.Name), v, f, st));
-            next = v + 1;
+            var mark = CountMark(group);
+            long? next = 0;
+            foreach (var st in group)
+            {
+                long? v = st.Args.Count > 0 ? Names.Value(st.Args[0].Node, f) : next;
+                Names.Add(new(st.Name, ReferenceEquals(st, mark) ? NameKind.Constant : kind(st.Name), v, f, st));
+                next = v + 1;
+            }
         }
     }
 

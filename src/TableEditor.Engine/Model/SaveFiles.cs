@@ -17,8 +17,10 @@ public sealed record SaveResult(SaveStatus Status, Site Site, IReadOnlyList<stri
 }
 
 /// <summary>
-/// 저장(설계서 4.7절 차례 1~4, 사양 5.4·5.7절, R-3): 검사 오류 0 → 바깥에서 바뀐 파일 확인 → 바뀐 파일만 임시 파일에 쓰고 한꺼번에 바꿔치기
-/// → 다시 읽어 모델 견줌 → 실패하면 쓴 파일을 모두 저장 전 바이트·시각으로 되돌린다. 안 바뀐 파일은 쓰지 않는다(시각도 그대로).
+/// 저장(설계서 4.7절 차례 1~4, 사양 5.4·5.7절, R-3): 검사 오류 0 → 바깥에서 바뀐 파일 확인(읽은 파일 모두) → 바뀐 파일만 임시 파일에 쓰고 한꺼번에 바꿔치기
+/// → 다시 읽어 견줌 → 실패하면 쓴 파일을 모두 저장 전 바이트·시각으로 되돌린다. 안 바뀐 파일은 쓰지 않는다(시각도 그대로).
+/// R-3 = 쓴 바이트를 다시 읽어 바이트로 견줌 + 다시 읽은 표의 검사 오류가 저장 전과 같음(0). 편집이 "글자 바꾸고 다시 읽기"라 조각 견줌만으로는 늘 참이다.
+/// 임시 파일은 사이트 폴더 밖 같은 볼륨에 둔다(프로세스가 죽어도 사이트 폴더에 찌꺼기가 남아 커밋되지 않는다).
 /// </summary>
 public static class SaveFiles
 {
@@ -33,6 +35,24 @@ public static class SaveFiles
     public static IReadOnlyList<string> Changed(Site site) =>
         site.Files.Where(f => !f.ReadOnly && (!site.Stamps.TryGetValue(f.Name, out var s) || s.Sha256 != FileStamp.Hash(f.ToBytes())))
             .Select(f => f.Name).ToList();
+
+    /// <summary>앱 루트(사이트 폴더가 <c>&lt;앱 루트&gt;/site/&lt;사이트&gt;</c> 일 때). 아니면 null.</summary>
+    internal static string? AppRoot(string siteFolder)
+    {
+        var parent = Path.GetDirectoryName(Path.GetFullPath(siteFolder).TrimEnd('\\', '/'));
+        return parent != null && string.Equals(Path.GetFileName(parent), "site", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(parent) : null;
+    }
+
+    /// <summary>
+    /// 임시 파일 자리: <c>&lt;앱 루트&gt;/build/table_editor/tmp</c>(깃 제외), 저장소 없이 사이트만 열었으면 사이트의 부모 폴더.
+    /// 사이트 폴더와 같은 볼륨이어야 바꿔치기가 한 번에 된다.
+    /// </summary>
+    internal static string TempPath(string siteFolder, string name)
+    {
+        var full = Path.GetFullPath(siteFolder).TrimEnd('\\', '/');
+        var dir = AppRoot(full) is { } app ? Path.Combine(app, "build", "table_editor", "tmp") : Path.GetDirectoryName(full) ?? full;
+        return Path.Combine(dir, Path.GetFileName(full) + "." + name + TempSuffix);
+    }
 
     /// <summary>읽은 뒤 디스크에서 바뀐 파일(크기·시각이 같으면 그대로로 본다. 다르면 해시로 가른다). 없어진 파일·읽은 기록 없는 파일도 든다.</summary>
     public static IReadOnlyList<string> Conflicts(Site site, IEnumerable<string>? names = null)
@@ -69,19 +89,25 @@ public static class SaveFiles
             try { if (edited.Folder.Length > 0) Drafts.Clear(edited); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* 낡은 초안: 다음 저장이 지운다 */ }
             return R(SaveStatus.NoChange, edited, [], [], [], null);
         }
-        if (!overwrite && Conflicts(edited, changed) is { Count: > 0 } c) return R(SaveStatus.Conflict, edited, [], c, [], "바깥에서 바뀜");
+        // 사양 5.7절: 내가 안 고친 파일이 바깥에서 바뀌어도 알린다(검사는 읽은 때의 내용으로 돌았다)
+        if (!overwrite && Conflicts(edited) is { Count: > 0 } c) return R(SaveStatus.Conflict, edited, [], c, [], "바깥에서 바뀜");
 
-        var plan = changed.Select(n => (Name: n, Path: Path.Combine(edited.Folder, n), Bytes: edited.File(n)!.ToBytes())).ToList();
+        var plan = changed.Select(n => (Name: n, Path: Path.Combine(edited.Folder, n), Temp: TempPath(edited.Folder, n), Bytes: edited.File(n)!.ToBytes())).ToList();
         var backup = new List<(string Path, byte[]? Bytes, DateTime Time)>();
         var swapped = new List<int>();
+        Site saved;
         try
         {
             foreach (var p in plan)
                 backup.Add(File.Exists(p.Path) ? (p.Path, File.ReadAllBytes(p.Path), File.GetLastWriteTimeUtc(p.Path)) : (p.Path, null, default));
-            foreach (var p in plan) File.WriteAllBytes(p.Path + TempSuffix, p.Bytes);
+            foreach (var p in plan)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(p.Temp)!);
+                File.WriteAllBytes(p.Temp, p.Bytes);
+            }
             for (int i = 0; i < plan.Count; i++)
             {
-                File.Move(plan[i].Path + TempSuffix, plan[i].Path, overwrite: true);
+                File.Move(plan[i].Temp, plan[i].Path, overwrite: true);
                 swapped.Add(i);
                 AfterSwap?.Invoke(plan[i].Path);
             }
@@ -91,6 +117,10 @@ public static class SaveFiles
                 if (!back.AsSpan().SequenceEqual(p.Bytes)) throw new R3Exception($"R-3 다시 읽은 바이트 다름 · {p.Name}");
                 if (!SameModel(SourceFile.Parse(p.Name, back), edited.File(p.Name)!)) throw new R3Exception($"R-3 다시 읽은 모델 다름 · {p.Name}");
             }
+            // R-3 둘째 뜻: 디스크의 표(바깥에서 바뀐 다른 파일 포함)가 저장 전처럼 검사 오류 0 이어야 한다
+            saved = Site.Open(edited.Folder, edited.CoreFolder);
+            var after = Checker.Run(saved).Where(f => f.Severity == Severity.Error).ToList();
+            if (after.Count > 0) throw new R3Exception($"R-3 다시 읽은 표의 검사 오류 {after.Count} · {after[0]}");
         }
         catch (Exception e)
         {
@@ -110,11 +140,12 @@ public static class SaveFiles
                 catch (Exception re) { why += $" · 복구 실패 {Path.GetFileName(path)} {re.Message}"; }
             }
             foreach (var p in plan)
-                try { File.Delete(p.Path + TempSuffix); } catch (Exception) { /* 남은 임시 파일: 다음 저장이 덮는다 */ }
+                try { File.Delete(p.Temp); } catch (Exception) { /* 남은 임시 파일: 다음 저장이 덮는다 */ }
             return R(SaveStatus.Failed, edited, [], [], [], why);
         }
 
-        var saved = Site.Open(edited.Folder, edited.CoreFolder);
+        // 되돌리기 단계들(edited 와 같은 기록을 보는 사이트)도 이제 이 디스크 상태를 기준으로 견준다
+        edited.AdoptDisk(saved);
         try { Drafts.Clear(saved); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* 초안 지우기 실패는 저장을 막지 않는다 */ }
         return R(SaveStatus.Saved, saved, changed, [], [], null);
     }
@@ -169,9 +200,7 @@ public static class Drafts
     {
         var full = Path.GetFullPath(site.Folder).TrimEnd('\\', '/');
         var name = Path.GetFileName(full);
-        var parent = Path.GetDirectoryName(full);
-        if (parent != null && string.Equals(Path.GetFileName(parent), "site", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(parent) is { } app)
-            return Path.Combine(app, "build", "table_editor", "draft", name);
+        if (SaveFiles.AppRoot(full) is { } app) return Path.Combine(app, "build", "table_editor", "draft", name);
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AGV_DCU_TableEditor", "draft", name);
     }
 
@@ -188,7 +217,10 @@ public static class Drafts
         return changed;
     }
 
-    /// <summary>초안이 있으면 읽은 사이트에 얹어 돌려준다. 없으면 null.</summary>
+    /// <summary>
+    /// 초안이 있으면 읽은 사이트에 얹어 돌려준다. 없으면 null.
+    /// 낡은 파일(초안을 쓴 뒤 디스크가 바뀜)은 디스크 기록을 초안을 쓴 때의 해시로 둔다: 그대로 저장하면 <see cref="SaveStatus.Conflict"/> 가 난다.
+    /// </summary>
     public static DraftInfo? Read(Site loaded)
     {
         var dir = Folder(loaded);
@@ -197,6 +229,7 @@ public static class Drafts
         var files = loaded.Files.ToList();
         var got = new List<string>();
         var stale = new List<string>();
+        var stamps = new Dictionary<string, FileStamp>(loaded.Stamps, StringComparer.OrdinalIgnoreCase);
         foreach (var line in File.ReadAllLines(basePath))
         {
             var parts = line.Split('\t');
@@ -206,9 +239,14 @@ public static class Drafts
             if (i < 0 || !File.Exists(path)) continue;
             files[i] = SourceFile.Parse(files[i].Name, File.ReadAllBytes(path));
             got.Add(files[i].Name);
-            if (parts.Length < 2 || !loaded.Stamps.TryGetValue(files[i].Name, out var s) || s.Sha256 != parts[1]) stale.Add(files[i].Name);
+            if (parts.Length < 2 || !loaded.Stamps.TryGetValue(files[i].Name, out var s) || s.Sha256 != parts[1])
+            {
+                stale.Add(files[i].Name);
+                stamps[files[i].Name] = new FileStamp(-1, default, parts.Length < 2 ? "" : parts[1]);
+            }
         }
-        return got.Count == 0 ? null : new DraftInfo(loaded.With(files), got, stale);
+        if (got.Count == 0) return null;
+        return new DraftInfo(stale.Count == 0 ? loaded.With(files) : loaded.With(files, stamps), got, stale);
     }
 
     public static void Clear(Site site)

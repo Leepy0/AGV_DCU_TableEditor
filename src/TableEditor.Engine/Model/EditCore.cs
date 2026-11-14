@@ -125,6 +125,8 @@ internal sealed class Splice(Site site)
         foreach (var (f, slots) in files)
         {
             if (f.ReadOnly) return EditResult.Fail($"읽기 전용 · {f.Name} · {f.ReadOnlyReason}");
+            // 사양 2.3절 쓰기 X(tag_custom.h 등): 읽기만 한다
+            if (!FileZones.For(f.Name).Writable) return EditResult.Fail($"쓰기 금지 · {f.Name}");
             var sb = new StringBuilder();
             var marks = new List<(int From, int To)>();
             int line = 1;
@@ -192,6 +194,12 @@ internal static class Form
         }
         return sb.Append(Tail(comment)).ToString();
     }
+
+    /// <summary>
+    /// 꼬리 주석 글로 못 쓰는 것: 줄바꿈, <c>*/</c>, 끝의 <c>\</c>(<c>//</c> 주석이 <c>\</c> 로 끝나면 C 는 다음 줄까지 주석으로 본다).
+    /// </summary>
+    public static bool BadComment(string text) =>
+        text.IndexOfAny(['\r', '\n']) >= 0 || text.Contains("*/", StringComparison.Ordinal) || text.TrimEnd().EndsWith('\\');
 
     /// <summary>새 꼬리 주석: 문장 뒤 공백 4 + <c>/* 글 */</c>.</summary>
     public static string Tail(string? comment) => string.IsNullOrEmpty(comment) ? "" : "    /* " + comment + " */";

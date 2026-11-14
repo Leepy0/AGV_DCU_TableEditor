@@ -32,7 +32,7 @@ public static class SiteEdit
     {
         why = null;
         text = text?.Trim();
-        if (!string.IsNullOrEmpty(text) && (text.IndexOfAny(['\r', '\n']) >= 0 || text.Contains("*/", StringComparison.Ordinal)))
+        if (!string.IsNullOrEmpty(text) && Form.BadComment(text))
         {
             why = "주석 글 틀림";
             return st.Text;
@@ -138,7 +138,7 @@ public static class SiteEdit
         {
             if (!Form.Ident.IsMatch(it.Name)) { sp.Fail($"이름 틀림 · {it.Name}"); return; }
             if (it.Args.FirstOrDefault(a => Form.BadText(a) != null) is { } bad) { sp.Fail($"{Form.BadText(bad)} · {it.Name}"); return; }
-            if (it.Comment != null && (it.Comment.IndexOfAny(['\r', '\n']) >= 0 || it.Comment.Contains("*/", StringComparison.Ordinal))) { sp.Fail("주석 글 틀림"); return; }
+            if (it.Comment != null && Form.BadComment(it.Comment)) { sp.Fail("주석 글 틀림"); return; }
             var indent = done.Count > 0 ? done[^1].Indent : above.LastOrDefault()?.Indent ?? "    ";
             var like = done.LastOrDefault(d => d.Name == it.Name).Shape
                 ?? (above.LastOrDefault(s => s.Name == it.Name) is { } t ? Form.Shape.Of(t) : null);

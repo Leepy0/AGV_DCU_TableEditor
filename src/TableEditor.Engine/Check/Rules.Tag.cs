@@ -117,8 +117,16 @@ public static partial class Checker
         Val(f, hider.FirstArg) is long a && Val(f, hider.LastArg) is long b && Val(f, r.FirstArg) is long c && Val(f, r.LastArg) is long d
         && a <= c && d <= b && (hider.AnyProfile || hider.Profile == r.Profile);
 
-    static TagRule? HiddenByT10(Facts f, TagRule r, List<TagRule> before) =>
-        before.FirstOrDefault(e => Covers(f, e, r) && (!e.HasCond || e.CondText == r.CondText));
+    static bool HidesT10(Facts f, TagRule e, TagRule r) => Covers(f, e, r) && (!e.HasCond || e.CondText == r.CondText);
+
+    static bool HidesT11(Facts f, TagRule e, TagRule r) =>
+        Covers(f, e, r) && e.Cond?.Node is CallNode { Name: "IF_ID" or "IF_STATION" }
+        && Atoms(f, e.Cond.Node) is [var x] && Atoms(f, r.Cond?.Node).Any(m => m.Kind == x.Kind && x.Lo <= m.Lo && m.Hi <= x.Hi);
+
+    /// <summary>앞 규칙 e 가 뒤 규칙 r 을 죽은 줄로 만드는가(T-10·T-11 과 같은 판정). 편집의 넣는 자리 계산이 쓴다.</summary>
+    internal static bool Hides(Facts f, TagRule e, TagRule r) => HidesT10(f, e, r) || HidesT11(f, e, r);
+
+    static TagRule? HiddenByT10(Facts f, TagRule r, List<TagRule> before) => before.FirstOrDefault(e => HidesT10(f, e, r));
 
     /// <summary>T-10: 죽은 줄. 앞 규칙이 같은 태그·프로파일(또는 ANY_PROFILE)·조건(없음 또는 글자 같음)으로 온전히 가린다.</summary>
     static IEnumerable<Finding> T10(Facts f)
@@ -134,9 +142,7 @@ public static partial class Checker
         foreach (var (r, z, before) in TagOrder(f))
         {
             if (HiddenByT10(f, r, before) != null) continue;
-            var mine = Atoms(f, r.Cond?.Node);
-            var h = before.FirstOrDefault(e => Covers(f, e, r) && e.Cond?.Node is CallNode { Name: "IF_ID" or "IF_STATION" }
-                && Atoms(f, e.Cond.Node) is [var x] && mine.Any(m => m.Kind == x.Kind && x.Lo <= m.Lo && m.Hi <= x.Hi));
+            var h = before.FirstOrDefault(e => HidesT11(f, e, r));
             if (h != null) yield return f.Error("T-11", r.St, Facts.Dead([z.Ordinal(h.St)]), related: [h.St.StartLine]);
         }
     }
