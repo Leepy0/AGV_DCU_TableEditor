@@ -97,36 +97,47 @@ foreach ($part in (GccParts $Gcc)) {
 Step 4 '라이선스·출처'
 $lic = Join-Path $gdst 'licenses'
 New-Item -ItemType Directory -Force $lic | Out-Null
-$licFiles = @()
-foreach ($d in $Gcc, (Split-Path -Parent $Gcc)) {
-    $licFiles += Get-ChildItem $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(COPYING|LICENSE|LICENCE|NOTICE|licenses?)' }
-    $ld = Join-Path $d 'licenses'
-    if (Test-Path $ld) { Copy-Item "$ld\*" $lic -Recurse -Force }
+$licSrc = Join-Path $PSScriptRoot 'gcc-licenses'
+$licNames = 'COPYING3', 'COPYING.RUNTIME', 'COPYING.LIB', 'COPYING.MinGW-w64-runtime.txt', 'COPYING.winpthreads', 'LICENSE.zlib', 'LICENSE.zstd'
+foreach ($n in $licNames) {
+    if (-not (Test-Path (Join-Path $licSrc $n))) { throw "라이선스 글 없음: tools\gcc-licenses\$n" }
+    Copy-Item (Join-Path $licSrc $n) $lic -Force
 }
-$licFiles | Copy-Item -Destination $lic -Force
+Copy-Item (Join-Path $licSrc 'README.md') (Join-Path $lic 'README.md') -Force
 $verFile = Join-Path $Gcc 'version_info.txt'
-$verText = ''
+$verLines = @()
 if (Test-Path $verFile) {
     Copy-Item $verFile $lic -Force   # 배포판이 붙인 버전·구성 글
-    $verText = [IO.File]::ReadAllText($verFile).Trim()
+    $all = [IO.File]::ReadAllLines($verFile)
+    $verLines = @($all | Where-Object { $_ -match '^winlibs |^- (GCC|MinGW-w64|GNU Binutils) ' })
 }
 $gccLine = (& (Join-Path $Gcc 'bin\gcc.exe') --version | Select-Object -First 1)
 $src = @"
 휴대용 gcc 출처
 ===============
-배포판: WinLibs (Brecht Sanders), MinGW-w64 UCRT / POSIX 스레드 / SEH 빌드
+배포판: WinLibs (Brecht Sanders) MinGW-w64 UCRT / POSIX 스레드 / SEH 빌드
 gcc: $gccLine
 
-내려받은 곳:
-  https://winlibs.com/
-  https://github.com/brechtsanders/winlibs_mingw/releases
-소스: 위 두 곳과 각 구성 요소(GCC, binutils, MinGW-w64)의 공식 소스 배포처에 있다.
-이 폴더는 C 컴파일·링크에 필요한 파일만 추린 것이다(C++, Fortran, gdb, 문서, 로캘 등은 뺐다).
-각 구성 요소의 라이선스(GCC 는 GPL-3.0 과 GCC Runtime Library Exception, binutils 는 GPL-3.0, MinGW-w64 런타임은 ZPL-2.1/공개 도메인 등)는 배포판 기준이다.
+배포판 버전 글(version_info.txt)에서, 이 폴더에 들어 있는 구성 요소:
+$($verLines -join "`n")
 
-배포판 버전 글(version_info.txt):
-------------------------------------------------
-$verText
+이 폴더의 바이너리는 위 배포판에서 C 컴파일·링크에 필요한 파일만 추린 것이다(C++, Fortran, gdb, 문서, 로캘 등은 뺐다). 바이너리는 고치지 않았다.
+
+소스를 받는 곳
+  배포판 소개   https://winlibs.com/
+  배포판 릴리스 https://github.com/brechtsanders/winlibs_mingw/releases
+  위 릴리스 이름은 version_info.txt 첫 줄의 버전 문자열이다. 그 릴리스가 이 바이너리를 만든 구성 요소 소스와 빌드 정보를 가리킨다.
+  원 프로젝트: GCC https://gcc.gnu.org/ , GNU Binutils https://sourceware.org/binutils/ , MinGW-w64 https://www.mingw-w64.org/
+
+구성 요소별 라이선스(글은 licenses\ 에 있다. 파일별 설명은 licenses\README.md)
+  gcc, cc1, collect2, as, ld   GPL-3.0 (COPYING3)
+  libgcc, libgcc_s_seh-1.dll   GPL-3.0 + GCC Runtime Library Exception 3.1 (COPYING3, COPYING.RUNTIME)
+  mingw-w64 런타임·헤더        COPYING.MinGW-w64-runtime.txt
+  libwinpthread-1.dll          COPYING.winpthreads
+  libiconv-2.dll, libintl-8.dll LGPL-2.1 (COPYING.LIB)
+  zlib1.dll                    LICENSE.zlib
+  libzstd.dll                  LICENSE.zstd (BSD)
+  libgmp, libmpfr, libmpc, libisl DLL 의 라이선스 글은 이 폴더에 없다. 각 프로젝트의 소스에 있다.
 "@
 [IO.File]::WriteAllText((Join-Path $gdst 'SOURCE.txt'), ($src -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $true))
 Write-Host "라이선스 파일 $(@(Get-ChildItem $lic -Recurse -File).Count)개: $((Get-ChildItem $lic -Recurse -File | ForEach-Object Name) -join ', ')"
