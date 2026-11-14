@@ -7,6 +7,7 @@ Console.OutputEncoding = new UTF8Encoding(false);
 
 if (args.Length > 0 && args[0] is "pack" or "build") return await TableEditor.Cli.OpsCommands.Run(args);
 if (args.Length > 0 && args[0] == "check") return CheckCommand.Run(args[1..]);
+if (args.Length > 0 && args[0] is "round" or "core-update" or "core-versions" or "git-log-check") return await TableEditor.Cli.GitCommands.Run(args);
 
 if (args.Length != 2 || !Directory.Exists(args[1]))
 {
