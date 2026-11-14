@@ -1,3 +1,5 @@
+using TableEditor.Engine.Check;
+using TableEditor.Engine.Model;
 using TableEditor.Engine.Ops;
 
 namespace TableEditor.Cli;
@@ -44,6 +46,17 @@ static class OpsCommands
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        if (pos[0] == "build" && Directory.Exists(Path.Combine(app, "site", site)))
+        {
+            // 설계서 4.7절 차례 1: 검사 오류가 있으면 압축·빌드를 하지 않는다
+            Console.WriteLine("검사");
+            var core = Path.Combine(app, "core");
+            var found = Checker.Run(Site.Open(Path.Combine(app, "site", site), Directory.Exists(core) ? core : null));
+            var errors = found.Where(f => f.Severity == Severity.Error).ToList();
+            foreach (var f in errors) Console.Error.WriteLine(f);
+            Console.WriteLine($"오류 {errors.Count}, 경고 {found.Count - errors.Count}");
+            if (errors.Count > 0) return 1;
+        }
         Console.WriteLine("압축 태그 표");
         var pk = await SitePack.RunAsync(app, site, gcc, Print, cts.Token);
         if (!pk.Ok)
