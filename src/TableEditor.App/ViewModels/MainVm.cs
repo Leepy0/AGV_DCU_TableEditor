@@ -16,10 +16,15 @@ public sealed class TabVm(string name, int group, MainVm owner) : Observable
     public int Group { get; } = group;
 
     int errors, warns;
-    public int Errors { get => errors; set { if (Set(ref errors, value)) Raise(nameof(HasErrors)); } }
-    public int Warns { get => warns; set { if (Set(ref warns, value)) Raise(nameof(HasWarns)); } }
+    public int Errors { get => errors; set { if (Set(ref errors, value)) { Raise(nameof(HasErrors)); Raise(nameof(ShowWarns)); } } }
+    public int Warns { get => warns; set { if (Set(ref warns, value)) { Raise(nameof(HasWarns)); Raise(nameof(ShowWarns)); } } }
     public bool HasErrors => Errors > 0;
     public bool HasWarns => Warns > 0;
+
+    /// <summary>탭에는 한 가지만(오류가 있으면 오류 수). 둘 다 넣으면 탭 이름을 덮는다.</summary>
+    public bool ShowWarns => HasWarns && !HasErrors;
+
+    public override string ToString() => Name;
 
     public bool IsSelected
     {

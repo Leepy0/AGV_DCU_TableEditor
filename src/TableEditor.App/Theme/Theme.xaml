@@ -7,6 +7,8 @@
     <v:CatBrush x:Key="CatBrush"/>
     <v:Shown x:Key="Shown"/>
     <v:Not x:Key="Not"/>
+    <!-- 팝업 처음 포커스 단추 표시(Button.Tag) -->
+    <sys:Boolean x:Key="True">True</sys:Boolean>
 
     <!-- ===== 색 ===== -->
     <Color x:Key="C.Bg">#F3F3F3</Color>
@@ -486,6 +488,8 @@
         <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
         <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel"/>
         <Setter Property="KeyboardNavigation.TabNavigation" Value="Once"/>
+        <!-- 고른 줄 띠가 포커스를 보인다. 목록 테두리 포커스 선은 두지 않는다 -->
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style x:Key="RowItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
         <Setter Property="Padding" Value="0"/>

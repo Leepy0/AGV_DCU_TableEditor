@@ -17,7 +17,7 @@
                             <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R4}"/>
                             <TextBlock Text="{Binding Errors}" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.L4}" Visibility="{Binding HasWarns, Converter={StaticResource Shown}}">
+                        <StackPanel Orientation="Horizontal" Visibility="{Binding ShowWarns, Converter={StaticResource Shown}}">
                             <Image Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R4}"/>
                             <TextBlock Text="{Binding Warns}" VerticalAlignment="Center"/>
                         </StackPanel>

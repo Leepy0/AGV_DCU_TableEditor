@@ -58,6 +58,9 @@ public partial class App : Application
 
     public App()
     {
+        // 개발 PC 에서 하드웨어 그리기가 창 안을 흰 바탕으로만 남겼다(UI 는 살아 있음). 표 화면이라 소프트웨어 그리기로 충분하다.
+        // shortcut: 모든 PC 에서 소프트웨어 그리기. 원인(드라이버·원격 세션)이 밝혀지면 그 경우만으로 좁힌다
+        RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         // 죽기 전에 까닭을 남긴다(설정 폴더의 crash.log). 화면 스레드의 예외는 남기고 끝낸다.
         AppDomain.CurrentDomain.UnhandledException += (_, x) => Log(x.ExceptionObject);
         DispatcherUnhandledException += (_, x) =>

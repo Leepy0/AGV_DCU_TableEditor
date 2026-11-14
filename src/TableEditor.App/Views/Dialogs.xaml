@@ -292,7 +292,7 @@
                 <Border Style="{StaticResource DialogFoot}">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
-                        <Button Content="바꾸기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                        <Button Content="바꾸기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}" Tag="{StaticResource True}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -312,7 +312,7 @@
                 <Border Style="{StaticResource DialogFoot}">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
-                        <Button Content="바꾸기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                        <Button Content="바꾸기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}" Tag="{StaticResource True}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
