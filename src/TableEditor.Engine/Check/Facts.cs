@@ -95,7 +95,10 @@ public sealed class Facts
         GrammarTable.Find(name).Where(r => r.Role == Role.Statement && r.Place == PlaceOf(area));
 
     /// <summary>인자 수가 맞고 고정 낱말 칸이 맞는 첫 줄. 낱말이 맞는 줄이 없으면 인자 수만 맞는 첫 줄.</summary>
-    public GrammarEntry? FitRow(IEnumerable<GrammarEntry> rows, IReadOnlyList<Arg> args)
+    public GrammarEntry? FitRow(IEnumerable<GrammarEntry> rows, IReadOnlyList<Arg> args) => Fit(rows, args);
+
+    /// <summary><see cref="FitRow"/> 의 정적 꼴(사이트 없이 쓴다: 화면 블록).</summary>
+    public static GrammarEntry? Fit(IEnumerable<GrammarEntry> rows, IReadOnlyList<Arg> args)
     {
         GrammarEntry? first = null;
         foreach (var r in rows)

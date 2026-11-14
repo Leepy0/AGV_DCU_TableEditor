@@ -55,6 +55,9 @@ public enum ArgKind
 /// <summary>인자 칸 하나. Least·Most = 이 칸이 몇 번 오는가(1·1 하나, 0·1 생략 가능, 1·16 여러 개).</summary>
 public sealed record ArgSpec(ArgKind Kind, long Min = 0, long Max = 0, string Unit = "", IReadOnlyList<string>? Words = null, int Least = 1, int Most = 1)
 {
+    /// <summary>칸 라벨(화면 낱말). 문법 줄의 꼴 글자에서 나온다. 없으면 빈 글자.</summary>
+    public string Label { get; init; } = "";
+
     public ArgSpec Opt() => this with { Least = 0 };
     public ArgSpec Many(int least, int most) => this with { Least = least, Most = most };
 }
@@ -65,6 +68,9 @@ public sealed record GrammarEntry(
     Spacing Spacing, int TagCells, bool ActForbidden, string Head, string Category,
     string CoreFrom, string? CoreTo)
 {
+    /// <summary>팔레트 분류(화면 띠 색·추가 드롭다운). 태그 동작은 <see cref="GrammarTable.TagPalette"/>, 시퀀스 스텝은 <see cref="GrammarTable.StepPalette"/> 가운데 하나. 그 밖은 빈 글자.</summary>
+    public string Palette { get; init; } = "";
+
     public int MinArgs => Args.Sum(a => a.Least);
     public int MaxArgs => Args.Sum(a => a.Most);
 }
@@ -112,7 +118,70 @@ public static class GrammarTable
         var spacing = args.Length == 0 ? Spacing.None
             : TightNames.Contains(name) || name.StartsWith("X_", StringComparison.Ordinal) ? Spacing.Tight
             : Spacing.Spaced;
-        return new GrammarEntry(name, place, role, form, args, spacing, 0, false, head, cat, Version, null);
+        var labels = FormLabels(form);
+        if (labels.Length == args.Length) args = args.Select((a, i) => a with { Label = labels[i] }).ToArray();
+        return new GrammarEntry(name, place, role, form, args, spacing, 0, false, head, cat, Version, null) { Palette = PaletteOf(name, place, cat) };
+    }
+
+    /// <summary>태그 동작 팔레트(사양 9.2절 태그).</summary>
+    public static readonly IReadOnlyList<string> TagPalette = ["정지", "시퀀스", "속도·방향", "회전", "분기", "보고", "장애물", "기타"];
+
+    /// <summary>시퀀스 스텝 팔레트(사양 9.2절 시퀀스).</summary>
+    public static readonly IReadOnlyList<string> StepPalette = ["출력", "벨트", "대기", "분기", "보고", "주행", "끝"];
+
+    static string PaletteOf(string name, Place place, string cat) => place switch
+    {
+        Place.TagAction => name switch
+        {
+            "AGV_STOP" or "AGV_AUTOSTART" or "AGV_AUTOSTART_PARAM" => "정지",
+            "SEQ_START" => "시퀀스",
+            "AGV_SPEED" or "AGV_SPEED_MMIN" or "AGV_FORBACK" => "속도·방향",
+            "AGV_TURN" => "회전",
+            "AGV_BRANCH" => "분기",
+            "ACS_SEND" or "ACS" or "STATION_RESET" => "보고",
+            "OBS_ON" or "OBS_OFF" or "OBS_OFF_AUTO" => "장애물",
+            _ => "기타",
+        },
+        Place.Step => name switch
+        {
+            "END_STOP" or "END_ERROR" or "END_RESTART" or "ERROR_HOLD" => "끝",
+            "OBS_ON" or "OBS_OFF" or "OBS_OFF_AUTO" => "주행",
+            "SET_STATE" or "ACT_START" or "CALL" => "출력",
+            "WAIT_STATE" or "WAIT_ACT" => "대기",
+            _ => StepPalette.Contains(cat) ? cat : "",
+        },
+        _ => "",
+    };
+
+    /// <summary>꼴 글자의 괄호 안을 쉼표로 나눈 칸 라벨. <c>[ ]</c>·<c>…</c> 는 뗀다. 안쪽 묶음 칸은 그 묶음의 낱말.</summary>
+    static string[] FormLabels(string form)
+    {
+        int open = form.IndexOf('('), close = form.LastIndexOf(')');
+        if (open < 0 || close <= open) return [];
+        var body = form[(open + 1)..close].Replace("[", "").Replace("]", "");
+        var list = new List<string>();
+        int depth = 0, start = 0;
+        for (int i = 0; i <= body.Length; i++)
+        {
+            if (i < body.Length && body[i] == '(') depth++;
+            else if (i < body.Length && body[i] == ')') depth--;
+            else if (i == body.Length || body[i] == ',' && depth == 0)
+            {
+                var t = body[start..i].Trim().TrimEnd('…').Trim();
+                if (t.Contains('(')) t = t[..t.IndexOf('(')].Trim() switch
+                {
+                    "FROM_SENSOR" => "센서",
+                    "ANY2_ON" => "둘째",
+                    "STATION" => "스테이션",
+                    "UNTIL" => "정지 조건",
+                    "LOAD_SENSORS" => "적재 센서",
+                    var other => other,
+                };
+                list.Add(t);
+                start = i + 1;
+            }
+        }
+        return list.Count == 1 && list[0].Length == 0 ? [] : list.ToArray();
     }
 
     static GrammarEntry Cells(this GrammarEntry e, int n) => e with { TagCells = n };
@@ -161,8 +230,8 @@ public static class GrammarTable
 
         // ---- 4.3 확장 조건 (22) ----
         E("X_ALWAYS", XC, Pt, "X_ALWAYS", "없음", "확장"),
-        E("X_FORWARD", XC, Pt, "X_FORWARD", "전진", "확장"),
-        E("X_BACKWARD", XC, Pt, "X_BACKWARD", "후진", "확장"),
+        E("X_FORWARD", XC, Pt, "X_FORWARD", "전진 중", "확장"),
+        E("X_BACKWARD", XC, Pt, "X_BACKWARD", "후진 중", "확장"),
         E("X_FORBACK_MODE", XC, Pt, "X_FORBACK_MODE", "전후진 모드", "확장"),
         E("X_LOW_BATTERY", XC, Pt, "X_LOW_BATTERY", "저전압", "확장"),
         E("X_CROSS_IN", XC, Pt, "X_CROSS_IN", "교차 IN", "확장"),
@@ -176,7 +245,7 @@ public static class GrammarTable
         E("X_ID", XC, Pt, "X_ID( 처음, 끝 )", "호기", "확장", Id, Id),
         E("X_KEY", XC, Pt, "X_KEY( 키 )", "키", "확장", W(Keys)),
         E("X_STATION", XC, Pt, "X_STATION( 칸, 하한, 상한 )", "스테이션", "확장", Slot, U16, U16),
-        E("X_STATION_RUNNING", XC, Pt, "X_STATION_RUNNING( 칸, 하한, 상한 )", "스테이션 주행", "확장", Slot, U16, U16),
+        E("X_STATION_RUNNING", XC, Pt, "X_STATION_RUNNING( 칸, 하한, 상한 )", "주행 스테이션", "확장", Slot, U16, U16),
         E("X_STATION_MOD", XC, Pt, "X_STATION_MOD( 칸, n, m )", "스테이션 나머지", "확장", Slot, N(1, 65535), U16),
         E("X_STATION_DIV", XC, Pt, "X_STATION_DIV( 칸, n, m )", "스테이션 몫", "확장", Slot, N(1, 65535), U16),
         E("X_TAG_NUM", XC, Pt, "X_TAG_NUM( 식 )", "태그 번호", "확장", A(ArgKind.StationExpr)),
@@ -196,59 +265,59 @@ public static class GrammarTable
         E("WHEN_ID", S, St, "WHEN_ID( 처음, 끝, 라벨 )", "만약 호기", "분기", Id, Id, Lb),
         E("OTHERWISE", S, St, "OTHERWISE( 라벨 )", "아니면", "분기", Lb),
         E("SELECT_END", S, St, "SELECT_END", "분기 끝", "분기"),
-        E("SELECT_END_TO", S, St, "SELECT_END_TO( 시간, 라벨 )", "분기 끝 제한", "분기", T, Lb),
+        E("SELECT_END_TO", S, St, "SELECT_END_TO( 시간, 라벨 )", "분기 끝", "분기", T, Lb),
         // 출력(6)
         E("OUT_ON", S, St, "OUT_ON( 출력… )", "출력 켬", "출력", A(ArgKind.Output).Many(1, 16)),
         E("OUT_OFF", S, St, "OUT_OFF( 출력… )", "출력 끔", "출력", A(ArgKind.Output).Many(1, 16)),
         E("OUT_PULSE", S, St, "OUT_PULSE( 출력, 켬, 끔, 횟수 )", "펄스", "출력", A(ArgKind.Output), T, T, U16),
         E("OUT_FLICKER_UNTIL_IN", S, St, "OUT_FLICKER_UNTIL_IN( 출력, 간격, 조건 )", "점멸", "출력", A(ArgKind.Output), T, Cond),
-        E("OUT_FLICKER_UNTIL_IN_TO", S, St, "OUT_FLICKER_UNTIL_IN_TO( 출력, 간격, 조건, 제한, 라벨 )", "점멸 제한", "출력", A(ArgKind.Output), T, Cond, TO, Lb),
+        E("OUT_FLICKER_UNTIL_IN_TO", S, St, "OUT_FLICKER_UNTIL_IN_TO( 출력, 간격, 조건, 제한, 라벨 )", "점멸", "출력", A(ArgKind.Output), T, Cond, TO, Lb),
         E("HANDSHAKE", S, St, "HANDSHAKE( 출력, 응답 입력, 제한, 라벨 )", "주고받기", "출력", A(ArgKind.Output), A(ArgKind.Input), TO, Lb),
         // 벨트(6)
         E("OUTS", S, Pt, "OUTS( 출력… )", "출력 묶음", "벨트", A(ArgKind.Output).Many(1, 16)),
         E("NO_OUT", S, V, "NO_OUT", "출력 없음", "벨트"),
         E("BELT_ON", S, St, "BELT_ON( 벨트, 방향 )", "벨트 켬", "벨트", A(ArgKind.Belt), W(Rot)),
-        E("BELT_ON", S, St, "BELT_ON( 벨트, 방향, UNTIL( 조건 ) )", "벨트 켬 조건", "벨트", A(ArgKind.Belt), W(Rot), A(ArgKind.Until)).NoAct(),
+        E("BELT_ON", S, St, "BELT_ON( 벨트, 방향, UNTIL( 조건 ) )", "벨트 켬", "벨트", A(ArgKind.Belt), W(Rot), A(ArgKind.Until)).NoAct(),
         E("UNTIL", S, Pt, "UNTIL( 조건 )", "정지 조건", "벨트", Cond),
         E("BELT_OFF", S, St, "BELT_OFF( 벨트 )", "벨트 끔", "벨트", A(ArgKind.Belt)),
         E("WAIT_BELTS", S, St, "WAIT_BELTS( 벨트… )", "벨트 대기", "벨트", A(ArgKind.Belt).Many(1, 3)),
         // 대기(14)
         E("WAIT", S, St, "WAIT( 조건 )", "대기", "대기", Cond),
-        E("WAIT_TO", S, St, "WAIT_TO( 조건, 제한, 라벨 )", "대기 제한", "대기", Cond, TO, Lb),
+        E("WAIT_TO", S, St, "WAIT_TO( 조건, 제한, 라벨 )", "대기", "대기", Cond, TO, Lb),
         E("WAIT_STABLE", S, St, "WAIT_STABLE( 조건, 안정 )", "안정 대기", "대기", Cond, T),
-        E("WAIT_STABLE_TO", S, St, "WAIT_STABLE_TO( 조건, 안정, 제한, 라벨 )", "안정 대기 제한", "대기", Cond, T, TO, Lb),
+        E("WAIT_STABLE_TO", S, St, "WAIT_STABLE_TO( 조건, 안정, 제한, 라벨 )", "안정 대기", "대기", Cond, T, TO, Lb),
         E("WAIT_OUT", S, St, "WAIT_OUT( 조건 )", "출력 대기", "대기", A(ArgKind.OutCond)),
         E("DELAY", S, St, "DELAY( 시간 )", "지연", "대기", T),
         E("WAIT_IF", S, St, "WAIT_IF( 확장 조건 )", "확장 대기", "대기", X),
-        E("WAIT_IF_TO", S, St, "WAIT_IF_TO( 확장 조건, 제한, 라벨 )", "확장 대기 제한", "대기", X, TO, Lb),
+        E("WAIT_IF_TO", S, St, "WAIT_IF_TO( 확장 조건, 제한, 라벨 )", "확장 대기", "대기", X, TO, Lb),
         E("WAIT_IF_IN", S, St, "WAIT_IF_IN( 확장 조건, 조건 )", "확장·입력 대기", "대기", X, Cond),
-        E("WAIT_IF_IN_TO", S, St, "WAIT_IF_IN_TO( 확장 조건, 조건, 제한, 라벨 )", "확장·입력 대기 제한", "대기", X, Cond, TO, Lb),
+        E("WAIT_IF_IN_TO", S, St, "WAIT_IF_IN_TO( 확장 조건, 조건, 제한, 라벨 )", "확장·입력 대기", "대기", X, Cond, TO, Lb),
         E("WAIT_ANY2", S, St, "WAIT_ANY2( 조건, ANY2_ON( … ) )", "둘째 대기", "대기", Cond, A(ArgKind.Any2)),
-        E("WAIT_ANY2_TO", S, St, "WAIT_ANY2_TO( 조건, ANY2_ON( … ), 제한, 라벨 )", "둘째 대기 제한", "대기", Cond, A(ArgKind.Any2), TO, Lb),
+        E("WAIT_ANY2_TO", S, St, "WAIT_ANY2_TO( 조건, ANY2_ON( … ), 제한, 라벨 )", "둘째 대기", "대기", Cond, A(ArgKind.Any2), TO, Lb),
         E("DELAY_PARAM", S, St, "DELAY_PARAM( 파라미터, 단위 )", "파라미터 지연", "대기", A(ArgKind.CoreParam), W(TimeUnits)),
-        E("WAIT_TO_PARAM", S, St, "WAIT_TO_PARAM( 조건, 파라미터, 단위, 라벨 )", "파라미터 제한 대기", "대기", Cond, A(ArgKind.CoreParam), W(TimeUnits), Lb),
+        E("WAIT_TO_PARAM", S, St, "WAIT_TO_PARAM( 조건, 파라미터, 단위, 라벨 )", "파라미터 대기", "대기", Cond, A(ArgKind.CoreParam), W(TimeUnits), Lb),
         // ACS·스테이션(7)
         E("STATION", S, Pt, "STATION( k )", "스테이션", "보고", Slot),
         E("MOD", S, Pt, "MOD( STATION(k), m )", "나머지", "보고", A(ArgKind.StationExpr), N(1, 255)),
         E("ACS", S, St, "ACS( 종류, 출처 )", "보고", "보고", W(Reports), A(ArgKind.AcsSource)),
-        E("ACS_SEND", S, St, "ACS_SEND( 종류, 번호 )", "보고 번호", "보고", W(Reports), new ArgSpec(ArgKind.AcsNumber, 0, 65535)),
+        E("ACS_SEND", S, St, "ACS_SEND( 종류, 번호 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsNumber, 0, 65535)),
         E("ACS_WAIT_ACK", S, St, "ACS_WAIT_ACK( 제한, 라벨 )", "응답 대기", "보고", TO, Lb),
         E("ACS_STATION", S, St, "ACS_STATION( 칸, 값, 길이 )", "스테이션 넣기", "보고", Slot, U16, U16),
         E("STATION_RESET", S, St, "STATION_RESET", "스테이션 지움", "보고"),
         // 주행(7, ACT 금지)
         E("AGV_SPEED", S, St, "AGV_SPEED( 단계 )", "속도", "주행", W(SpeedSteps)).NoAct(),
-        E("AGV_SPEED_MMIN", S, St, "AGV_SPEED_MMIN( 속도 )", "속도 값", "주행", N(4, 255, "m/min")).NoAct(),
+        E("AGV_SPEED_MMIN", S, St, "AGV_SPEED_MMIN( 속도 )", "속도", "주행", N(4, 255, "m/min")).NoAct(),
         E("AGV_FORBACK", S, St, "AGV_FORBACK( 방향 )", "전후진", "주행", W(ForBack)).NoAct(),
-        E("AGV_TURN", S, St, "AGV_TURN( 방향, 각도, 회전 뒤 방향, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "주행",
+        E("AGV_TURN", S, St, "AGV_TURN( 방향, 각도, 회전 뒤, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "주행",
             W(Rot), N(1, 359, "도"), N(0, 15), N(0, 15), N(0, 31, "m/min").Opt(), W(TurnOptSeq).Opt(), W(TurnOptSeq).Opt()).NoAct(),
         E("AGV_MOVE", S, St, "AGV_MOVE( cm )", "이동", "주행", N(1, 3276, "cm")).NoAct(),
-        E("AGV_MOVE", S, St, "AGV_MOVE( 한계 cm, 옵션 )", "교차선 이동", "주행", N(1, 3276, "cm"), W(MoveOpt)).NoAct(),
+        E("AGV_MOVE", S, St, "AGV_MOVE( 한계 cm, 옵션 )", "이동", "주행", N(1, 3276, "cm"), W(MoveOpt)).NoAct(),
         E("ERROR_HOLD", S, St, "ERROR_HOLD( 코드, 조건, 라벨 )", "오류 유지", "주행", U16, Cond, Lb).NoAct(),
         E("END_RESTART", S, St, "END_RESTART", "끝 재출발", "주행").NoAct(),
         // 공통(10)
         E("OBS_ON", S, St, "OBS_ON", "장애물 켬", "공통"),
         E("OBS_OFF", S, St, "OBS_OFF", "장애물 끔", "공통"),
-        E("OBS_OFF_AUTO", S, St, "OBS_OFF_AUTO", "장애물 끔 자동", "공통"),
+        E("OBS_OFF_AUTO", S, St, "OBS_OFF_AUTO", "장애물 자동 끔", "공통"),
         E("SET_STATE", S, St, "SET_STATE( 상태, 값 )", "상태 설정", "공통", A(ArgKind.State), U16),
         E("WAIT_STATE", S, St, "WAIT_STATE( 상태, 값 )", "상태 대기", "공통", A(ArgKind.State), U16),
         E("ACT_START", S, St, "ACT_START( ACT ID )", "ACT 시작", "공통", A(ArgKind.ActId)),
@@ -278,10 +347,10 @@ public static class GrammarTable
         E("IF_X2_IN", TC, Pt, "IF_X2_IN( 확장 조건, 확장 조건, 조건 )", "확장 둘·입력", "조건", X, X, Cond),
         E("IF_FORBACK_MODE", TC, Pt, "IF_FORBACK_MODE", "전후진 모드", "조건"),
         E("IF_LOW_BATTERY", TC, Pt, "IF_LOW_BATTERY", "저전압", "조건"),
-        E("IF_FORWARD", TC, Pt, "IF_FORWARD", "전진", "조건"),
-        E("IF_BACKWARD", TC, Pt, "IF_BACKWARD", "후진", "조건"),
+        E("IF_FORWARD", TC, Pt, "IF_FORWARD", "전진 중", "조건"),
+        E("IF_BACKWARD", TC, Pt, "IF_BACKWARD", "후진 중", "조건"),
         E("IF_STATION", TC, Pt, "IF_STATION( 칸, 하한, 상한 )", "스테이션", "조건", Slot, U16, U16),
-        E("IF_STATION_RUNNING", TC, Pt, "IF_STATION_RUNNING( 칸, 하한, 상한 )", "스테이션 주행", "조건", Slot, U16, U16),
+        E("IF_STATION_RUNNING", TC, Pt, "IF_STATION_RUNNING( 칸, 하한, 상한 )", "주행 스테이션", "조건", Slot, U16, U16),
         E("IF_ID", TC, Pt, "IF_ID( 처음, 끝 )", "호기", "조건", Id, Id),
         E("IF_STATION_MOD", TC, Pt, "IF_STATION_MOD( 칸, n, m )", "스테이션 나머지", "조건", Slot, N(1, 65535), U16),
         E("IF_STATION_DIV", TC, Pt, "IF_STATION_DIV( 칸, n, m )", "스테이션 몫", "조건", Slot, N(1, 65535), U16),
@@ -290,35 +359,35 @@ public static class GrammarTable
 
         // ---- 4.7 태그 전용 이름(10) ----
         E("AGV_STOP", TA, Pt, "AGV_STOP", "정지", "동작").Cells(1),
-        E("AGV_STOP", TA, Pt, "AGV_STOP( cm )", "정지 거리", "동작", N(0, 255, "cm")).Cells(1),
-        E("AGV_STOP", TA, Pt, "AGV_STOP( TAPE )", "교차선 정지", "동작", W("TAPE")).Cells(1),
-        E("AGV_STOP", TA, Pt, "AGV_STOP( TAPE_GD )", "교차선 GD 정지", "동작", W("TAPE_GD")).Cells(1),
-        E("AGV_STOP", TA, Pt, "AGV_STOP( 거리, FROM_SENSOR( 입력, 유지틱 ) )", "센서 정지", "동작", new ArgSpec(ArgKind.StopDist, 0, 255, "cm"), A(ArgKind.FromSensor)).Cells(2),
+        E("AGV_STOP", TA, Pt, "AGV_STOP( cm )", "정지", "동작", N(0, 255, "cm")).Cells(1),
+        E("AGV_STOP", TA, Pt, "AGV_STOP( TAPE )", "정지", "동작", W("TAPE")).Cells(1),
+        E("AGV_STOP", TA, Pt, "AGV_STOP( TAPE_GD )", "정지", "동작", W("TAPE_GD")).Cells(1),
+        E("AGV_STOP", TA, Pt, "AGV_STOP( 거리, FROM_SENSOR( 입력, 유지틱 ) )", "정지", "동작", new ArgSpec(ArgKind.StopDist, 0, 255, "cm"), A(ArgKind.FromSensor)).Cells(2),
         E("FROM_SENSOR", TA, Pt, "FROM_SENSOR( 입력, 유지틱 )", "센서", "동작", new ArgSpec(ArgKind.Input, 0, 63), N(1, 511, "틱")),
         E("AGV_AUTOSTART", TA, Pt, "AGV_AUTOSTART( 초 )", "자동 출발", "동작", N(0, 255, "초")).Cells(1),
         E("AGV_AUTOSTART_PARAM", TA, Pt, "AGV_AUTOSTART_PARAM", "자동 출발 AS", "동작").Cells(1),
         E("AGV_BRANCH", TA, Pt, "AGV_BRANCH( 방향 )", "분기", "동작", W(Branch)).Cells(1),
         E("SEQ_START", TA, Pt, "SEQ_START( 시퀀스 )", "시퀀스", "동작", A(ArgKind.SeqShort)).Cells(1),
-        E("SEQ_START", TA, Pt, "SEQ_START( cm, 시퀀스 )", "시퀀스 거리", "동작", N(0, 255, "cm"), A(ArgKind.SeqShort)).Cells(2),
-        E("SEQ_START", TA, Pt, "SEQ_START( TAPE, 시퀀스 )", "시퀀스 교차선", "동작", W("TAPE"), A(ArgKind.SeqShort)).Cells(1),
-        E("SEQ_START", TA, Pt, "SEQ_START( TAPE_GD, 시퀀스 )", "시퀀스 교차선 GD", "동작", W("TAPE_GD"), A(ArgKind.SeqShort)).Cells(1),
+        E("SEQ_START", TA, Pt, "SEQ_START( cm, 시퀀스 )", "시퀀스", "동작", N(0, 255, "cm"), A(ArgKind.SeqShort)).Cells(2),
+        E("SEQ_START", TA, Pt, "SEQ_START( TAPE, 시퀀스 )", "시퀀스", "동작", W("TAPE"), A(ArgKind.SeqShort)).Cells(1),
+        E("SEQ_START", TA, Pt, "SEQ_START( TAPE_GD, 시퀀스 )", "시퀀스", "동작", W("TAPE_GD"), A(ArgKind.SeqShort)).Cells(1),
         E("AGV_ID_MINUS", TA, Pt, "AGV_ID_MINUS( n )", "호기 빼기", "동작", N(0, 255)),
         E("TAG_NUM", TA, V, "TAG_NUM", "태그 번호", "동작"),
-        E("AGV_WAIT_START", TA, Pt, "AGV_WAIT_START", "출발 대기", "동작").Cells(1),
-        E("AGV_WAIT_CANCEL", TA, Pt, "AGV_WAIT_CANCEL", "대기 풀기", "동작").Cells(1),
+        E("AGV_WAIT_START", TA, Pt, "AGV_WAIT_START", "출발 대기 걸기", "동작").Cells(1),
+        E("AGV_WAIT_CANCEL", TA, Pt, "AGV_WAIT_CANCEL", "출발 대기 풀기", "동작").Cells(1),
 
         // ---- 4.7 시퀀스와 같은 이름(12, 태그 표에서의 뜻) ----
         E("AGV_SPEED", TA, Pt, "AGV_SPEED( 단계 )", "속도", "동작", W(SpeedSteps)).Cells(1),
-        E("AGV_SPEED_MMIN", TA, Pt, "AGV_SPEED_MMIN( 속도 )", "속도 값", "동작", N(4, 255, "m/min")).Cells(1),
+        E("AGV_SPEED_MMIN", TA, Pt, "AGV_SPEED_MMIN( 속도 )", "속도", "동작", N(4, 255, "m/min")).Cells(1),
         E("AGV_FORBACK", TA, Pt, "AGV_FORBACK( 방향 )", "전후진", "동작", W(ForBack)).Cells(1),
-        E("AGV_TURN", TA, Pt, "AGV_TURN( … )", "회전", "동작",
+        E("AGV_TURN", TA, Pt, "AGV_TURN( 방향, 각도, 회전 뒤, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "동작",
             W(Rot), N(5, 315, "도"), N(0, 15), N(0, 15), N(0, 31, "m/min").Opt(), W(TurnOptTag).Opt(), W(TurnOptTag).Opt()).Cells(2),
-        E("ACS_SEND", TA, Pt, "ACS_SEND( 종류, 번호 )", "보고 번호", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2),
+        E("ACS_SEND", TA, Pt, "ACS_SEND( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2),
         E("ACS", TA, Pt, "ACS( 종류, STATION0 )", "보고", "동작", W(Reports), W("STATION0")).Cells(1),
         E("STATION_RESET", TA, Pt, "STATION_RESET", "스테이션 지움", "동작").Cells(1),
         E("OBS_ON", TA, Pt, "OBS_ON", "장애물 켬", "동작").Cells(1),
         E("OBS_OFF", TA, Pt, "OBS_OFF", "장애물 끔", "동작").Cells(1),
-        E("OBS_OFF_AUTO", TA, Pt, "OBS_OFF_AUTO", "장애물 끔 자동", "동작").Cells(1),
+        E("OBS_OFF_AUTO", TA, Pt, "OBS_OFF_AUTO", "장애물 자동 끔", "동작").Cells(1),
         E("ACT_START", TA, Pt, "ACT_START( ACT ID )", "ACT 시작", "동작", new ArgSpec(ArgKind.ActId, 0, 255)).Cells(1),
         E("CALL", TA, Pt, "CALL( 번호 )", "함수", "동작", new ArgSpec(ArgKind.CallNo, 0, 255)).Cells(1),
 

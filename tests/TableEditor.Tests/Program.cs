@@ -57,6 +57,18 @@ var tests = new (string Name, Action Run)[]
             && GrammarTable.Find("X_ID").Single().Spacing == Spacing.Tight && GrammarTable.Find("END_STOP").Single().Spacing == Spacing.None, "꼴(안쪽 공백)");
     }),
 
+    ("문법 표 칸 라벨·팔레트", () =>
+    {
+        var turn = GrammarTable.Find("AGV_TURN", Place.TagAction).Single();
+        Check(turn.Args.Select(a => a.Label).SequenceEqual(["방향", "각도", "회전 뒤", "자동 출발", "속도", "옵션", "옵션"]), "회전 칸 라벨");
+        var sensor = GrammarTable.Find("AGV_STOP", Place.TagAction).Single(r => r.Args.Count == 2);
+        Check(sensor.Args[1].Label == "센서", "안쪽 묶음 칸 라벨");
+        Check(GrammarTable.Find("ON").Single().Args[0].Label == "신호", "… 뗀 라벨");
+        Check(GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0).All(r => GrammarTable.TagPalette.Contains(r.Palette)), "태그 동작 팔레트");
+        Check(GrammarTable.Rows.Where(r => r.Place == Place.Step && r.Role == Role.Statement).All(r => GrammarTable.StepPalette.Contains(r.Palette)), "스텝 팔레트");
+        Check(GrammarTable.Find("SEQ_START", Place.TagAction).All(r => r.Head == "시퀀스") && GrammarTable.Find("AGV_STOP", Place.TagAction).All(r => r.Head == "정지"), "같은 매크로 같은 머리");
+    }),
+
     ("살펴볼 것 1: 줄 끝 섞임·끝 줄 끝 없음·줄 끝 공백", () =>
     {
         var text = "/* a */\r\n#include \"x.h\"\n\nTAG_TABLE_BEGIN( site_tags )\r\n    TAG ( 1, ANY_PROFILE, AGV_STOP )   \r\n    \t \n"
