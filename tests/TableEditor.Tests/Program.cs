@@ -225,6 +225,7 @@ var tests = new (string Name, Action Run)[]
     ("Ops(작업 3)", () => OpsTests.Run(Check)),
     ("검사 규칙", () => CheckTests.Run(Check, RepoRoot())),
     ("편집·저장(작업 2)", () => EditTests.Run(Check, RepoRoot())),
+    ("깃·회차·코어 올리기(작업 6)", () => GitTests.Run(Check)),
 
     ("DCU_APP_ROOT(있을 때만)", () =>
     {
