@@ -222,6 +222,8 @@ var tests = new (string Name, Action Run)[]
         Check(multi.Args.Count == 4, "fixture 여러 줄 문장");
     }),
 
+    ("Ops(작업 3)", () => OpsTests.Run(Check)),
+
     ("DCU_APP_ROOT(있을 때만)", () =>
     {
         var root = Environment.GetEnvironmentVariable("DCU_APP_ROOT");

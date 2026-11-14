@@ -5,6 +5,8 @@ using TableEditor.Engine.Text;
 
 Console.OutputEncoding = new UTF8Encoding(false);
 
+if (args.Length > 0 && args[0] is "pack" or "build") return await TableEditor.Cli.OpsCommands.Run(args);
+
 if (args.Length != 2 || !Directory.Exists(args[1]))
 {
     Console.Error.WriteLine("tedit roundtrip <사이트 폴더>");
