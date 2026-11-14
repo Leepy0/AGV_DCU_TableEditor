@@ -62,7 +62,10 @@ public sealed record TagRule(Statement St)
     public Arg LastArg => St.Args[IsRange ? 1 : 0];
     public Arg ProfileArg => St.Args[P];
     public Arg? Cond => HasCond ? St.Args[P + 1] : null;
-    public IReadOnlyList<Arg> Actions => St.Args.Skip(P + (HasCond ? 2 : 1)).ToList();
+
+    /// <summary>첫 동작 인자의 자리(St.Args 안). 동작 넣기·지우기·옮기기의 기준.</summary>
+    public int ActionStart => P + (HasCond ? 2 : 1);
+    public IReadOnlyList<Arg> Actions => St.Args.Skip(ActionStart).ToList();
     public string Profile => ProfileArg.Text;
     public bool AnyProfile => Profile is "ANY_PROFILE" or "0";
 

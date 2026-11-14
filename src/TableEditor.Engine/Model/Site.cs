@@ -27,18 +27,40 @@ public sealed partial class Site
     public IReadOnlyList<Statement> ManualRows { get; }
     public IReadOnlyList<ManChain> ManualChains { get; }
 
-    public static Site Open(string siteFolder, string? coreFolder = null) =>
-        new(siteFolder, coreFolder, SiteFolder.Read(siteFolder));
+    /// <summary>
+    /// 읽을 때의 디스크 상태(파일 이름 → 크기·시각·해시). 저장 전에 바깥에서 바뀌었는지 본다(사양 5.7절).
+    /// <see cref="FromFiles"/> 로 연 사이트는 비었다.
+    /// </summary>
+    public IReadOnlyDictionary<string, FileStamp> Stamps { get; }
+
+    public static Site Open(string siteFolder, string? coreFolder = null)
+    {
+        // 시각을 먼저 잡는다. 읽는 사이에 바뀌면 시각이 달라 해시를 다시 본다
+        var times = FileZones.Files.Select(f => Path.Combine(siteFolder, f.FileName)).Where(System.IO.File.Exists)
+            .ToDictionary(p => Path.GetFileName(p), System.IO.File.GetLastWriteTimeUtc, StringComparer.OrdinalIgnoreCase);
+        var files = SiteFolder.Read(siteFolder);
+        var stamps = new Dictionary<string, FileStamp>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in files)
+        {
+            var b = f.ToBytes();
+            stamps[f.Name] = new FileStamp(b.Length, times.GetValueOrDefault(f.Name), FileStamp.Hash(b));
+        }
+        return new(siteFolder, coreFolder, files, stamps);
+    }
 
     /// <summary>이미 읽은 파일로 연다(시험, 편집 뒤 다시 보기).</summary>
     public static Site FromFiles(IEnumerable<SourceFile> files, string folder = "", string? coreFolder = null) =>
-        new(folder, coreFolder, files.ToList());
+        new(folder, coreFolder, files.ToList(), new Dictionary<string, FileStamp>());
 
-    Site(string folder, string? coreFolder, IReadOnlyList<SourceFile> files)
+    /// <summary>같은 폴더·읽은 기록으로 파일만 바꾼 새 사이트(편집 명령의 결과).</summary>
+    internal Site With(IReadOnlyList<SourceFile> files) => new(Folder, CoreFolder, files, Stamps);
+
+    Site(string folder, string? coreFolder, IReadOnlyList<SourceFile> files, IReadOnlyDictionary<string, FileStamp> stamps)
     {
         Folder = folder;
         CoreFolder = coreFolder;
         Files = files;
+        Stamps = stamps;
         if (coreFolder != null)
         {
             var v = Path.Combine(coreFolder, "VERSION");
