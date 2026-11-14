@@ -1,0 +1,98 @@
+<UserControl x:Class="TableEditor.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:TableEditor.App.ViewModels">
+    <!-- 설정(사양 9.2절): 라벨 + 값. 바꾸면 바로 저장 -->
+    <UserControl.Resources>
+        <Style x:Key="SetLabel" TargetType="TextBlock" BasedOn="{StaticResource FrowLabel}"/>
+        <Style x:Key="SetBox" TargetType="TextBox" BasedOn="{StaticResource EditBox}">
+            <Setter Property="Width" Value="{StaticResource SettingsBox}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="{StaticResource Pad.Settings}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{StaticResource Set.Label}"/>
+                <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="저장소 폴더" Style="{StaticResource SetLabel}"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="{StaticResource Gap.B16}">
+                <TextBox Style="{StaticResource SetBox}" Text="{Binding RepoFolder, Mode=OneWay}" IsReadOnly="True" Margin="{StaticResource Gap.R8}"
+                         AutomationProperties.Name="저장소 폴더"/>
+                <Button Content="폴더" Style="{StaticResource Btn}" Command="{Binding PickRepo}"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Text="앱 주소" Style="{StaticResource SetLabel}"/>
+            <TextBox Grid.Row="1" Grid.Column="2" Style="{StaticResource SetBox}" Text="{Binding AppUrl, UpdateSourceTrigger=LostFocus}" Margin="{StaticResource Gap.B16}"
+                     AutomationProperties.Name="앱 주소"/>
+
+            <TextBlock Grid.Row="2" Text="코어 주소" Style="{StaticResource SetLabel}"/>
+            <TextBox Grid.Row="2" Grid.Column="2" Style="{StaticResource SetBox}" Text="{Binding CoreUrl, UpdateSourceTrigger=LostFocus}" Margin="{StaticResource Gap.B16}"
+                     AutomationProperties.Name="코어 주소"/>
+
+            <TextBlock Grid.Row="3" Text="gcc" Style="{StaticResource SetLabel}"/>
+            <TextBox Grid.Row="3" Grid.Column="2" Style="{StaticResource SetBox}" FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}"
+                     Text="{Binding GccPath, UpdateSourceTrigger=LostFocus}" Margin="{StaticResource Gap.B16}" AutomationProperties.Name="gcc"/>
+
+            <TextBlock Grid.Row="4" Text="cl2000" Style="{StaticResource SetLabel}"/>
+            <TextBox Grid.Row="4" Grid.Column="2" Style="{StaticResource SetBox}" FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}"
+                     Text="{Binding Cl2000Path, UpdateSourceTrigger=LostFocus}" Margin="{StaticResource Gap.B16}" AutomationProperties.Name="cl2000"/>
+
+            <TextBlock Grid.Row="5" Text="도구" Style="{StaticResource SetLabel}" VerticalAlignment="Top" Margin="{StaticResource Gap.T8}"/>
+            <StackPanel Grid.Row="5" Grid.Column="2" Margin="{StaticResource Gap.B16}">
+                <Border BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.1}" CornerRadius="{StaticResource R.4}" HorizontalAlignment="Left"
+                        Width="{StaticResource SettingsBox}">
+                    <ItemsControl ItemsSource="{Binding Tools}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ToolRow}">
+                                <Grid Height="{StaticResource CheckRowHeight}" Margin="{StaticResource Pad.Check}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="{StaticResource Col.FIcon}"/>
+                                        <ColumnDefinition Width="{StaticResource Matrix.Tag}"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Image x:Name="Ico" Style="{StaticResource Icon}" Source="{StaticResource IconOk}" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="{StaticResource Fs.Mid}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="T" Grid.Column="2" Text="{Binding Text}" Style="{StaticResource T.Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text}"/>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Found}" Value="False">
+                                        <Setter TargetName="Ico" Property="Source" Value="{StaticResource IconErr}"/>
+                                        <Setter TargetName="T" Property="Foreground" Value="{StaticResource Err}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+                <Button Content="다시 확인" Style="{StaticResource Btn.Small}" HorizontalAlignment="Left" Margin="{StaticResource Gap.T8}" Command="{Binding Probe}"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="6" Text="이름" Style="{StaticResource SetLabel}"/>
+            <TextBox Grid.Row="6" Grid.Column="2" Style="{StaticResource SetBox}" Text="{Binding UserName, UpdateSourceTrigger=LostFocus}" Margin="{StaticResource Gap.B16}"
+                     AutomationProperties.Name="이름"/>
+
+            <TextBlock Grid.Row="7" Text="고급 모드" Style="{StaticResource SetLabel}"/>
+            <Border Grid.Row="7" Grid.Column="2" Height="{StaticResource ControlHeight}" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.1}"
+                    CornerRadius="{StaticResource R.4}" HorizontalAlignment="Left" ClipToBounds="True" Margin="{StaticResource Gap.B16}">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton Content="끔" Style="{StaticResource Seg}" GroupName="Adv" IsChecked="{Binding Advanced, Converter={StaticResource Not}}"/>
+                    <RadioButton Content="켬" Style="{StaticResource Seg}" GroupName="Adv" IsChecked="{Binding Advanced}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

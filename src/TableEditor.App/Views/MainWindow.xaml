@@ -62,6 +62,9 @@
     <Window.InputBindings>
         <KeyBinding Key="F6" Command="{x:Static v:MainWindow.SwitchPane}"/>
         <KeyBinding Key="F6" Modifiers="Shift" Command="{x:Static v:MainWindow.SwitchPane}"/>
+        <KeyBinding Key="Z" Modifiers="Ctrl" Command="{Binding Undo}"/>
+        <KeyBinding Key="Y" Modifiers="Ctrl" Command="{Binding Redo}"/>
+        <KeyBinding Key="S" Modifiers="Ctrl" Command="{Binding Save}"/>
     </Window.InputBindings>
 
     <Grid x:Name="Root" Background="{StaticResource Bg}">
@@ -71,7 +74,7 @@
         </Grid.RowDefinitions>
 
         <!-- 위 줄 -->
-        <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}">
+        <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
             <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource SiteWidth}" FontWeight="{StaticResource Semi}"
                       VerticalAlignment="Center" Margin="{StaticResource Gap.R8}" ItemsSource="{Binding Sites}" SelectedItem="{Binding SiteName}"
                       AutomationProperties.Name="사이트"/>
@@ -95,6 +98,21 @@
                     <TextBlock Text="{Binding ChangeCount}" Style="{StaticResource ChipValue}"/>
                 </StackPanel>
             </Border>
+            <!-- 오래 걸리는 일: 낱말 + 진행 -->
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding HasBusyText, Converter={StaticResource Shown}}">
+                <StackPanel Orientation="Horizontal">
+                    <ProgressBar IsIndeterminate="True" Width="{StaticResource CellEditWidth}" Height="{StaticResource Bar.W}" Margin="{StaticResource Gap.R8}"
+                                 VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding BusyText}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+            <!-- 막힌 명령의 까닭(잠깐) -->
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Background="{StaticResource ErrBg}" Visibility="{Binding HasNotice, Converter={StaticResource Shown}}">
+                <StackPanel Orientation="Horizontal">
+                    <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R6}"/>
+                    <TextBlock Text="{Binding Notice}" Foreground="{StaticResource Err}" VerticalAlignment="Center" MaxWidth="{StaticResource SettingsBox}" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Border>
 
             <Button DockPanel.Dock="Right" Content="빌드" Style="{StaticResource Btn}" Command="{Binding Build}" IsEnabled="{Binding HasRepo}"/>
             <Button DockPanel.Dock="Right" Content="올리기" Style="{StaticResource Btn}" Command="{Binding Push}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
@@ -107,7 +125,7 @@
             <Button DockPanel.Dock="Right" Content="받기" Style="{StaticResource Btn}" Command="{Binding Pull}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
         </DockPanel>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{StaticResource NavWidthLength}"/>
                 <ColumnDefinition Width="*"/>
@@ -135,8 +153,10 @@
 
                     <v:TagView x:Name="TagPane" DataContext="{Binding Tag}"
                                Visibility="{Binding DataContext.IsTagTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:SettingsView DataContext="{Binding Config}"
+                                    Visibility="{Binding DataContext.IsSettingsTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
                     <TextBlock Text="준비 중" Style="{StaticResource T.Empty}"
-                               Visibility="{Binding IsTagTab, Converter={StaticResource Shown}, ConverterParameter=not}"/>
+                               Visibility="{Binding IsOtherTab, Converter={StaticResource Shown}}"/>
 
                     <!-- 검사 목록 -->
                     <Border Grid.Row="1" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}">
@@ -211,6 +231,15 @@
                                Margin="{StaticResource Gap.T12}" Visibility="{Binding OpenError, Converter={StaticResource Shown}}"/>
                 </StackPanel>
             </Grid>
+        </Grid>
+
+        <!-- 팝업: 어둡게 덮고 가운데 카드. Esc = 취소 -->
+        <Grid x:Name="Overlay" Grid.RowSpan="2" Background="{StaticResource Dim.Bg}" Visibility="{Binding HasDialog, Converter={StaticResource Shown}}"
+              KeyboardNavigation.TabNavigation="Cycle">
+            <Grid.InputBindings>
+                <KeyBinding Key="Escape" Command="{Binding Dialog.Cancel}"/>
+            </Grid.InputBindings>
+            <ContentControl x:Name="DialogHost" Content="{Binding Dialog}" Focusable="False"/>
         </Grid>
     </Grid>
 </Window>

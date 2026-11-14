@@ -8,7 +8,7 @@ namespace TableEditor.App.Views;
 public sealed class CatBrush : IValueConverter
 {
     public object? Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
-        Application.Current.TryFindResource("Cat." + value) ?? Application.Current.TryFindResource("Cat.etc");
+        Application.Current.TryFindResource("Cat." + value) ?? Application.Current.TryFindResource("Cat.기타");
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }
@@ -24,4 +24,12 @@ public sealed class Shown : IValueConverter
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
+/// <summary>bool 뒤집기(양방향).</summary>
+public sealed class Not : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is not true;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => value is not true;
 }

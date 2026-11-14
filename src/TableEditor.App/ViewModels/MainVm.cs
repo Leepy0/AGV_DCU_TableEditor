@@ -1,8 +1,10 @@
 using System.IO;
 using System.Windows.Input;
+using System.Windows.Threading;
 using TableEditor.App.Mvvm;
 using TableEditor.Engine.Check;
 using TableEditor.Engine.Model;
+using TableEditor.Engine.Ops;
 using TableEditor.Engine.Text;
 
 namespace TableEditor.App.ViewModels;
@@ -36,23 +38,43 @@ public sealed record FindingVm(Finding Finding, string At, TabVm? Tab)
     public string Text => Finding.Text;
 }
 
-/// <summary>창 전체: 위 줄, 왼쪽 탭, 검사 목록, 지금 탭의 화면.</summary>
+/// <summary>
+/// 창 전체: 위 줄, 왼쪽 탭, 검사 목록, 지금 탭의 화면, 팝업. 편집은 <see cref="EditHistory"/> 위에서 돌고(되돌리기 = 사이트 바꿔 끼우기),
+/// 명령마다 사이트 전체를 다시 검사한다(설계서 4.5절).
+/// </summary>
 public sealed class MainVm : Observable
 {
     public const string TagTab = "태그";
+    public const string SettingsName = "설정";
 
+    public Settings Settings { get; }
     public IReadOnlyList<TabVm> Tabs { get; }
     public IEnumerable<TabVm> TableTabs => Tabs.Where(t => t.Group == 0);
     public IEnumerable<TabVm> OpsTabs => Tabs.Where(t => t.Group == 1);
     public TabVm SettingsTab => Tabs[^1];
+    public TagVm Tag { get; }
+    public SettingsVm Config { get; }
 
-    public MainVm()
+    readonly DispatcherTimer draftTimer;
+    readonly DispatcherTimer noticeTimer;
+
+    public MainVm(Settings settings)
     {
-        Tabs = new[] { ("프로파일", 0), ("IO 맵", 0), (TagTab, 0), ("시퀀스", 0), ("대응표", 0), ("수동", 0), ("이력", 1), ("빌드", 1), ("설정", 2) }
+        Settings = settings;
+        Tabs = new[] { ("프로파일", 0), ("IO 맵", 0), (TagTab, 0), ("시퀀스", 0), ("대응표", 0), ("수동", 0), ("이력", 1), ("빌드", 1), (SettingsName, 2) }
             .Select(t => new TabVm(t.Item1, t.Item2, this)).ToList();
         tab = Tabs.First(t => t.Name == TagTab);
+        Tag = new TagVm(this);
+        Config = new SettingsVm(settings, this);
         GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
+        Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);
+        Redo = new Command(() => Step(h => h.Redo()), () => CanEdit && history?.CanRedo == true);
+        Save = new Command(() => _ = SaveAsync(), () => CanEdit);
+        draftTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        draftTimer.Tick += (_, _) => { draftTimer.Stop(); WriteDraft(); };
+        noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        noticeTimer.Tick += (_, _) => { noticeTimer.Stop(); Notice = null; };
     }
 
     // ---- 열기 ----
@@ -66,11 +88,24 @@ public sealed class MainVm : Observable
     public IReadOnlyList<string> Sites { get => sites; private set => Set(ref sites, value); }
 
     string? siteName;
-    /// <summary>사이트 드롭다운. 바꾸면 그 사이트를 연다.</summary>
+    /// <summary>사이트 드롭다운. 바꾸면(저장 안 한 변경은 물어본 뒤) 그 사이트를 연다.</summary>
     public string? SiteName
     {
         get => siteName;
-        set { if (Set(ref siteName, value) && Repo != null && value != null) _ = TryOpen(() => OpenAsync(Path.Combine(Repo, "site", value), Path.Combine(Repo, "core"))); }
+        set
+        {
+            if (value == null || value == siteName || Repo == null) return;
+            _ = SwitchSiteAsync(value);
+        }
+    }
+
+    async Task SwitchSiteAsync(string name)
+    {
+        var old = siteName;
+        if (!await ConfirmLeaveAsync()) { siteName = old; Raise(nameof(SiteName)); return; }
+        siteName = name;
+        Raise(nameof(SiteName));
+        await TryOpen(() => OpenAsync(Path.Combine(Repo!, "site", name), Path.Combine(Repo!, "core")));
     }
 
     bool empty = true;
@@ -102,16 +137,19 @@ public sealed class MainVm : Observable
         return OpenAsync(full, null);
     }
 
-    Site? site;
-    public Site? Site { get => site; private set => Set(ref site, value); }
+    EditHistory? history;
+    IReadOnlyDictionary<string, int> baseline = new Dictionary<string, int>();
 
+    public Site? Site => history?.Current;
     public string? CoreVersion => Site?.CoreVersion;
 
-    TagVm? tag;
-    public TagVm? Tag { get => tag; private set => Set(ref tag, value); }
-
     bool busy;
-    public bool IsBusy { get => busy; private set => Set(ref busy, value); }
+    public bool IsBusy { get => busy; private set { if (Set(ref busy, value)) { Raise(nameof(CanEdit)); CommandManager.InvalidateRequerySuggested(); } } }
+
+    string? busyText;
+    /// <summary>오래 걸리는 일(태그 압축 등)의 낱말. 위 줄에 진행 표시와 함께.</summary>
+    public string? BusyText { get => busyText; private set { if (Set(ref busyText, value)) Raise(nameof(HasBusyText)); } }
+    public bool HasBusyText => BusyText != null;
 
     string? openError;
     /// <summary>열기 실패 글(빈 화면에 보인다).</summary>
@@ -135,18 +173,253 @@ public sealed class MainVm : Observable
         try
         {
             if (core != null && !Directory.Exists(core)) core = null;
-            var (s, facts, findings) = await Task.Run(() =>
-            {
-                var s = Site.Open(folder, core);
-                return (s, new Facts(s), Checker.Run(s));
-            });
-            Site = s;
+            var s = await Task.Run(() => Site.Open(folder, core));
+            history = new EditHistory(s);
+            baseline = Baseline(s);
+            packFindings = [];
             Raise(nameof(CoreVersion));
-            Tag = new TagVm(s, facts, findings);
-            SetFindings(s, findings);
+            Refresh(null, draft: false);
             IsEmpty = false;
+            OpenedFolder = folder;
+            Opened?.Invoke();
         }
         finally { IsBusy = false; }
+
+        if (DraftCheck && Site is { } loaded && Drafts.Read(loaded) is { } d)
+        {
+            var lines = d.Files.Select(f => d.Stale.Contains(f) ? f + " · 바뀜" : f).ToList();
+            var key = await Show(new AskVm("초안", lines, [new("drop", "버리기"), new("restore", "복원", Primary: true, Default: true)]));
+            if (key == "restore") Apply(new EditResult(d.Site, null, []));
+            else if (key == "drop") TryDraft(() => Drafts.Clear(loaded));
+        }
+    }
+
+    /// <summary>열 때 초안 묻기(자체 시험은 끈다).</summary>
+    public bool DraftCheck { get; set; } = true;
+
+    public string? OpenedFolder { get; private set; }
+
+    /// <summary>사이트가 열렸다(창이 뮤텍스·제목 등을 맞춘다).</summary>
+    public event Action? Opened;
+
+    static IReadOnlyDictionary<string, int> Baseline(Site s) =>
+        s.ZonesOf("TAG_TABLE_BEGIN").SelectMany(z => z.Body).GroupBy(p => p.Text).ToDictionary(g => g.Key, g => g.Count());
+
+    // ---- 편집 ----
+
+    public bool CanEdit => Site != null && Dialog == null && !IsBusy;
+
+    /// <summary>명령 결과를 쌓고 다시 그린다. 막히면 까닭을 잠깐 보인다. 성공 여부.</summary>
+    public bool Apply(EditResult r)
+    {
+        if (history == null) return false;
+        if (!r.Ok) { Notify(r.Error ?? "막힘"); return false; }
+        if (ReferenceEquals(r.Site, history.Current)) return true;
+        history.Push(r);
+        Refresh(r.Touched);
+        return true;
+    }
+
+    void Step(Func<EditHistory, Site> f)
+    {
+        if (history == null) return;
+        f(history);
+        Refresh(null);
+    }
+
+    public ICommand Undo { get; }
+    public ICommand Redo { get; }
+    public ICommand Save { get; }
+
+    public int ChangeCount => history?.Changes ?? 0;
+    public bool HasChanges => ChangeCount > 0;
+    public bool Dirty => history?.Dirty == true;
+
+    /// <summary>검사 다시 → 태그 화면·검사 목록·변경 수.</summary>
+    void Refresh(IReadOnlyList<Piece>? touched, bool draft = true)
+    {
+        var s = Site!;
+        var list = Checker.Run(s);
+        Tag.Reload(s, list, baseline, touched);
+        SetFindings(s, list.Concat(packFindings).ToList());
+        Raise(nameof(Site));
+        Raise(nameof(ChangeCount));
+        Raise(nameof(HasChanges));
+        CommandManager.InvalidateRequerySuggested();
+        if (draft) { draftTimer.Stop(); draftTimer.Start(); }
+    }
+
+    /// <summary>초안: 편집을 잠깐 묶어 쓴다. 변경이 없으면 지운다.</summary>
+    void WriteDraft()
+    {
+        if (Site is not { } s) return;
+        TryDraft(() => { if (Dirty) Drafts.Write(s); else Drafts.Clear(s); });
+    }
+
+    void TryDraft(Action a)
+    {
+        try { a(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Notify("초안 못 씀 · " + e.Message); }
+    }
+
+    /// <summary>곧 쓸 초안을 지금 쓴다(닫기·시험).</summary>
+    public void FlushDraft()
+    {
+        if (!draftTimer.IsEnabled) return;
+        draftTimer.Stop();
+        WriteDraft();
+    }
+
+    string? notice;
+    /// <summary>막힌 명령의 까닭(위 줄에 4초).</summary>
+    public string? Notice { get => notice; private set { if (Set(ref notice, value)) Raise(nameof(HasNotice)); } }
+    public bool HasNotice => Notice != null;
+
+    public void ClearNotice()
+    {
+        noticeTimer.Stop();
+        Notice = null;
+    }
+
+    public void Notify(string text)
+    {
+        Notice = text;
+        noticeTimer.Stop();
+        noticeTimer.Start();
+    }
+
+    // ---- 저장 ----
+
+    IReadOnlyList<Finding> packFindings = [];
+
+    /// <summary>
+    /// [저장](Ctrl+S): 오류가 있으면 검사 목록의 첫 오류로 가서 고른다(저장 안 함, 초안은 남는다).
+    /// 바깥에서 바뀌었으면 팝업. 저장소로 열었으면 저장 뒤 태그 압축(실패는 검사 목록에). 저장했는가.
+    /// </summary>
+    public async Task<bool> SaveAsync()
+    {
+        if (Site is not { } s || !CanEdit) return false;
+        IsBusy = true;
+        SaveResult r;
+        try { r = await Task.Run(() => SaveFiles.Save(s)); }
+        finally { IsBusy = false; }
+
+        if (r.Status == SaveStatus.Conflict)
+        {
+            var key = await Show(new AskVm("바깥에서 바뀜", r.Conflicts,
+                [new("reload", "다시 읽기"), new("overwrite", "내 것으로 덮기"), new("cancel", "취소", Default: true)]));
+            if (key == "reload") { await TryOpen(() => OpenAsync(s.Folder, s.CoreFolder)); return false; }
+            if (key != "overwrite") return false;
+            IsBusy = true;
+            try { r = await Task.Run(() => SaveFiles.Save(s, overwrite: true)); }
+            finally { IsBusy = false; }
+        }
+
+        switch (r.Status)
+        {
+            case SaveStatus.Errors:
+                if (Findings.FirstOrDefault(f => f.IsError) is { } first) Go(first);
+                Notify(r.Reason ?? "검사 오류");
+                return false;
+            case SaveStatus.Failed:
+                await Show(new AskVm("저장 실패", [r.Reason ?? ""], [new("ok", "닫기", Primary: true, Default: true)]));
+                return false;
+            case SaveStatus.NoChange:
+                return true;
+        }
+
+        history!.MarkSaved(r.Site);
+        baseline = Baseline(r.Site);
+        packFindings = [];
+        Refresh(null, draft: false);
+        if (Repo != null && siteName != null) await PackAsync(Repo, siteName);
+        await AfterSaveAsync(r);
+        return true;
+    }
+
+    /// <summary>태그 압축(사양 7.2절 3). 진행 표시, 화면은 멈추지 않는다. 실패하면 검사 목록에 올린다.</summary>
+    async Task PackAsync(string root, string site)
+    {
+        BusyText = "태그 압축";
+        IsBusy = true;
+        try
+        {
+            var pr = await SitePack.RunAsync(root, site, Settings.GccPath);
+            if (!pr.Ok) packFindings = [new Finding("압축", Severity.Error, "tag_packed.c", null, null, $"{pr.Step} · {pr.Reason}", [], [])];
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            packFindings = [new Finding("압축", Severity.Error, "tag_packed.c", null, null, e.Message, [], [])];
+        }
+        finally
+        {
+            IsBusy = false;
+            BusyText = null;
+        }
+        if (packFindings.Count > 0 && Site is { } s) SetFindings(s, Checker.Run(s).Concat(packFindings).ToList());
+    }
+
+    /// <summary>저장 뒤 할 일을 붙이는 자리(깃 커밋은 작업 6 이 여기에 붙인다). 지금은 아무것도 안 한다.</summary>
+    static Task AfterSaveAsync(SaveResult saved) => Task.CompletedTask;
+
+    /// <summary>저장 안 한 변경이 있으면 [저장][버리기][취소]. 나가도 되는가.</summary>
+    public async Task<bool> ConfirmLeaveAsync()
+    {
+        if (!Dirty) return true;
+        var key = await Show(new AskVm("저장 안 함", [$"변경 {ChangeCount}"],
+            [new("save", "저장", Primary: true), new("drop", "버리기"), new("cancel", "취소", Default: true)]));
+        if (key == "save") return await SaveAsync();
+        if (key == "drop")
+        {
+            draftTimer.Stop();
+            if (Site is { } s) TryDraft(() => Drafts.Clear(s));
+            return true;
+        }
+        return false;
+    }
+
+    // ---- 팝업 ----
+
+    DialogVm? dialog;
+    public DialogVm? Dialog
+    {
+        get => dialog;
+        private set { if (Set(ref dialog, value)) { Raise(nameof(HasDialog)); Raise(nameof(CanEdit)); CommandManager.InvalidateRequerySuggested(); } }
+    }
+
+    public bool HasDialog => Dialog != null;
+
+    public async Task<string?> Show(DialogVm d)
+    {
+        var prev = Dialog;
+        Dialog = d;
+        DialogShown?.Invoke(d);
+        try { return await d.Result; }
+        finally { Dialog = prev; }
+    }
+
+    /// <summary>팝업이 떴다(자체 시험·캡처가 기다린다).</summary>
+    public event Action<DialogVm>? DialogShown;
+
+    public async Task AddRowsAsync()
+    {
+        if (Site is not { } s) return;
+        var vm = new AddVm(s, Tag.SelectedRows);
+        if (await Show(vm) == "ok") Apply(TagEdit.Add(s, vm.Tags, vm.ProfileList, vm.Template.Rule, vm.Mode));
+    }
+
+    public async Task EditConditionAsync(TagRowVm row)
+    {
+        if (Site is not { } s || row.Rule == null || !CanEdit) return;
+        var vm = new CondVm(row.Rule, s.Names);
+        if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, row.Rule, vm.X, vm.Input));
+    }
+
+    public async Task EditRawAsync(Piece p)
+    {
+        if (Site is not { } s || !Settings.Advanced) return;
+        var vm = new RawVm(p.Text.TrimEnd('\r', '\n'));
+        if (await Show(vm) == "ok") Apply(SiteEdit.ReplaceText(s, p, vm.Text));
     }
 
     // ---- 검사 목록 ----
@@ -165,7 +438,7 @@ public sealed class MainVm : Observable
 
     void SetFindings(Site s, IReadOnlyList<Finding> list)
     {
-        Findings = list.OrderBy(f => f.Severity).Select(f => new FindingVm(f, At(s, f), TabOf(s, f))).ToList();
+        Findings = list.OrderBy(f => f.Severity).Select(f => new FindingVm(f, At(s, f), TabOf(f))).ToList();
         foreach (var t in Tabs)
         {
             t.Errors = Findings.Count(f => f.Tab == t && f.IsError);
@@ -177,7 +450,7 @@ public sealed class MainVm : Observable
         Raise(nameof(HasWarns));
     }
 
-    TabVm? TabOf(Site s, Finding f)
+    TabVm? TabOf(Finding f)
     {
         var zone = f.Piece?.Zone;
         string? name = zone switch
@@ -189,7 +462,7 @@ public sealed class MainVm : Observable
             "MANUAL_BEGIN" => "수동",
             _ => f.File switch
             {
-                "tag_table.c" or "tag_custom.h" => TagTab,
+                "tag_table.c" or "tag_custom.h" or "tag_packed.c" => TagTab,
                 "seq_table.c" or "act_table.c" or "seq_custom.h" or "act_ids.h" => "시퀀스",
                 "profiles.c" or "site.h" => "프로파일",
                 "manual_table.c" => "수동",
@@ -209,7 +482,7 @@ public sealed class MainVm : Observable
             if (z.Open == "TAG_TABLE_BEGIN")
             {
                 var r = new TagRule(st);
-                return $"태그 {BlockBuilderText(r.FirstArg.Text)} · {(r.AnyProfile ? TagVm.AllProfiles : r.Profile)} · {n}줄";
+                return $"태그 {Blocks.BlockBuilder.Collapse(r.FirstArg.Text)} · {(r.AnyProfile ? TagVm.AllProfiles : r.Profile)} · {n}줄";
             }
             var what = z.Open switch
             {
@@ -220,8 +493,6 @@ public sealed class MainVm : Observable
         }
         return f.Line > 0 ? $"{f.File}:{f.Line}" : f.File;
     }
-
-    static string BlockBuilderText(string s) => Blocks.BlockBuilder.Collapse(s);
 
     // ---- 탭 ----
 
@@ -236,30 +507,35 @@ public sealed class MainVm : Observable
             old.Changed();
             value.Changed();
             Raise(nameof(IsTagTab));
+            Raise(nameof(IsSettingsTab));
+            Raise(nameof(IsOtherTab));
+            if (IsSettingsTab && Config.Tools.Count == 0 && Settings.Volatile == false) _ = Config.ProbeAsync();
         }
     }
 
     public bool IsTagTab => Tab.Name == TagTab;
+    public bool IsSettingsTab => Tab.Name == SettingsName;
+    public bool IsOtherTab => !IsTagTab && !IsSettingsTab;
 
     public ICommand GoTo { get; }
 
     /// <summary>검사 줄을 누르면 그 탭·그 줄로 가서 고른다.</summary>
-    void Go(FindingVm f)
+    public void Go(FindingVm f)
     {
         if (f.Tab != null) Tab = f.Tab;
-        if (f.Tab?.Name == TagTab && f.Finding.Piece is { } p) Tag?.SelectPiece(p);
+        if (f.Tab?.Name == TagTab && f.Finding.Piece is { } p) Tag.SelectPiece(p);
         Went?.Invoke(f);
     }
 
     /// <summary>줄로 간 뒤 화면이 스크롤·포커스를 맞춘다.</summary>
     public event Action<FindingVm>? Went;
 
+    /// <summary>설정 화면 [폴더]: 창이 폴더 고르기를 띄운다.</summary>
+    public Action? PickRepoRequested { get; set; }
+
     // ---- 위 줄 ----
 
-    public int ChangeCount => 0;
-    public bool HasChanges => ChangeCount > 0;
     public ICommand Pull { get; } = Command.None;
-    public ICommand Save { get; } = Command.None;
     public ICommand Push { get; } = Command.None;
     public ICommand Build { get; } = Command.None;
 }

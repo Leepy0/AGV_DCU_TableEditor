@@ -8,37 +8,38 @@ using TableEditor.Engine.Text;
 namespace TableEditor.App.Blocks;
 
 /// <summary>
-/// 문법 표(<see cref="GrammarTable"/>)의 칸 종류만 보고 블록·칩을 만든다. 매크로마다 따로 짠 화면이 없다(설계서 6절).
+/// 문법 표(<see cref="GrammarTable"/>)의 칸 종류·라벨·팔레트만 보고 블록·칩을 만든다. 매크로마다 따로 짠 화면이 없다(설계서 6절).
 /// </summary>
-public sealed partial class BlockBuilder(Facts facts, IReadOnlyList<Finding> findings)
+public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> findings)
 {
-    NameDict Names => facts.Names;
-
     // ---- 태그 동작 ----
 
-    /// <summary>태그 규칙 동작 인자 하나 → 블록.</summary>
-    public BlockVm Action(Statement st, Arg a)
+    /// <summary>태그 동작 칸에 올 수 있는 문법 줄(칸을 차지하는 것).</summary>
+    public static IEnumerable<GrammarEntry> ActionRows(string name) => GrammarTable.Find(name, Place.TagAction).Where(r => r.TagCells > 0);
+
+    /// <summary>태그 규칙 동작 인자 하나 → 블록. index = 동작 순번.</summary>
+    public BlockVm Action(Statement st, Arg a, int index)
     {
         var (name, args) = Split(a.Node);
-        var entry = name == null ? null : facts.FitRow(GrammarTable.Find(name, Place.TagAction).Where(r => r.TagCells > 0), args);
+        var entry = name == null ? null : Facts.Fit(ActionRows(name), args);
         var mark = MarkOf(st, a);
         if (entry == null)
         {
-            if (Names.Value(a.Node) == 0) // NO_ACTION: 여기서 멈춤
-                return new BlockVm { Head = "동작 없음", Cat = "etc", Parts = [], Fields = [], Cells = 0, Arg = a, Mark = mark };
-            return RawBlock(a.Text, a, mark);
+            if (names.Value(a.Node) == 0) // NO_ACTION: 여기서 멈춤
+                return new BlockVm { Head = "동작 없음", Cat = "기타", Parts = [], Fields = [], Cells = 0, Arg = a, Mark = mark, Index = index };
+            return RawBlock(a.Text, a, mark, index);
         }
         return new BlockVm
         {
-            Head = entry.Head, Cat = Palette.Of(entry.Name), Parts = PartsOf(entry, args, true),
-            Fields = FieldsOf(entry, args), Cells = entry.TagCells, Arg = a, Mark = mark,
+            Head = entry.Head, Cat = entry.Palette, Parts = PartsOf(entry, args, true),
+            Fields = FieldsOf(entry, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
         };
     }
 
     /// <summary>원문 블록: 회색, 첫 줄만.</summary>
-    public static BlockVm RawBlock(string text, Arg? a = null, Severity? mark = null) => new()
+    public static BlockVm RawBlock(string text, Arg? a = null, Severity? mark = null, int index = -1) => new()
     {
-        Head = "", Cat = "raw", Raw = true, Parts = [new(null, FirstLine(text), null)], Fields = [], Cells = 1, Arg = a, Mark = mark,
+        Head = "", Cat = "raw", Raw = true, Parts = [new(null, FirstLine(text), null)], Fields = [], Cells = 1, Arg = a, Mark = mark, Index = index,
     };
 
     Severity? MarkOf(Statement st, Arg a)
@@ -84,19 +85,18 @@ public sealed partial class BlockBuilder(Facts facts, IReadOnlyList<Finding> fin
 
     /// <summary>
     /// 블록 안 값들. 처음·끝 짝은 <c>a–b</c>(같으면 하나), 각도는 <c>°</c>, 틱은 옆에 초를 작게,
-    /// 숫자 칸이 둘 이상인 매크로의 숫자 글자 앞에는 작은 라벨(목업의 <c>출발 1</c>).
+    /// 숫자 칸이 둘 이상인 매크로의 숫자 글자 앞에는 작은 라벨(목업의 <c>출발 1</c>). 안쪽 묶음은 첫 값 앞에 그 머리.
     /// </summary>
     List<Part> PartsOf(GrammarEntry e, IReadOnlyList<Arg> args, bool action)
     {
         var specs = Facts.Expand(e, args.Count) ?? [];
-        var labels = Expand(Labels(e), e, args.Count);
         int numbers = specs.Count(s => s.Kind is ArgKind.Number or ArgKind.Time or ArgKind.StopDist);
         var parts = new List<Part>();
         for (int i = 0; i < args.Count && i < specs.Count; i++)
         {
             var spec = specs[i];
             var a = args[i];
-            if (i + 1 < args.Count && Starts.Contains(labels[i]) && Ends.Contains(labels[i + 1]))
+            if (i + 1 < args.Count && i + 1 < specs.Count && Starts.Contains(spec.Label) && Ends.Contains(specs[i + 1].Label))
             {
                 var (x, y) = (Collapse(a.Text), Collapse(args[i + 1].Text));
                 parts.Add(new(null, x == y ? x : $"{x}–{y}", null));
@@ -110,7 +110,7 @@ public sealed partial class BlockBuilder(Facts facts, IReadOnlyList<Finding> fin
                 if (sub.Count == 0) parts.Add(new(null, ie.Head, null));
                 else
                 {
-                    if (!action) sub[0] = sub[0] with { Label = ie.Head };
+                    sub[0] = sub[0] with { Label = ie.Head };
                     parts.AddRange(sub);
                 }
                 continue;
@@ -122,51 +122,45 @@ public sealed partial class BlockBuilder(Facts facts, IReadOnlyList<Finding> fin
             }
             var text = Collapse(a.Text);
             if (spec.Unit == "도") parts.Add(new(null, text + "°", null));
-            else if (spec.Unit == "틱") parts.Add(new(null, text, Seconds(a.Node)));
-            else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(labels, i), text, null));
+            else if (spec.Unit == "틱") parts.Add(new(null, text, Seconds(names, a.Node)));
+            else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(specs, i), text, null));
             else if (SuffixUnits.Contains(spec.Unit) && a.Node is NumberNode) parts.Add(new(null, text, spec.Unit));
             else parts.Add(new(null, text, null));
         }
         return parts;
     }
 
-    /// <summary>선택 줄 칸: 라벨 + 값(원문 글자) + 작은 단위.</summary>
-    List<Field> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args)
+    /// <summary>선택 줄 칸: 인자마다 하나. 안쪽 묶음(센서 등)은 그 칸들로 편다.</summary>
+    List<FieldInfo> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args)
     {
         var specs = Facts.Expand(e, args.Count) ?? [];
-        var labels = Expand(Labels(e), e, args.Count);
-        var list = new List<Field>();
+        var list = new List<FieldInfo>();
         for (int i = 0; i < args.Count && i < specs.Count; i++)
         {
-            var s = specs[i];
-            string? small = s.Unit switch
-            {
-                "도" => "°",
-                "틱" => Seconds(args[i].Node),
-                "cm" or "초" or "m/min" => s.Unit,
-                _ => null,
-            };
-            bool mono = s.Kind is ArgKind.Number or ArgKind.Time or ArgKind.Timeout or ArgKind.StopDist or ArgKind.AcsNumber;
-            list.Add(new(labels[i], Collapse(args[i].Text), small, mono));
+            var (name, inner) = Split(args[i].Node);
+            if (args[i].Node is CallNode && name != null && InnerFor(specs[i].Kind, name, inner) is { } ie && ie.Args.Count > 0)
+                list.AddRange(FieldsOf(ie, inner));
+            else list.Add(new(specs[i].Label, args[i], specs[i]));
         }
         return list;
     }
 
-    string? Seconds(Node n) => Names.Value(n) is long v ? (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) : null;
+    /// <summary>틱 → 초 글자(300 → 3.00).</summary>
+    public static string? Seconds(NameDict names, Node n) => names.Value(n) is long v ? (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) : null;
 
     /// <summary>작은 라벨: 라벨의 끝 낱말(<c>자동 출발</c> → <c>출발</c>). 앞 칸과 겹치면 전부.</summary>
-    static string Short(IReadOnlyList<string> labels, int i)
+    static string Short(IReadOnlyList<ArgSpec> specs, int i)
     {
-        var last = labels[i].Split(' ')[^1];
-        return labels.Take(i).Contains(last) ? labels[i] : last;
+        var last = specs[i].Label.Split(' ')[^1];
+        return last.Length < 2 || specs.Take(i).Any(s => s.Label == last) ? specs[i].Label : last; // 회전 뒤 → 뒤 는 뜻이 없다
     }
 
     // ---- 문법 줄 고르기 ----
 
-    GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, Place place) =>
-        facts.FitRow(GrammarTable.Find(name, place).Where(r => r.Role != Role.Statement), args);
+    static GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, Place place) =>
+        Facts.Fit(GrammarTable.Find(name, place).Where(r => r.Role != Role.Statement), args);
 
-    GrammarEntry? InnerFor(ArgKind kind, string name, IReadOnlyList<Arg> args)
+    static GrammarEntry? InnerFor(ArgKind kind, string name, IReadOnlyList<Arg> args)
     {
         Place? place = kind switch
         {
@@ -184,65 +178,6 @@ public sealed partial class BlockBuilder(Facts facts, IReadOnlyList<Finding> fin
         NameNode m => (m.Name, []),
         _ => (null, []),
     };
-
-    // ---- 칸 라벨: 문법 표의 꼴 글자에서 ----
-
-    static readonly Dictionary<GrammarEntry, string[]> labelCache = new(ReferenceEqualityComparer.Instance);
-
-    /// <summary>
-    /// 칸마다 라벨(문법 줄의 칸 하나에 하나). 꼴 글자(<c>AGV_TURN( 방향, 각도, … )</c>)의 괄호 안을 쉼표로 나눈다.
-    /// 꼴이 <c>( … )</c> 처럼 줄여 적혀 수가 안 맞으면 같은 이름의 다른 줄에서 가져온다.
-    /// </summary>
-    static string[] Labels(GrammarEntry e)
-    {
-        lock (labelCache)
-        {
-            if (labelCache.TryGetValue(e, out var c)) return c;
-            var got = FromForm(e.Form);
-            if (got.Length != e.Args.Count)
-                got = GrammarTable.Find(e.Name).Select(r => FromForm(r.Form)).FirstOrDefault(l => l.Length == e.Args.Count)
-                      ?? e.Args.Select(a => a.Unit).ToArray();
-            return labelCache[e] = got;
-        }
-    }
-
-    static string[] FromForm(string form)
-    {
-        int open = form.IndexOf('('), close = form.LastIndexOf(')');
-        if (open < 0 || close <= open) return [];
-        var body = form[(open + 1)..close].Replace("[", "").Replace("]", "");
-        var list = new List<string>();
-        int depth = 0, start = 0;
-        for (int i = 0; i <= body.Length; i++)
-        {
-            if (i < body.Length && body[i] == '(') depth++;
-            else if (i < body.Length && body[i] == ')') depth--;
-            else if (i == body.Length || body[i] == ',' && depth == 0)
-            {
-                var t = body[start..i].Trim().TrimEnd('…').Trim();
-                if (t.Contains('(')) t = GrammarTable.Find(t[..t.IndexOf('(')].Trim()).FirstOrDefault()?.Head ?? t;
-                if (t.Length > 0 && t != "…") list.Add(t);
-                start = i + 1;
-            }
-        }
-        return list.ToArray();
-    }
-
-    /// <summary>라벨을 실제 인자 수로 편다(<see cref="Facts.Expand"/> 와 같은 차례).</summary>
-    static List<string> Expand(string[] labels, GrammarEntry e, int n)
-    {
-        var list = new List<string>(n);
-        int extra = n - e.MinArgs;
-        for (int k = 0; k < e.Args.Count; k++)
-        {
-            var a = e.Args[k];
-            int m = a.Least + Math.Max(0, Math.Min(a.Most - a.Least, extra));
-            extra -= m - a.Least;
-            for (int i = 0; i < m; i++) list.Add(k < labels.Length ? labels[k] : "");
-        }
-        while (list.Count < n) list.Add("");
-        return list;
-    }
 
     // ---- 글자 ----
 
