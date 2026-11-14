@@ -4,4 +4,8 @@
     <RootNamespace>TableEditor.Engine</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="TableEditor.Tests" />
+  </ItemGroup>
+
 </Project>
