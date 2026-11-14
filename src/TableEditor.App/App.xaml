@@ -1,0 +1,17 @@
+<Application x:Class="TableEditor.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:TableEditor.App.Views"
+             ShutdownMode="OnMainWindowClose">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- .NET 내장 Fluent(라이트) 위에 목업 값만 덮는다 -->
+                <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Light.xaml"/>
+                <ResourceDictionary Source="Theme/Theme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <v:CatBrush x:Key="CatBrush"/>
+            <v:Shown x:Key="Shown"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,216 @@
+<Window x:Class="TableEditor.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="clr-namespace:TableEditor.App.Views"
+        xmlns:vm="clr-namespace:TableEditor.App.ViewModels"
+        Title="표 편집기" Width="1280" Height="932" MinWidth="960" MinHeight="600"
+        Background="{StaticResource Bg}" FontFamily="{StaticResource Ui}" FontSize="{StaticResource Fs.Body}"
+        Foreground="{StaticResource Text}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal">
+    <Window.Resources>
+        <!-- 탭 하나: 이름 + 오류·경고 수 -->
+        <DataTemplate x:Key="TabT" DataType="vm:TabVm">
+            <RadioButton Style="{StaticResource Nav}" IsChecked="{Binding IsSelected}" AutomationProperties.Name="{Binding Name}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" TextElement.FontSize="{StaticResource Fs.Small}"
+                                TextElement.FontWeight="{StaticResource Semi}">
+                        <StackPanel Orientation="Horizontal" Visibility="{Binding HasErrors, Converter={StaticResource Shown}}">
+                            <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R4}"/>
+                            <TextBlock Text="{Binding Errors}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.L4}" Visibility="{Binding HasWarns, Converter={StaticResource Shown}}">
+                            <Image Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R4}"/>
+                            <TextBlock Text="{Binding Warns}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                </DockPanel>
+            </RadioButton>
+        </DataTemplate>
+
+        <!-- 검사 목록 한 줄 -->
+        <DataTemplate x:Key="FindingT" DataType="vm:FindingVm">
+            <Grid x:Name="Row" Height="{StaticResource CheckRowHeight}" Background="Transparent">
+                <Grid.InputBindings>
+                    <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.GoTo, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"/>
+                </Grid.InputBindings>
+                <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
+                <Grid Margin="{StaticResource Pad.Check}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Col.FIcon}"/>
+                        <ColumnDefinition Width="{StaticResource Col.FRule}"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Image x:Name="Ico" Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" HorizontalAlignment="Left"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Rule}" Style="{StaticResource T.Faint}" FontFamily="{StaticResource Mono}"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Text}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="3" Text="{Binding At}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.L12}"/>
+                </Grid>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsError}" Value="True">
+                    <Setter TargetName="Ico" Property="Source" Value="{StaticResource IconErr}"/>
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource ErrBg}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource AccentBg}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Window.InputBindings>
+        <KeyBinding Key="F6" Command="{x:Static v:MainWindow.SwitchPane}"/>
+        <KeyBinding Key="F6" Modifiers="Shift" Command="{x:Static v:MainWindow.SwitchPane}"/>
+    </Window.InputBindings>
+
+    <Grid x:Name="Root" Background="{StaticResource Bg}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="{StaticResource TopHeightLength}"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 위 줄 -->
+        <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}">
+            <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource SiteWidth}" FontWeight="{StaticResource Semi}"
+                      VerticalAlignment="Center" Margin="{StaticResource Gap.R8}" ItemsSource="{Binding Sites}" SelectedItem="{Binding SiteName}"
+                      AutomationProperties.Name="사이트"/>
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding CoreVersion, Converter={StaticResource Shown}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="코어" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding CoreVersion}" Style="{StaticResource ChipValue}"/>
+                </StackPanel>
+            </Border>
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding HasRepo, Converter={StaticResource Shown}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="깃" VerticalAlignment="Center"/>
+                    <TextBlock Text="—" Style="{StaticResource ChipValue}"/>
+                </StackPanel>
+            </Border>
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="{StaticResource Dot}" Height="{StaticResource Dot}" Fill="{StaticResource Accent}" Margin="{StaticResource Gap.R6}"
+                             VerticalAlignment="Center" Visibility="{Binding HasChanges, Converter={StaticResource Shown}}"/>
+                    <TextBlock Text="변경" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ChangeCount}" Style="{StaticResource ChipValue}"/>
+                </StackPanel>
+            </Border>
+
+            <Button DockPanel.Dock="Right" Content="빌드" Style="{StaticResource Btn}" Command="{Binding Build}" IsEnabled="{Binding HasRepo}"/>
+            <Button DockPanel.Dock="Right" Content="올리기" Style="{StaticResource Btn}" Command="{Binding Push}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
+            <Grid DockPanel.Dock="Right" Margin="{StaticResource Gap.R8}" VerticalAlignment="Center">
+                <Button Content="저장" Style="{StaticResource Btn.Primary}" Command="{Binding Save}"/>
+                <Border Style="{StaticResource Badge}" Visibility="{Binding HasErrors, Converter={StaticResource Shown}}">
+                    <TextBlock Text="{Binding ErrorCount}" Style="{StaticResource BadgeText}"/>
+                </Border>
+            </Grid>
+            <Button DockPanel.Dock="Right" Content="받기" Style="{StaticResource Btn}" Command="{Binding Pull}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
+        </DockPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{StaticResource NavWidthLength}"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 왼쪽 탭 -->
+            <DockPanel Margin="{StaticResource Pad.Nav}" KeyboardNavigation.TabNavigation="Once" KeyboardNavigation.DirectionalNavigation="Contained">
+                <ContentPresenter DockPanel.Dock="Bottom" Content="{Binding SettingsTab}" ContentTemplate="{StaticResource TabT}"/>
+                <StackPanel>
+                    <TextBlock Text="표" Style="{StaticResource T.Faint}" FontSize="{StaticResource Fs.Tiny}" Margin="{StaticResource Pad.NavLabel}"/>
+                    <ItemsControl ItemsSource="{Binding TableTabs}" ItemTemplate="{StaticResource TabT}" Focusable="False"/>
+                    <Border Height="{StaticResource Hair}" Background="{StaticResource Line2}" Margin="{StaticResource NavRule}"/>
+                    <ItemsControl ItemsSource="{Binding OpsTabs}" ItemTemplate="{StaticResource TabT}" Focusable="False"/>
+                </StackPanel>
+            </DockPanel>
+
+            <!-- 본문 -->
+            <Border Grid.Column="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.Main}"
+                    CornerRadius="{StaticResource R.Main}" ClipToBounds="True">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <v:TagView x:Name="TagPane" DataContext="{Binding Tag}"
+                               Visibility="{Binding DataContext.IsTagTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <TextBlock Text="준비 중" Style="{StaticResource T.Empty}"
+                               Visibility="{Binding IsTagTab, Converter={StaticResource Shown}, ConverterParameter=not}"/>
+
+                    <!-- 검사 목록 -->
+                    <Border Grid.Row="1" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}">
+                        <DockPanel>
+                            <ToggleButton DockPanel.Dock="Top" Style="{StaticResource Fold}" IsChecked="{Binding CheckOpen}" AutomationProperties.Name="검사">
+                                <Grid Height="{StaticResource CheckHeadHeight}">
+                                    <Border BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.Bottom}"/>
+                                    <DockPanel Margin="{StaticResource Pad.Check}" TextElement.FontSize="{StaticResource Fs.Small}" TextElement.FontWeight="{StaticResource Semi}">
+                                        <Path x:Name="Chev" DockPanel.Dock="Right" Data="{StaticResource Chevron}" Stroke="{StaticResource Text2}" StrokeThickness="{StaticResource Chev.Stroke}"
+                                              VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CheckOpen}" Value="False">
+                                                            <Setter Property="RenderTransform"><Setter.Value><RotateTransform Angle="180"/></Setter.Value></Setter>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                        <TextBlock Text="검사" VerticalAlignment="Center" Margin="{StaticResource Gap.R16}"/>
+                                        <!-- 0 이면 아이콘 없이 흐린 글(정상 화면에 빨강·노랑 없음) -->
+                                        <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.R16}">
+                                            <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R6}"
+                                                   Visibility="{Binding HasErrors, Converter={StaticResource Shown}}"/>
+                                            <TextBlock VerticalAlignment="Center"><Run Text="오류 "/><Run Text="{Binding ErrorCount, Mode=OneWay}"/>
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource Text3}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasErrors}" Value="True"><Setter Property="Foreground" Value="{StaticResource Err}"/></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Image Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R6}"
+                                                   Visibility="{Binding HasWarns, Converter={StaticResource Shown}}"/>
+                                            <TextBlock VerticalAlignment="Center"><Run Text="경고 "/><Run Text="{Binding WarnCount, Mode=OneWay}"/>
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource Text3}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasWarns}" Value="True"><Setter Property="Foreground" Value="{StaticResource Warn}"/></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Grid>
+                            </ToggleButton>
+                            <ListBox x:Name="Checks" Style="{StaticResource Rows}" ItemContainerStyle="{StaticResource RowItem}" MaxHeight="{StaticResource CheckListMax}"
+                                     ItemsSource="{Binding Findings}" ItemTemplate="{StaticResource FindingT}" AutomationProperties.Name="검사 목록"
+                                     Visibility="{Binding CheckOpen, Converter={StaticResource Shown}}">
+                                <ListBox.InputBindings>
+                                    <KeyBinding Key="Enter" Command="{Binding GoTo}" CommandParameter="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=ListBox}}"/>
+                                </ListBox.InputBindings>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- 빈 화면: 폴더 고르기 하나 -->
+            <Grid Grid.ColumnSpan="2" Background="{StaticResource Bg}" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button Content="폴더 열기" Style="{StaticResource Btn.Primary}" Width="{StaticResource EmptyButtonWidth}" Click="OnPickFolder"
+                            Visibility="{Binding IsBusy, Converter={StaticResource Shown}, ConverterParameter=not}"/>
+                    <TextBlock Text="{Binding OpenError}" Foreground="{StaticResource Err}" FontSize="{StaticResource Fs.Small}" HorizontalAlignment="Center"
+                               Margin="{StaticResource Gap.T12}" Visibility="{Binding OpenError, Converter={StaticResource Shown}}"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
