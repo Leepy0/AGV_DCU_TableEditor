@@ -113,6 +113,302 @@ static class GitTests
         A18(check);
         Core(check);
         LogRules(check);
+        KeepUntracked(check);
+        PushHeld(check);
+        WorktreeAbort(check);
+        Classify(check);
+        PushUrls(check);
+        Guards(check);
+        Values(check);
+        RoundRollback(check);
+        ReadmeEol(check);
+    }
+
+    // ---- 작업 8(독립 검토)에서 찾은 결함 ----
+
+    /// <summary>1: 보관하고 원격 받기 — 깃이 모르는 내 파일이 원격에도 있으면 덮지 않는다.</summary>
+    static void KeepUntracked(Action<bool, string> check)
+    {
+        using var fx = Make();
+        const string New = "site/T901_NEW/site.h";
+        Write(fx.A, New, "남의 것\n");
+        G(fx.A, "add", "--", "site/T901_NEW");
+        G(fx.A, "commit", "-q", "-m", "남의 새 사이트");
+        G(fx.A, "push", "-q", "origin", "master");
+        Write(fx.B, New, "내 것(커밋 안 함)\n");
+        G(fx.B, "fetch", "-q", "origin");
+        var r = Wait(fx.Gb.KeepMineAndResetAsync());
+        check(r.Outcome == GitOutcome.Dirty && r.Files.SequenceEqual([New]), $"1 깃이 모르는 파일이 원격에 있으면 Dirty ({r.Outcome} {string.Join(",", r.Files)})");
+        check(Read(fx.B, New) == "내 것(커밋 안 함)\n" && Out(fx.B, "rev-parse", "HEAD") != Out(fx.B, "rev-parse", "origin/master"), "1 내 파일 그대로, reset 안 함");
+        check(Out(fx.B, "branch", "--list", "keep/*") == "", "1 보관 가지도 안 만듦");
+        // 원격에 없는 새 파일은 막지 않는다(그대로 남는다)
+        File.Delete(Path.Combine(fx.B, New));
+        Write(fx.B, "notes.txt", "x");
+        var ok = Wait(fx.Gb.KeepMineAndResetAsync());
+        check(ok.Ok && Read(fx.B, "notes.txt") == "x" && Read(fx.B, New) == "남의 것\n", $"1 원격에 없는 새 파일은 그대로 두고 받는다 ({ok.Outcome} {ok.Reason})");
+        LogAll(check, fx);
+    }
+
+    /// <summary>6: 올리기 — 받아서 표가 바뀌면 push 하지 않고 돌려준다. 호출자가 다시 압축·커밋한 뒤 다시 올린다.</summary>
+    static void PushHeld(Action<bool, string> check)
+    {
+        using var fx = Make();
+        Write(fx.A, Packed, "/* 생성물 */\npacked A\n");
+        EditLine(fx.A, "TAG( 1,", "TAG( 11,");
+        Wait(fx.Ga.SaveAsync(Site, "a"));
+        check(Wait(fx.Ga.PushAsync(Site)).Ok, "6 a 올리기");
+        int remote = RemoteCount(fx);
+        Write(fx.B, Packed, "/* 생성물 */\npacked B\n");
+        Write(fx.B, "site/T900_DEMO/site.h", "/* b */\n");
+        Wait(fx.Gb.SaveAsync(Site, "b"));
+        var p = Wait(fx.Gb.PushAsync(Site));
+        check(p.Ok && p.HeadMoved && p.Pending > 0, $"6 받아서 표가 바뀜: push 안 하고 돌려줌 ({p.Outcome} moved={p.HeadMoved} pending={p.Pending})");
+        check(RemoteCount(fx) == remote, "6 원격은 그대로(낡은 생성물을 올리지 않는다)");
+        check(Read(fx.B, Packed).Contains("packed A") && Read(fx.B, Tags).Contains("TAG( 11,") && File.Exists(Path.Combine(fx.B, "site/T900_DEMO/site.h")), "6 작업 폴더는 합쳐짐, 생성물은 원격 것");
+        Write(fx.B, Packed, "/* 생성물 */\npacked AB\n");
+        check(Wait(fx.Gb.CommitPackedAsync(Site)).Outcome == GitOutcome.Ok, "6 다시 만든 생성물 커밋");
+        var q = Wait(fx.Gb.PushAsync(Site));
+        check(q.Outcome == GitOutcome.Ok && q.Pending == 0 && !q.HeadMoved, $"6 다시 올리기 ({q.Outcome} {q.Reason})");
+        check(Out(fx.Base, "--git-dir=" + fx.Remote, "show", "master:" + Packed).Contains("packed AB"), "6 원격의 생성물 = 다시 만든 것");
+        LogAll(check, fx);
+    }
+
+    /// <summary>10: git worktree(.git 이 파일)에서도 충돌 뒤 되돌리기·병합을 취소한다.</summary>
+    static void WorktreeAbort(Action<bool, string> check)
+    {
+        using var fx = Make();
+        G(fx.A, "checkout", "-q", "-b", "park");
+        var wt = Path.Combine(fx.Base, "wt");
+        G(fx.A, "worktree", "add", "-q", wt, "master");
+        check(File.Exists(Path.Combine(wt, ".git")), "10 준비: worktree 의 .git 은 파일");
+        var g = new Git(wt, fx.Remote);
+        EditLine(wt, "TAG( 1,", "TAG( 7,");
+        var a = Wait(g.SaveAsync(Site, "a"));
+        EditLine(wt, "TAG( 7,", "TAG( 8,");
+        Wait(g.SaveAsync(Site, "b"));
+        var rv = Wait(g.RevertAsync(a.Value ?? "0000"));
+        check(rv.Outcome == GitOutcome.Conflict && rv.Files.SequenceEqual([Tags]), $"10 되돌리기 충돌 ({rv.Outcome} {rv.Reason})");
+        check(Wait(g.StatusAsync())!.Clean && !Read(wt, Tags).Contains("<<<<<<<") && Read(wt, Tags).Contains("TAG( 8,"), "10 되돌리기 취소: 작업 폴더 그대로");
+
+        EditLine(fx.B, "TAG( 2,", "TAG( 20,");
+        Wait(fx.Gb.SaveAsync(Site, "남"));
+        check(Wait(fx.Gb.PushAsync(Site)).Ok, "10 준비: 다른 PC 올리기");
+        EditLine(wt, "TAG( 2,", "TAG( 21,");
+        Wait(g.SaveAsync(Site, "나"));
+        var pull = Wait(g.PullAsync(Site));
+        check(pull.Outcome == GitOutcome.Conflict, $"10 받기 충돌 ({pull.Outcome} {pull.Reason})");
+        check(Wait(g.StatusAsync())!.Clean && !Read(wt, Tags).Contains("<<<<<<<") && Read(wt, Tags).Contains("TAG( 21,"), "10 병합 취소: 작업 폴더 그대로");
+        var bad = Git.CheckLog(File.ReadAllLines(g.LogPath));
+        check(bad.Count == 0, "10 git.log 어김: " + string.Join(" | ", bad));
+    }
+
+    /// <summary>13: 거절·로그인 실패는 오프라인(팝업 없음)이 아니다.</summary>
+    static void Classify(Action<bool, string> check)
+    {
+        static GitOutcome C(params string[] err) => Git.Classify(new Git.Run(1, [], err, null));
+        check(C(" ! [remote rejected] master -> master (pre-receive hook declined)") == GitOutcome.Failed, "13 remote rejected = 실패");
+        check(C("remote: Repository not found.", "fatal: repository 'https://example.invalid/a/b.git/' not found") == GitOutcome.Failed, "13 Repository not found = 실패");
+        check(C("fatal: could not read Username for 'https://example.invalid': terminal prompts disabled") == GitOutcome.Login, "13 could not read Username = 로그인");
+        check(C("fatal: terminal prompts disabled") == GitOutcome.Login, "13 terminal prompts disabled = 로그인");
+        check(C("git@example.invalid: Permission denied (publickey).") == GitOutcome.Login, "13 Permission denied = 로그인");
+        check(C("fatal: Authentication failed for 'https://example.invalid/a/b.git/'") == GitOutcome.Login, "13 Authentication failed = 로그인");
+        check(C(" ! [rejected]        master -> master (fetch first)") == GitOutcome.Conflict, "13 원격 앞섬");
+        check(C("fatal: unable to access 'https://example.invalid/': Could not resolve host: example.invalid") == GitOutcome.Offline, "13 망 막힘 = 오프라인");
+        check(C("remote: Permission to a/b.git denied to c.", "fatal: unable to access 'https://example.invalid/a/b.git/': The requested URL returned error: 403") == GitOutcome.Offline,
+            "13 403(사내망 push 막힘) = 오프라인");
+
+        using var fx = Make();
+        Write(fx.Remote, "hooks/pre-receive", "#!/bin/sh\necho 'policy: push denied' >&2\nexit 1\n");
+        EditLine(fx.A, "TAG( 1,", "TAG( 13,");
+        Wait(fx.Ga.SaveAsync(Site, "거절될 것"));
+        var p = Wait(fx.Ga.PushAsync(Site));
+        check(p.Outcome == GitOutcome.Failed && p.Popup && p.Pending == 1, $"13 원격 훅이 거절한 push = 실패(팝업), 대기 1 ({p.Outcome} {p.Reason})");
+        LogAll(check, fx);
+    }
+
+    /// <summary>15: push 주소가 여럿이면 모두 설정의 앱 주소여야 한다.</summary>
+    static void PushUrls(Action<bool, string> check)
+    {
+        using var fx = Make();
+        var other = Path.Combine(fx.Base, "other.git");
+        G(fx.Base, "init", "-q", "--bare", "--initial-branch=master", other);
+        G(fx.A, "remote", "set-url", "--add", "--push", "origin", fx.Remote);
+        G(fx.A, "remote", "set-url", "--add", "--push", "origin", other);
+        int remote = RemoteCount(fx);
+        EditLine(fx.A, "TAG( 1,", "TAG( 15,");
+        Wait(fx.Ga.SaveAsync(Site, "a"));
+        var p = Wait(fx.Ga.PushAsync(Site));
+        check(p.Outcome == GitOutcome.Refused && p.Pending == 1, $"15 둘째 push 주소가 다르면 push 안 함 ({p.Outcome} {p.Reason})");
+        check(RemoteCount(fx) == remote && Out(fx.Base, "--git-dir=" + other, "for-each-ref") == "", "15 어느 원격에도 올라가지 않음");
+        check(!File.ReadAllLines(fx.Ga.LogPath).Any(l => l.Contains("\tpush\t")), "15 push 명령을 부르지 않음");
+        LogAll(check, fx);
+    }
+
+    /// <summary>16: 쓰기 함수는 저장소 맨 위·master·코어 아님일 때만 돈다.</summary>
+    static void Guards(Action<bool, string> check)
+    {
+        using var fx = Make();
+        var ga = fx.Ga;
+        // 가지가 master 가 아니다
+        G(fx.A, "checkout", "-q", "-b", "side");
+        EditLine(fx.A, "TAG( 1,", "TAG( 16,");
+        var head = Out(fx.A, "rev-parse", "HEAD");
+        bool built = false;
+        ImageBuilder b = (app, site, on, ct) => { built = true; return Fake("G")(app, site, on, ct); };
+        var results = new (string What, GitOutcome Outcome)[]
+        {
+            ("저장", Wait(ga.SaveAsync(Site, "x")).Outcome),
+            ("생성물 커밋", Wait(ga.CommitPackedAsync(Site)).Outcome),
+            ("받기", Wait(ga.PullAsync(Site)).Outcome),
+            ("올리기", Wait(ga.PushAsync(Site)).Outcome),
+            ("되돌리기", Wait(ga.RevertAsync(head[..8])).Outcome),
+            ("버리기", Wait(ga.DiscardAsync(Site)).Outcome),
+            ("보관하고 받기", Wait(ga.KeepMineAndResetAsync()).Outcome),
+            ("회차", Wait(Round.RunAsync(ga, Site, b)).Outcome),
+            ("코어 올리기", Wait(CoreUpdate.RunAsync(ga, Site, GrammarTable.Version, null, b)).Outcome),
+        };
+        foreach (var (what, o) in results) check(o == GitOutcome.Refused, $"16 master 아닌 가지: {what} = Refused ({o})");
+        check(!built && Out(fx.A, "rev-parse", "HEAD") == head && Read(fx.A, Tags).Contains("TAG( 16,") && Out(fx.A, "branch", "--list", "keep/*") == "", "16 master 아닌 가지: 아무것도 안 바뀜");
+        G(fx.A, "checkout", "-q", "master");
+        check(Wait(ga.SaveAsync(Site, "master 에서")).Outcome == GitOutcome.Ok, "16 master 로 돌아오면 된다");
+
+        // Root 가 저장소 맨 위가 아니다
+        var sub = new Git(Path.Combine(fx.A, "site"), fx.Remote);
+        EditLine(fx.A, "TAG( 2,", "TAG( 26,");
+        var s = Wait(sub.DiscardAsync(Site));
+        check(s.Outcome == GitOutcome.Refused && Read(fx.A, Tags).Contains("TAG( 26,"), $"16 저장소 맨 위가 아닌 폴더 = Refused ({s.Outcome} {s.Reason})");
+        check(Wait(sub.KeepMineAndResetAsync()).Outcome == GitOutcome.Refused, "16 맨 위 아님: 보관하고 받기 Refused");
+        Wait(ga.DiscardAsync(Site));
+
+        // 저장소가 아니다
+        var none = Path.Combine(fx.Base, "none");
+        Directory.CreateDirectory(none);
+        var n = Wait(new Git(none, fx.Remote).SaveAsync(Site, "x"));
+        check(!n.Ok && n.Popup, $"16 저장소 아님 = 실패 ({n.Outcome})");
+
+        // origin 이 코어 저장소다
+        var core = Path.Combine(fx.Base, "AGV_DCU_Core.git");
+        G(fx.Base, "init", "-q", "--bare", "--initial-branch=master", core);
+        G(fx.B, "remote", "set-url", "origin", core);
+        EditLine(fx.B, "TAG( 1,", "TAG( 36,");
+        var headB = Out(fx.B, "rev-parse", "HEAD");
+        check(Wait(fx.Gb.SaveAsync(Site, "x")).Outcome == GitOutcome.Refused && Wait(fx.Gb.KeepMineAndResetAsync()).Outcome == GitOutcome.Refused
+            && Wait(fx.Gb.SetAuthorAsync("가", "a@t.invalid")).Outcome == GitOutcome.Refused && Wait(fx.Gb.DiscardAsync(Site)).Outcome == GitOutcome.Refused,
+            "16 코어 저장소를 받은 폴더: 쓰기 Refused");
+        check(Out(fx.B, "rev-parse", "HEAD") == headB && Read(fx.B, Tags).Contains("TAG( 36,") && Out(fx.B, "config", "user.name") == "t", "16 코어 폴더: 아무것도 안 바뀜");
+        check(Wait(fx.Gb.StatusAsync()) != null && Wait(fx.Gb.HistoryAsync(Site)).Count > 0, "16 읽기는 된다");
+        LogAll(check, fx);
+    }
+
+    /// <summary>17·21: 값 검사(끝 줄바꿈·전각 숫자), 상태 줄의 따옴표 경로.</summary>
+    static void Values(Action<bool, string> check)
+    {
+        using var fx = Make();
+        var ga = fx.Ga;
+        EditLine(fx.A, "TAG( 1,", "TAG( 17,");
+        foreach (var site in new[] { "T900_DEMO\n", "T９００_DEMO", "T900_DEMO\r" })
+            check(Wait(ga.SaveAsync(site, "x")) is { Outcome: GitOutcome.Failed } r && r.Reason!.Contains("사이트 이름"), "17 사이트 이름 거절: " + site.Trim());
+        var hash = Out(fx.A, "rev-parse", "--short", "HEAD");
+        check(Wait(ga.RevertAsync(hash + "\n")) is { Outcome: GitOutcome.Failed } h && h.Reason!.Contains("해시"), "17 해시 끝 줄바꿈 거절");
+        check(Wait(ga.ShowAsync(hash, Site, "tag_table.c\n")) == null && Wait(ga.ShowAsync(hash + "\n", Site, "tag_table.c")) == null && Wait(ga.ShowAsync(hash, Site, "tag_table.c")) != null, "17 옛 표 보기 값 검사");
+        var cu = Wait(CoreUpdate.RunAsync(ga, Site, GrammarTable.Version + "\n", null, Fake("V")));
+        check(!cu.Ok && cu.Reason!.Contains("버전이 잘못됨"), "17 버전 끝 줄바꿈 거절 · " + cu.Reason);
+        Wait(ga.DiscardAsync(Site));
+
+        const string Spaced = "site/T900_DEMO/새 파일.c";
+        Write(fx.A, Spaced, "x\n");
+        var pull = Wait(ga.PullAsync(Site));
+        check(pull.Outcome == GitOutcome.Dirty && pull.Files.SequenceEqual([Spaced]), $"21 공백 든 새 파일도 사이트 폴더의 변경으로 본다 ({pull.Outcome} {string.Join(",", pull.Files)})");
+        check(Git.StatusPath("?? \"site/a b/c \\\"d\\\".c\"") == "site/a b/c \"d\".c" && Git.StatusPath(" M site/x.c") == "site/x.c" && Git.StatusPath("R  a.c -> \"b c.c\"") == "b c.c", "21 상태 줄 경로 풀기");
+        LogAll(check, fx);
+    }
+
+    /// <summary>5: 회차 내기 — 빌드 전에 .gitignore·작성자를 확인하고, 커밋이 실패하면 release/&lt;사이트&gt; 를 전 상태로 되돌린다.</summary>
+    static void RoundRollback(Action<bool, string> check)
+    {
+        using var fx = Make();
+        var rel = Path.Combine(fx.A, "release", Site);
+        Dictionary<string, string> Snap() => Directory.GetFiles(rel).ToDictionary(f => Path.GetFileName(f)!, f => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f))));
+        var before = Snap();
+        var head = Out(fx.A, "rev-parse", "HEAD");
+        bool Same()
+        {
+            var now = Snap();
+            return now.Count == before.Count && now.All(kv => before.TryGetValue(kv.Key, out var v) && v == kv.Value)
+                && Out(fx.A, "status", "--porcelain=v1") == "" && Out(fx.A, "rev-parse", "HEAD") == head;
+        }
+        bool built = false;
+        ImageBuilder b = (app, site, on, ct) => { built = true; return Fake("R")(app, site, on, ct); };
+
+        // 가: 커밋 훅이 막는다(미리 확인으로 못 거르는 실패) → 이전 회차·README 가 돌아오고 새 파일은 없다
+        var hook = Path.Combine(fx.A, ".git", "hooks", "pre-commit");
+        Write(fx.A, ".git/hooks/pre-commit", "#!/bin/sh\necho 'hook: no' >&2\nexit 1\n");
+        var r = Wait(Round.RunAsync(fx.Ga, Site, b));
+        File.Delete(hook);
+        check(!r.Ok && built, $"5 가: 커밋 실패 ({r.Outcome} {r.Reason})");
+        check(Same(), "5 가: 회차 폴더·올린 것이 전 상태 · " + Out(fx.A, "status", "--porcelain=v1").Replace("\n", " | ") + " · " + string.Join(",", Snap().Keys));
+        var again = Wait(Round.RunAsync(fx.Ga, Site, Fake("R2")));
+        check(again.Ok && again.Number == "04", $"5 가: 그 뒤 회차 내기는 된다 ({again.Outcome} {again.Reason})");
+        before = Snap();
+        head = Out(fx.A, "rev-parse", "HEAD");
+
+        // 나: 작성자가 없다 → 빌드 전에 막는다
+        var empty = Path.Combine(fx.Base, "empty.gitconfig");
+        File.WriteAllText(empty, "");
+        var oldGlobal = Environment.GetEnvironmentVariable("GIT_CONFIG_GLOBAL");
+        var oldSystem = Environment.GetEnvironmentVariable("GIT_CONFIG_NOSYSTEM");
+        Environment.SetEnvironmentVariable("GIT_CONFIG_GLOBAL", empty);
+        Environment.SetEnvironmentVariable("GIT_CONFIG_NOSYSTEM", "1");
+        try
+        {
+            G(fx.A, "config", "--unset", "user.name");
+            G(fx.A, "config", "--unset", "user.email");
+            G(fx.A, "config", "user.useConfigOnly", "true");
+            built = false;
+            var na = Wait(Round.RunAsync(fx.Ga, Site, b));
+            check(!na.Ok && !built && na.Reason!.Contains("작성자"), $"5 나: 작성자 없음은 빌드 전에 막음 ({na.Outcome} {na.Reason})");
+            G(fx.A, "config", "--unset", "user.useConfigOnly");
+            G(fx.A, "config", "user.name", "t");
+            G(fx.A, "config", "user.email", "t@t.invalid");
+            check(Same(), "5 나: 아무것도 안 바뀜");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GIT_CONFIG_GLOBAL", oldGlobal);
+            Environment.SetEnvironmentVariable("GIT_CONFIG_NOSYSTEM", oldSystem);
+        }
+
+        // 다: .gitignore 에 예외 줄이 없는 사이트 → 빌드 전에 막는다. 폴더·README 를 만들지 않는다
+        const string Other = "T902_NOEX";
+        built = false;
+        var ni = Wait(Round.RunAsync(fx.Ga, Other, b));
+        check(!ni.Ok && !built && ni.Reason!.Contains(".gitignore"), $"5 다: .gitignore 예외 없음은 빌드 전에 막음 ({ni.Outcome} {ni.Reason})");
+        var otherDir = Path.Combine(fx.A, "release", Other);
+        check((!Directory.Exists(otherDir) || !Directory.EnumerateFileSystemEntries(otherDir).Any()) && Out(fx.A, "status", "--porcelain=v1") == "", "5 다: 남는 것 없음");
+        LogAll(check, fx);
+    }
+
+    /// <summary>22: README 를 다시 쓸 때 줄마다 읽은 줄 끝을 그대로 둔다.</summary>
+    static void ReadmeEol(Action<bool, string> check)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tedit_git_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var p = Path.Combine(dir, "README.md");
+            const string R3 = "03차 이미지(core v0.0.0, 표 0000000, `agv_900_03.out`, 현장 배포 `agv_900_03_field.out`): 처음";
+            File.WriteAllBytes(p, Utf8.GetBytes("# 제목\r\n\n설명 줄\r\n" + R3 + "\n끝 줄\r\n꼬리"));
+            Git.InsertRoundLine(p, "04차 이미지(x):");
+            check(File.ReadAllText(p, Utf8) == "# 제목\r\n\n설명 줄\r\n04차 이미지(x):\n" + R3 + "\n끝 줄\r\n꼬리", "22 회차 줄 넣기: 다른 줄의 줄 끝 그대로 · " + File.ReadAllText(p, Utf8).Replace("\r", "\\r").Replace("\n", "\\n"));
+            Git.RenumberReadme(p, "agv_900", "03", "05");
+            check(File.ReadAllText(p, Utf8) == "# 제목\r\n\n설명 줄\r\n04차 이미지(x):\n" + R3.Replace("03차", "05차").Replace("agv_900_03", "agv_900_05") + "\n끝 줄\r\n꼬리",
+                "22 회차 번호 올림: 다른 줄의 줄 끝 그대로");
+            File.WriteAllBytes(p, Utf8.GetBytes("# 제목\r\n\r\n설명"));
+            Git.InsertRoundLine(p, "01차 이미지(x):");
+            check(File.ReadAllText(p, Utf8) == "# 제목\r\n\r\n설명\r\n\r\n01차 이미지(x):\r\n", "22 회차 줄이 없던 README: 끝에, 그 파일의 줄 끝으로");
+            check(Git.CombineRoundConflict("a\r\n<<<<<<< HEAD\n05차 이미지(x\r\n=======\n06차 이미지(y\n>>>>>>> o\nb\n끝") == "a\r\n06차 이미지(y\n05차 이미지(x\r\nb\n끝", "22 충돌 합치기: 줄마다 줄 끝 그대로");
+        }
+        finally { Directory.Delete(dir, true); }
     }
 
     static void LogAll(Action<bool, string> check, Fx fx)

@@ -55,35 +55,38 @@ public sealed partial class Git
         return null;
     }
 
-    /// <summary>"nn차 이미지(" 로 시작하는 줄만: 머리 번호와 그 줄의 회차 파일 이름을 mm 으로.</summary>
+    /// <summary>"nn차 이미지(" 로 시작하는 줄만: 머리 번호와 그 줄의 회차 파일 이름을 mm 으로. 다른 줄과 줄 끝은 그대로.</summary>
     internal static void RenumberReadme(string path, string image, string from, string to)
     {
-        var (lines, nl, bom) = ReadLines(path);
+        var (lines, bom) = ReadLines(path);
         for (int i = 0; i < lines.Count; i++)
         {
             if (!lines[i].StartsWith(from + "차 이미지(", StringComparison.Ordinal)) continue;
-            lines[i] = to + lines[i][from.Length..];
-            lines[i] = lines[i].Replace($"{image}_{from}.out", $"{image}_{to}.out").Replace($"{image}_{from}_field.out", $"{image}_{to}_field.out");
+            var body = to + Body(lines[i])[from.Length..];
+            body = body.Replace($"{image}_{from}.out", $"{image}_{to}.out").Replace($"{image}_{from}_field.out", $"{image}_{to}_field.out");
+            lines[i] = body + Eol(lines[i]);
         }
-        WriteLines(path, lines, nl, bom);
+        WriteLines(path, lines, bom);
     }
 
     /// <summary>7.5절 받을 때 3: README 회차 줄 충돌은 두 쪽 줄을 모두 남기고 번호가 큰 줄을 위에. 회차 줄 아닌 것이 충돌하면 false(손대지 않음).</summary>
     static bool TryCombineReadme(string path)
     {
-        var text = File.ReadAllText(path, Encoding.UTF8);
-        var combined = CombineRoundConflict(text);
+        var (lines, bom) = ReadLines(path);
+        var combined = CombineRoundConflict(string.Concat(lines));
         if (combined == null) return false;
-        var bom = File.ReadAllBytes(path) is [0xEF, 0xBB, 0xBF, ..];
-        File.WriteAllBytes(path, [.. bom ? new byte[] { 0xEF, 0xBB, 0xBF } : [], .. ProcessRunner.Utf8.GetBytes(combined)]);
+        WriteLines(path, [combined], bom);
         return true;
     }
 
-    /// <summary>충돌 표식 덩이마다: 두 쪽 줄이 모두 회차 줄이면 합쳐 번호 큰 차례로(같은 줄은 한 번). 아니면 null.</summary>
+    /// <summary>
+    /// 충돌 표식 덩이마다: 두 쪽 줄이 모두 회차 줄이면 합쳐 번호 큰 차례로(같은 줄은 한 번). 아니면 null.
+    /// 줄마다 제 줄 끝을 그대로 둔다(표식 줄만 없어진다).
+    /// </summary>
     internal static string? CombineRoundConflict(string text)
     {
-        var nl = text.Contains("\r\n") ? "\r\n" : "\n";
-        var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var lines = SplitKeep(text);
+        var nl = FirstEol(lines);
         var output = new List<string>();
         for (int i = 0; i < lines.Count; i++)
         {
@@ -94,10 +97,11 @@ public sealed partial class Git
                 if (!lines[j].StartsWith("=======")) block.Add(lines[j]);
             if (j >= lines.Count) return null;
             if (block.Any(l => l.StartsWith("|||||||") || !RoundLine.IsMatch(l))) return null;
-            output.AddRange(block.Distinct().Select((l, k) => (l, k)).OrderByDescending(x => int.Parse(RoundLine.Match(x.l).Groups[1].Value)).ThenBy(x => x.k).Select(x => x.l));
+            output.AddRange(block.Select(l => Eol(l).Length > 0 ? l : l + nl).DistinctBy(Body).Select((l, k) => (l, k))
+                .OrderByDescending(x => int.Parse(RoundLine.Match(x.l).Groups[1].Value)).ThenBy(x => x.k).Select(x => x.l));
             i = j;
         }
-        return string.Join(nl, output);
+        return string.Concat(output);
     }
 
     /// <summary>7.5절 받을 때 4: 폴더에 회차가 둘 이상이면 가장 큰 번호만 남기고 git rm, 커밋.</summary>
@@ -143,6 +147,39 @@ public sealed partial class Git
         return rm.Ok ? new(GitOutcome.Ok) : Fail(rm, "이전 회차 삭제");
     }
 
+    /// <summary>
+    /// 회차 내기 전에(빌드·복사 전에) 본다: 새 회차 파일이 .gitignore 에 걸리는가, 커밋 작성자가 있는가.
+    /// 걸리면 까닭, 통과면 null. 여기서 못 거르는 커밋 실패는 <see cref="RestoreRoundAsync"/> 로 되돌린다.
+    /// </summary>
+    internal async Task<GitResult?> RoundReadyAsync(string site, string number, CancellationToken ct)
+    {
+        var rel = ReleasePath(site);
+        var ignored = await GitAsync(false, ct, "check-ignore", "-q", "--", $"{rel}/{Image(site)}_{number}.out");
+        if (ignored.Code == 0 && ignored.Why == null) return new(GitOutcome.Failed, $".gitignore 에 !{rel}/* 가 필요");
+        foreach (var who in new[] { "GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT" })
+        {
+            var id = await GitAsync(false, ct, "var", who);
+            if (!id.Ok) return new(GitOutcome.Failed, "작성자 없음(git config user.name·user.email): " + Last(id));
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 회차 내기 실패 복구: release/&lt;사이트&gt; 의 올린 것과 작업 폴더를 HEAD 로 되돌린다
+    /// (git restore --source=HEAD --staged --worktree -- release/&lt;사이트&gt;). 회차 실패 복구에서만 부른다.
+    /// 깃이 모르는 새 파일은 호출자가 지운다.
+    /// </summary>
+    internal async Task<GitResult> RestoreRoundAsync(string site, CancellationToken ct)
+    {
+        Note($"round-restore {site}");
+        var rel = ReleasePath(site);
+        var index = await GitAsync(false, ct, "ls-files", "--", rel);
+        var head = await GitAsync(false, ct, "ls-tree", "-r", "--name-only", "HEAD", "--", rel);
+        if (index.Out.Count == 0 && head.Out.Count == 0) return new(GitOutcome.NoChange); // 깃이 아는 것이 없다
+        var r = await GitAsync(false, ct, "restore", "--source=HEAD", "--staged", "--worktree", "--", rel);
+        return r.Ok ? new(GitOutcome.Ok) : Fail(r, "회차 되돌리기");
+    }
+
     /// <summary>회차 커밋: git add -- release/&lt;사이트&gt; → 회차 파일이 깃에 들어갔는지(.gitignore 예외) → 커밋.</summary>
     internal async Task<GitResult> CommitRoundAsync(string site, string number, string message, CancellationToken ct)
     {
@@ -155,18 +192,39 @@ public sealed partial class Git
         return await CommitPathsAsync(message, ct, rel);
     }
 
-    internal static (List<string> Lines, string Nl, bool Bom) ReadLines(string path)
+    // README 는 줄마다 읽은 줄 끝을 그대로 둔다(고친 줄·넣은 줄만 바뀐다)
+
+    /// <summary>글자를 줄로 가른다. 줄마다 제 줄 끝(<c>\r\n</c>, <c>\n</c>, 끝 줄은 없을 수 있음)을 달고 있다.</summary>
+    internal static List<string> SplitKeep(string text)
+    {
+        var list = new List<string>();
+        for (int p = 0; p < text.Length;)
+        {
+            int e = text.IndexOf('\n', p);
+            e = e < 0 ? text.Length : e + 1;
+            list.Add(text[p..e]);
+            p = e;
+        }
+        return list;
+    }
+
+    static string Eol(string line) => line.EndsWith("\r\n", StringComparison.Ordinal) ? "\r\n" : line.EndsWith('\n') ? "\n" : "";
+
+    static string Body(string line) => line[..^Eol(line).Length];
+
+    /// <summary>새 줄에 쓸 줄 끝: 그 파일의 첫 줄 끝, 없으면 LF.</summary>
+    static string FirstEol(List<string> lines) => lines.Select(Eol).FirstOrDefault(e => e.Length > 0) ?? "\n";
+
+    internal static (List<string> Lines, bool Bom) ReadLines(string path)
     {
         var bytes = File.ReadAllBytes(path);
         bool bom = bytes is [0xEF, 0xBB, 0xBF, ..];
-        var text = Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
-        var nl = text.Contains("\r\n") ? "\r\n" : "\n";
-        return (text.Split('\n').Select(l => l.TrimEnd('\r')).ToList(), nl, bom);
+        return (SplitKeep(Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0))), bom);
     }
 
-    internal static void WriteLines(string path, List<string> lines, string nl, bool bom)
+    internal static void WriteLines(string path, List<string> lines, bool bom)
     {
-        var body = ProcessRunner.Utf8.GetBytes(string.Join(nl, lines));
+        var body = ProcessRunner.Utf8.GetBytes(string.Concat(lines));
         File.WriteAllBytes(path, bom ? [0xEF, 0xBB, 0xBF, .. body] : body);
     }
 
@@ -174,16 +232,16 @@ public sealed partial class Git
     internal static void InsertRoundLine(string path, string line)
     {
         if (!File.Exists(path)) { File.WriteAllBytes(path, ProcessRunner.Utf8.GetBytes(line + "\n")); return; }
-        var (lines, nl, bom) = ReadLines(path);
+        var (lines, bom) = ReadLines(path);
+        var nl = FirstEol(lines);
         int at = lines.FindIndex(l => RoundLine.IsMatch(l));
-        if (at >= 0) lines.Insert(at, line);
+        if (at >= 0) lines.Insert(at, line + (Eol(lines[at]).Length > 0 ? Eol(lines[at]) : nl));
         else
         {
-            if (lines.Count > 0 && lines[^1] == "") lines.RemoveAt(lines.Count - 1);
-            if (lines.Count > 0 && lines[^1] != "") lines.Add("");
-            lines.Add(line);
-            lines.Add("");
+            if (lines.Count > 0 && Eol(lines[^1]).Length == 0) lines[^1] += nl;
+            if (lines.Count > 0 && Body(lines[^1]).Length > 0) lines.Add(nl);
+            lines.Add(line + nl);
         }
-        WriteLines(path, lines, nl, bom);
+        WriteLines(path, lines, bom);
     }
 }

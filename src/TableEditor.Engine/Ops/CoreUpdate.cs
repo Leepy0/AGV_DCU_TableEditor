@@ -17,7 +17,7 @@ public sealed record CoreResult(GitOutcome Outcome, string? Reason, bool Changed
 public static class CoreUpdate
 {
     public const string CoreUrl = "https://github.com/Leepy0/AGV_DCU_Core.git";
-    static readonly Regex VersionText = new(@"^v\d+\.\d+\.\d+$");
+    static readonly Regex VersionText = new(@"^v[0-9]+\.[0-9]+\.[0-9]+\z");
     static readonly Regex ScriptError = new(@"(코어 묶음을 받지 못함|받은 묶음이 MANIFEST\.sha256 과 다르다|묶음 VERSION 이 ).*$");
 
     /// <summary>고를 버전: git ls-remote --tags &lt;코어 주소&gt; 의 dist-vX.Y.Z → "vX.Y.Z", 새것부터. 연결 안 되면 null(묶음 폴더 고르기로).</summary>
@@ -29,6 +29,7 @@ public static class CoreUpdate
         static CoreResult Fail(GitOutcome o, string? why, IReadOnlyList<Finding>? f = null, ImageBuild? b = null) => new(o, why, false, null, f ?? [], b);
         if (!VersionText.IsMatch(version)) return Fail(GitOutcome.Failed, "버전이 잘못됨: " + version);
         if (from != null && (from.Trim().Length == 0 || from.TrimStart().StartsWith('-') || from.Any(char.IsControl))) return Fail(GitOutcome.Failed, "받을 곳이 잘못됨");
+        if (await git.WriteGuardAsync(ct) is { } no) return Fail(no.Outcome, no.Reason);
         var clean = await git.RequireCleanAsync(site, ct, "core/");
         if (!clean.Ok) return Fail(clean.Outcome, clean.Reason + (clean.Files.Count > 0 ? ": " + string.Join(", ", clean.Files) : ""));
         if (!File.Exists(Path.Combine(git.Root, "tools", "update_core.ps1"))) return Fail(GitOutcome.Failed, "tools/update_core.ps1 없음");

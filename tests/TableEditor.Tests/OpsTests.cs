@@ -10,6 +10,7 @@ static class OpsTests
         Field(check);
         Runner(check);
         Missing(check);
+        Warnings(check);
         Stamp(check);
     }
 
@@ -153,6 +154,12 @@ static class OpsTests
             File.WriteAllText(Path.Combine(dir, "site", "T900_FAKE", "foo_packed.c"), "/* x */\n");
             var p3 = SitePack.RunAsync(dir, "T900_FAKE", Environment.ProcessPath).GetAwaiter().GetResult();
             check(!p3.Ok && p3.Reason!.Contains("모르는 생성물"), "SitePack 모르는 *_packed.c 는 실패 값");
+            // 검토 4: 사이트 폴더에 있는 생성물만 다시 만든다. 원본 표만 있고 *_packed.c 가 없으면 아무것도 하지 않는다
+            var only = Path.Combine(dir, "site", "T901_FAKE");
+            Directory.CreateDirectory(only);
+            foreach (var n in new[] { "tag_table.c", "seq_table.c", "act_table.c" }) File.WriteAllText(Path.Combine(only, n), "/* 표 */\n");
+            var p4 = SitePack.RunAsync(dir, "T901_FAKE", ToolProbe.Which("git")).GetAwaiter().GetResult();
+            check(p4.Ok && !p4.Changed && p4.Written.Count == 0 && Directory.GetFiles(only).Length == 3, $"SitePack 생성물 없는 사이트: 아무것도 안 함 ({p4.Step} {p4.Reason})");
             var p2 = SitePack.RunAsync(dir, @"..\x", none).GetAwaiter().GetResult();
             check(!p2.Ok && p2.Step == "입력", "TagPack 잘못된 사이트 이름");
             var b = SiteBuild.RunAsync(dir, "T900_FAKE").GetAwaiter().GetResult();
@@ -160,6 +167,18 @@ static class OpsTests
         }
         finally { Directory.Delete(dir, true); }
         check(SiteBuild.DefaultName("T143_ANY") == "agv_143" && SiteBuild.DefaultName("T083_ANY") == "agv_083", "SiteBuild 기본 이미지 이름");
+    }
+
+    /// <summary>검토 14: gcc 경고는 실패. 현장 이미지용 site.h 의 AGV_DEV_TESTS 다시 정의 한 가지만 봐준다.</summary>
+    static void Warnings(Action<bool, string> check)
+    {
+        const string Redef = "site/T900_FAKE/site.h:4:9: warning: 'AGV_DEV_TESTS' redefined";
+        check(SitePack.BadWarning(["In file included from site/T900_FAKE/tag_table.c:42:", Redef, "    4 | #define AGV_DEV_TESTS 0"]) == null, "SitePack AGV_DEV_TESTS 다시 정의 경고는 봐준다");
+        check(SitePack.BadWarning(["x.h:4:9: warning: \"AGV_DEV_TESTS\" redefined"]) == null, "SitePack 옛 gcc 따옴표 꼴");
+        const string Excess = "site/T900_FAKE/tag_table.c:130:5: warning: excess elements in array initializer";
+        check(SitePack.BadWarning([Redef, Excess]) == Excess, "SitePack 다른 경고는 실패(값이 잘린 표)");
+        check(SitePack.BadWarning(["site/T900_FAKE/site.h:5:9: warning: 'AGV_OTHER' redefined"]) != null, "SitePack 다른 이름 다시 정의는 실패");
+        check(SitePack.BadWarning(["규칙 3(범위 0), 조건 1, 입력 0, 동작 2 -> build/tag_pack/tag_packed.c"]) == null, "SitePack 경고 없음");
     }
 
     static void Stamp(Action<bool, string> check)

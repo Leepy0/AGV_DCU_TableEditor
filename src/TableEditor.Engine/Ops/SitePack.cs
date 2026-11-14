@@ -24,6 +24,19 @@ public static class SitePack
 
     static readonly Regex Steps = new(@"sizeof\s*\(\s*(\w+)_steps\s*\)");
 
+    /// <summary>gcc 는 영어로 말하게 한다: 경고를 <c>warning:</c> 글자로 찾는다(한글 메시지면 놓친다).</summary>
+    static readonly IReadOnlyDictionary<string, string?> GccEnv = new Dictionary<string, string?> { ["LC_ALL"] = "C", ["LANG"] = "C", ["LANGUAGE"] = "C" };
+
+    /// <summary>
+    /// 봐주는 경고 한 가지: 현장 이미지용 <c>site.h</c> 의 <c>#define AGV_DEV_TESTS 0</c> 이 코어 기본값을 다시 정의한다(사양 7.2절).
+    /// 표 값과 상관없다. 다른 경고는 값이 잘린 압축 표일 수 있어 모두 실패로 본다(7.3절 excess elements).
+    /// </summary>
+    static readonly Regex AllowedWarning = new(@"warning: [""']AGV_DEV_TESTS[""'] redefined");
+
+    /// <summary>gcc 출력에서 실패로 볼 첫 경고 줄. 없으면 null.</summary>
+    internal static string? BadWarning(IEnumerable<string> lines) =>
+        lines.FirstOrDefault(t => t.Contains("warning:", StringComparison.Ordinal) && !AllowedWarning.IsMatch(t));
+
     public static async Task<PackResult> RunAsync(string appRoot, string site, string? gccPath = null, Action<OutputLine>? onLine = null, CancellationToken ct = default)
     {
         gccPath ??= ToolProbe.DefaultGcc();
@@ -41,7 +54,8 @@ public static class SitePack
         var written = new List<string>();
         foreach (var k in Kinds)
         {
-            if (!File.Exists(Path.Combine(full, k.Tables[0])) && !File.Exists(Path.Combine(full, k.Packed))) continue;
+            // 사양 7.2절: 사이트 폴더에 있는 생성물이 규칙이다. 원본 표만 있고 생성물이 없는 사이트(손으로 쓴 압축 표 등)에는 만들지 않는다
+            if (!File.Exists(Path.Combine(full, k.Packed))) continue;
             var r = await RunKind(k, appRoot, sdir, gccPath, onLine, ct);
             if (r.Reason != null) return Fail($"{k.Tag} {r.Step}", r.Reason);
             if (r.Changed) written.Add(k.Packed);
@@ -72,7 +86,7 @@ public static class SitePack
 
         async Task<ProcessResult> Run(string file, IReadOnlyList<string> args, bool retry = false)
         {
-            var spec = new ProcessSpec(file, args, appRoot, TimeSpan.FromMinutes(2), enc);
+            var spec = new ProcessSpec(file, args, appRoot, TimeSpan.FromMinutes(2), enc, GccEnv);
             var r = await ProcessRunner.RunAsync(spec, onLine, ct);
             // 방금 만든 exe 의 첫 실행이 막힐 때가 있다(백신 검사 추정): 2초 뒤 한 번만 다시
             if (retry && r.StartError != null && !ct.IsCancellationRequested)
@@ -99,7 +113,7 @@ public static class SitePack
         string[] build = ["-std=gnu99", "-O0", "-Wall", .. def, .. inc, k.Gen, .. tables, "-o", exe];
         var r1 = await Run(gcc, build);
         if (Why(r1) is { } w1) return new(false, $"{n1} 생성기 빌드", w1);
-        if (r1.Texts.Any(t => t.Contains("warning:"))) return new(false, $"{n1} 생성기 빌드", "gcc 출력에 warning: 이 있음");
+        if (BadWarning(r1.Texts) is { } warn) return new(false, $"{n1} 생성기 빌드", "gcc 출력에 warning: 이 있음 · " + warn.Trim());
 
         if (k.Tag == "tag")
         {
@@ -129,7 +143,7 @@ public static class SitePack
     /// <summary>gcc -E -P 로 펼친 뒤 대응표 변수(var[] = { … };)의 sizeof(이름_steps) 이름들. 표가 없으면 빈 목록, gcc 실패면 null.</summary>
     static async Task<List<string>?> MapNames(string gcc, string appRoot, string[] def, string[] inc, string table, string var, CancellationToken ct)
     {
-        var spec = new ProcessSpec(gcc, ["-E", "-P", .. def, .. inc, table], appRoot, TimeSpan.FromMinutes(1), ProcessRunner.Utf8);
+        var spec = new ProcessSpec(gcc, ["-E", "-P", .. def, .. inc, table], appRoot, TimeSpan.FromMinutes(1), ProcessRunner.Utf8, GccEnv);
         var r = await ProcessRunner.RunAsync(spec, null, ct);
         if (!r.Ok) return null;
         var pre = string.Join("\n", r.Lines.Where(l => !l.IsError).Select(l => l.Text));
@@ -144,7 +158,7 @@ public static class SitePack
         var seen = new List<string>();
         foreach (var t in tables)
         {
-            var spec = new ProcessSpec(gcc, ["-MM", "-MT", "x", .. def, .. inc, t], appRoot, TimeSpan.FromMinutes(1), ProcessRunner.Utf8);
+            var spec = new ProcessSpec(gcc, ["-MM", "-MT", "x", .. def, .. inc, t], appRoot, TimeSpan.FromMinutes(1), ProcessRunner.Utf8, GccEnv);
             var r = await ProcessRunner.RunAsync(spec, null, ct);
             if (!r.Ok) return null;
             var body = string.Join(" ", r.Lines.Where(l => !l.IsError).Select(l => l.Text.TrimEnd('\\')));

@@ -13,8 +13,9 @@ public sealed record RoundResult(GitOutcome Outcome, string? Reason, string? Num
 }
 
 /// <summary>
-/// 회차 내기(사양 7.5절): 작업 폴더 깨끗 → 개발·현장 빌드 → release/&lt;사이트&gt;/ 복사 → 이전 회차 git rm → README 회차 줄 머리 → 커밋.
+/// 회차 내기(사양 7.5절): 작업 폴더 깨끗 → .gitignore·작성자 확인 → 개발·현장 빌드 → release/&lt;사이트&gt;/ 복사 → 이전 회차 git rm → README 회차 줄 머리 → 커밋.
 /// 번호 = 그 폴더 가장 큰 번호 + 1. 받기·연결을 기다리지 않는다. 화면은 팝업 확인 뒤에 부른다.
+/// 복사 뒤에 실패하면 release/&lt;사이트&gt; 를 전 상태로 되돌린다(이전 회차·README 복구, 새 파일 삭제).
 /// </summary>
 public static class Round
 {
@@ -33,11 +34,21 @@ public static class Round
     public static async Task<RoundResult> RunAsync(Git git, string site, ImageBuilder? build = null, Action<OutputLine>? onLine = null, CancellationToken ct = default)
     {
         static RoundResult Fail(GitOutcome o, string? why, ImageBuild? b = null) => new(o, why, null, false, null, null, b);
+        if (await git.WriteGuardAsync(ct) is { } no) return Fail(no.Outcome, no.Reason);
         var clean = await git.RequireCleanAsync(site, ct);
         if (!clean.Ok) return Fail(clean.Outcome, clean.Reason + (clean.Files.Count > 0 ? ": " + string.Join(", ", clean.Files) : ""));
 
         var (head, unshared) = await git.TableCommitAsync(ct);
         if (head == null) return Fail(GitOutcome.Failed, "HEAD 없음");
+
+        var image = Git.Image(site);
+        var dir = Path.Combine(git.Root, "release", site);
+        var existed = Directory.Exists(dir) ? Directory.GetFiles(dir).ToHashSet(StringComparer.OrdinalIgnoreCase) : [];
+        int max = existed.Select(f => Git.RoundOf(f, image)).OfType<(string, int Number)>().Select(x => x.Number).DefaultIfEmpty(0).Max();
+        var nn = (max + 1).ToString("D2");
+
+        // 빌드·복사 전에 커밋이 될 조건을 본다: 여기서 걸리면 아무것도 안 만든다
+        if (await git.RoundReadyAsync(site, nn, ct) is { } notReady) return Fail(notReady.Outcome, notReady.Reason);
 
         var b = await (build ?? DefaultBuilder())(git.Root, site, onLine, ct);
         if (!b.Ok || b.DevOut == null || b.FieldOut == null) return Fail(GitOutcome.Failed, b.Reason ?? "빌드 결과 없음", b);
@@ -45,35 +56,51 @@ public static class Round
         var after = await git.RequireCleanAsync(site, ct);
         if (!after.Ok) return Fail(GitOutcome.Dirty, "빌드 뒤 표가 커밋과 다르다(먼저 저장): " + string.Join(", ", after.Files), b);
 
-        var image = Git.Image(site);
-        var dir = Path.Combine(git.Root, "release", site);
-        Directory.CreateDirectory(dir);
-        int max = Directory.GetFiles(dir).Select(f => Git.RoundOf(f, image)).OfType<(string, int Number)>().Select(x => x.Number).DefaultIfEmpty(0).Max();
-        var nn = (max + 1).ToString("D2");
+        // 여기부터 실패하면 release/<사이트> 를 전 상태로: 이전 회차·README 복구, 새로 생긴 파일 삭제
+        async Task<RoundResult> Undo(GitOutcome o, string? why)
+        {
+            var back = await git.RestoreRoundAsync(site, ct);
+            if (!back.Ok) why = $"{why} · 원상 실패: {back.Reason}";
+            try
+            {
+                if (Directory.Exists(dir))
+                {
+                    foreach (var f in Directory.GetFiles(dir))
+                        if (!existed.Contains(f)) File.Delete(f);
+                    if (existed.Count == 0 && !Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { why = $"{why} · 새 파일 못 지움: {e.Message}"; }
+            return Fail(o, why, b);
+        }
 
+        string line;
         try
         {
+            Directory.CreateDirectory(dir);
             foreach (var (src, tag) in new[] { (b.DevOut, ""), (b.FieldOut, "_field") })
             {
                 File.Copy(src, Path.Combine(dir, $"{image}_{nn}{tag}.out"), overwrite: true);
                 var map = Path.ChangeExtension(src, ".map");
                 if (File.Exists(map)) File.Copy(map, Path.Combine(dir, $"{image}_{nn}{tag}.map"), overwrite: true);
             }
+            var rm = await git.RemoveRoundsExceptAsync(site, max + 1, ct);
+            if (!rm.Ok) return await Undo(rm.Outcome, rm.Reason);
+            line = $"{nn}차 이미지(core {CoreVersion(git.Root) ?? "?"}, 표 {head}{(unshared ? ", 미공유" : "")}, `{image}_{nn}.out`, 현장 배포 `{image}_{nn}_field.out`):";
+            Git.InsertRoundLine(Path.Combine(dir, "README.md"), line);
         }
-        catch (IOException e) { return Fail(GitOutcome.Failed, "복사 실패: " + e.Message, b); }
-        catch (UnauthorizedAccessException e) { return Fail(GitOutcome.Failed, "복사 실패: " + e.Message, b); }
-
-        var rm = await git.RemoveRoundsExceptAsync(site, max + 1, ct);
-        if (!rm.Ok) return Fail(rm.Outcome, rm.Reason, b);
-        // 깃이 모르는 이전 회차 파일도 지운다(폴더에는 가장 큰 번호만)
-        foreach (var f in Directory.GetFiles(dir))
-            if (Git.RoundOf(f, image) is { } r && r.Number != max + 1) File.Delete(f);
-
-        var line = $"{nn}차 이미지(core {CoreVersion(git.Root) ?? "?"}, 표 {head}{(unshared ? ", 미공유" : "")}, `{image}_{nn}.out`, 현장 배포 `{image}_{nn}_field.out`):";
-        Git.InsertRoundLine(Path.Combine(dir, "README.md"), line);
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return await Undo(GitOutcome.Failed, "복사 실패: " + e.Message); }
 
         var c = await git.CommitRoundAsync(site, nn, $"{nn}차 이미지: core {CoreVersion(git.Root) ?? "?"} 묶음, {image}_{nn}(개발·현장)", ct);
-        if (!c.Ok) return Fail(c.Outcome, c.Reason, b);
+        if (!c.Ok) return await Undo(c.Outcome, c.Reason);
+
+        // 깃이 모르는 이전 회차 파일도 지운다(폴더에는 가장 큰 번호만). 커밋한 뒤라 실패해도 회차는 난 것이다
+        try
+        {
+            foreach (var f in Directory.GetFiles(dir))
+                if (Git.RoundOf(f, image) is { } r && r.Number != max + 1) File.Delete(f);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* 남은 옛 파일: 다음 회차가 지운다 */ }
         return new(GitOutcome.Ok, null, nn, unshared, head, line, b);
     }
 
