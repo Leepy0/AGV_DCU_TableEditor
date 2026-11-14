@@ -13,7 +13,7 @@ namespace TableEditor.App;
 /// 단계마다 파일 차이·검사 결과·변경 수를 견준다. 기록은 <c>&lt;작업 폴더&gt;/selftest.log</c>, 종료 코드 0 = 통과.
 /// <c>--shots &lt;폴더&gt;</c> 를 주면 단계 중간에 tag.png, tag_add.png, tag_cond.png, settings.png 를 찍는다.
 /// </summary>
-public sealed class SelfTest(MainWindow w, MainVm vm, string work, string? shots)
+public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, string? shots)
 {
     readonly List<string> log = [];
     int failures, steps;
@@ -76,6 +76,11 @@ public sealed class SelfTest(MainWindow w, MainVm vm, string work, string? shots
         void On(DialogVm d) => shown.TrySetResult(d);
         vm.DialogShown += On;
         var done = start();
+        if (await Task.WhenAny(shown.Task, Task.Delay(TimeSpan.FromSeconds(60))) != shown.Task)
+        {
+            vm.DialogShown -= On;
+            throw new TimeoutException($"팝업 {typeof(T).Name} 이 뜨지 않음");
+        }
         var d = await shown.Task;
         vm.DialogShown -= On;
         await Idle();
@@ -309,6 +314,8 @@ public sealed class SelfTest(MainWindow w, MainVm vm, string work, string? shots
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
         Drafts.Clear(vm.Site!);
+
+        await GitScenario();
     }
 
     string Text(string file) => vm.Site!.File(file)!.ToText();
