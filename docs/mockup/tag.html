@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>표 편집기 목업 - 태그</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="e" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.5" fill="#c42b1c"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6L4.6 9.4" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="w" viewBox="0 0 14 14"><path d="M7 1.2L13.3 12.4H.7z" fill="#f2b200" stroke="#8a5300" stroke-width=".8" stroke-linejoin="round"/><path d="M7 5.2v3.6" stroke="#3b2600" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10.6" r=".8" fill="#3b2600"/></symbol>
+</svg>
+
+<h1>표 편집기 목업 · 태그 화면</h1>
+<div class="win">
+  <div class="title">표 편집기<span class="sp"></span><span class="cap">─</span><span class="cap">☐</span><span class="cap">✕</span></div>
+
+  <div class="top">
+    <span class="dd site">T900_DEMO</span>
+    <span class="chip">코어 <b>v0.55.0</b></span>
+    <span class="chip">↑ 대기 <b>2</b></span>
+    <span class="chip"><span class="dot"></span>변경 <b>1</b></span>
+    <span class="sp"></span>
+    <span class="btn">받기</span>
+    <span class="btn pri">저장<span class="badge">1</span></span>
+    <span class="btn">올리기</span>
+    <span class="btn">빌드</span>
+  </div>
+
+  <div class="body">
+    <div class="nav">
+      <div class="lab">표</div>
+      <div class="it">프로파일</div>
+      <div class="it">IO 맵</div>
+      <div class="it on">태그<span class="n"><svg class="ico"><use href="#e"/></svg>1</span></div>
+      <div class="it">시퀀스<span class="n"><svg class="ico"><use href="#w"/></svg>1</span></div>
+      <div class="it">대응표</div>
+      <div class="it">수동</div>
+      <hr>
+      <div class="it">이력</div>
+      <div class="it">빌드</div>
+      <span class="sp"></span>
+      <div class="it">설정</div>
+    </div>
+
+    <div class="main">
+      <div class="bar">
+        <span class="lb">태그</span><span class="inp">번호</span>
+        <span class="lb" style="margin-left:12px">프로파일</span><span class="dd" style="min-width:148px">전체</span>
+        <span class="seg"><span class="on">편집</span><span>보기</span></span>
+        <span class="sp"></span>
+        <span class="cnt">9 / 222줄</span>
+        <span class="btn pri2">추가</span>
+      </div>
+
+      <div class="tbl">
+        <div class="hd"><span></span><span class="r2">줄</span><span class="r">태그</span><span>프로파일</span><span>조건</span><span>동작</span><span class="r2">칸</span><span>주석</span></div>
+
+        <div class="row g"><span class="grip"></span><span class="no">1</span><span class="tag">1</span><span class="pf any">전체</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-stop"><b>정지</b></span><span class="blk c-stop"><b>자동 출발</b><i>AS</i></span></span><span class="cells">2/4</span><span class="cm"></span></div>
+
+        <div class="row g"><span class="grip"></span><span class="no">2</span><span class="tag">4</span><span class="pf">PF_BELT</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-seq"><b>시퀀스</b><i>LOAD</i></span><span class="blk c-move"><b>전후진</b><i>TOGGLE</i></span></span><span class="cells">2/4</span><span class="cm">적재</span></div>
+        <div class="row"><span class="grip"></span><span class="no">3</span><span class="tag rep">4</span><span class="pf">PF_CUSHION</span><span class="conds"><span class="cond">호기<b>75</b></span></span><span class="acts"><span class="blk c-seq"><b>시퀀스</b><i>LOAD</i></span><span class="blk c-move"><b>전후진</b><i>TOGGLE</i></span><span class="blk c-acs"><b>보고</b><i>ARRIVE</i><i>117</i></span></span><span class="cells full">4/4</span><span class="cm">75호기 적재</span></div>
+        <div class="row"><span class="grip"></span><span class="no">4</span><span class="tag rep">4</span><span class="pf any">전체</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-stop"><b>정지</b></span></span><span class="cells">1/4</span><span class="cm"></span></div>
+
+        <div class="row g"><span class="grip"></span><span class="no">5</span><span class="tag">7</span><span class="pf">PF_CUSHION</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-stop"><b>정지</b></span><span class="blk c-acs"><b>보고</b><i>ARRIVE</i><i>118</i></span></span><span class="cells">3/4</span><span class="cm">도착 118</span></div>
+        <div class="row dead"><span class="grip"></span><span class="no">6</span><span class="tag rep">7</span><span class="pf">PF_CUSHION</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-stop"><b>정지</b></span><span class="blk c-acs"><b>보고</b><i>ARRIVE</i><i>120</i></span></span><span class="cells">3/4</span><span class="st e"><svg class="ico"><use href="#e"/></svg>무시됨 · 중복 (5줄)</span></div>
+        <div class="row"><span class="grip"></span><span class="no">7</span><span class="tag rep">7</span><span class="pf any">전체</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-stop"><b>정지</b></span><span class="blk c-etc"><b>출발 대기 풀기</b></span><span class="blk c-move"><b>전후진</b><i>TOGGLE</i></span></span><span class="cells">3/4</span><span class="cm"></span></div>
+
+        <div class="row g"><span class="grip"></span><span class="no">8</span><span class="tag">10</span><span class="pf">PF_TRAY</span><span class="conds"><span class="none">—</span></span><span class="acts"><span class="blk c-seq"><b>시퀀스</b><i>BOX_LOAD</i></span></span><span class="cells">1/4</span><span class="st w"><svg class="ico"><use href="#w"/></svg>대응표 없음</span></div>
+
+        <div class="row g cur chg"><span class="grip"></span><span class="no">9</span><span class="tag"><span class="cell-ed">34</span></span><span class="pf"><span class="cell-dd">PF_LIFT</span></span><span class="conds"><span class="cond">후진 중</span></span><span class="acts"><span class="blk c-turn pick"><b>회전</b><i>CW</i><i>45°</i><i>T_FB</i><s>출발</s><i>1</i><s>속도</s><i>0</i><i>ALIGN</i></span></span><span class="cells">2/4</span><span class="cm">리프트 진입</span></div>
+      </div>
+
+      <div class="det">
+        <div class="h">
+          <span class="t">9줄 · 태그 34 · <b>회전</b></span>
+          <span class="sp"></span>
+          <span class="btn sm">복제</span><span class="btn sm">삭제</span>
+        </div>
+        <div class="flds">
+          <div class="fld"><label>방향</label><span class="dd">CW</span></div>
+          <div class="fld"><label>각도</label><span class="num ed">45<em>°</em></span></div>
+          <div class="fld"><label>회전 뒤</label><span class="dd">T_FB</span></div>
+          <div class="fld"><label>자동 출발</label><span class="num">1</span></div>
+          <div class="fld"><label>속도</label><span class="num">0</span></div>
+          <div class="fld"><label>옵션</label><span class="dd">ALIGN</span></div>
+        </div>
+        <div class="code">TAG_IF( 34, PF_LIFT, IF_BACKWARD, AGV_TURN( CW,  <mark>45</mark>, T_FB, 1, 0, ALIGN ) )    /* 리프트 진입 */</div>
+      </div>
+
+      <div class="chk">
+        <div class="h"><span>검사</span><span class="st e"><svg class="ico"><use href="#e"/></svg>오류 1</span><span class="st w"><svg class="ico"><use href="#w"/></svg>경고 2</span><span class="sp"></span><span class="cv"></span></div>
+        <div class="fr on"><svg class="ico"><use href="#e"/></svg><span class="id">T-10</span><span>무시됨 · 중복 (5줄)</span><span class="at">태그 7 · PF_CUSHION · 6줄</span></div>
+        <div class="fr"><svg class="ico"><use href="#w"/></svg><span class="id">T-13</span><span>대응표 없음 · BOX_LOAD</span><span class="at">태그 10 · PF_TRAY · 8줄</span></div>
+        <div class="fr"><svg class="ico"><use href="#w"/></svg><span class="id">S-6</span><span>끝 스텝 없음</span><span class="at">시퀀스 · hold_forever</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
