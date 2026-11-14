@@ -18,7 +18,7 @@ public static class Choices
     public static FieldEditor EditorOf(ArgSpec s) => s.Kind switch
     {
         ArgKind.Word => FieldEditor.Words,
-        ArgKind.Number or ArgKind.Time => FieldEditor.Number,
+        ArgKind.Number or ArgKind.Time or ArgKind.Timeout => FieldEditor.Number,
         ArgKind.Profile or ArgKind.Input or ArgKind.CoreInput or ArgKind.Signal or ArgKind.Output or ArgKind.Belt or ArgKind.LoadIf
             or ArgKind.SeqId or ArgKind.SeqShort or ArgKind.SeqTable or ArgKind.Label or ArgKind.ActId or ArgKind.ActTable
             or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam or ArgKind.FndParam => FieldEditor.Names,

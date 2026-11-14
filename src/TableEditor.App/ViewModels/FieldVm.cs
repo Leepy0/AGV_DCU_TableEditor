@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows.Data;
+using System.Windows.Input;
 using TableEditor.App.Blocks;
 using TableEditor.App.Mvvm;
 using TableEditor.Engine.Grammar;
@@ -14,28 +15,40 @@ namespace TableEditor.App.ViewModels;
 /// </summary>
 public sealed class FieldVm : Observable
 {
-    readonly TagVm owner;
+    readonly IFieldHost owner;
     readonly NameDict names;
 
     public FieldInfo Info { get; }
     public int Index { get; }
     public string Label => Info.Label;
     public FieldEditor Editor { get; }
+
+    /// <summary>읽기 전용 칸(시퀀스의 이름·낱말·라벨 칸): 상자 모양 글만.</summary>
+    public bool Locked { get; }
     public bool Mono => Editor is FieldEditor.Number or FieldEditor.Text;
-    public bool IsList => Editor is FieldEditor.Names or FieldEditor.Words;
-    public bool IsBox => !IsList;
+    public bool IsList => !Locked && Editor is FieldEditor.Names or FieldEditor.Words;
+    public bool IsBox => !Locked && !IsList;
+
+    /// <summary>읽기 전용 칸의 글. 파라미터는 FND 이름.</summary>
+    public string Shown => Info.Spec.Kind == ArgKind.CoreParam && CoreConstants.Params.FirstOrDefault(p => p.Core == text) is { } p ? p.Fnd : text;
+
+    public ICommand CommitCmd { get; }
+    public ICommand RevertCmd { get; }
 
     /// <summary>드롭다운 항목(분류가 둘 이상이면 묶음 머리가 붙는다).</summary>
     public ICollectionView? Items { get; }
 
-    public FieldVm(TagVm owner, NameDict names, FieldInfo info, int index)
+    public FieldVm(IFieldHost owner, NameDict names, FieldInfo info, int index, bool locked = false)
     {
         this.owner = owner;
         this.names = names;
         Info = info;
         Index = index;
+        Locked = locked;
         Editor = Choices.EditorOf(info.Spec);
         text = BlockBuilder.Collapse(info.Arg.Text);
+        CommitCmd = new Command(Commit);
+        RevertCmd = new Command(Revert);
         if (IsList)
         {
             var list = Choices.For(info.Spec, names).ToList();
@@ -101,10 +114,13 @@ public sealed class FieldVm : Observable
         _ => null,
     };
 
+    /// <summary>포커스: 이 칸만 강조.</summary>
+    public void Focus() => owner.Hot(this);
+
     /// <summary>글자가 바뀌었고 틀리지 않았으면 인자 바꾸기 명령.</summary>
     public void Commit()
     {
-        if (Invalid) return;
+        if (Locked || Invalid) return;
         var t = text.Trim();
         if (t == BlockBuilder.Collapse(Info.Arg.Text)) return;
         owner.SetField(this, t);

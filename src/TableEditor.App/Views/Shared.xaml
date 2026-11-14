@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="clr-namespace:TableEditor.App.Views"
+                    xmlns:b="clr-namespace:TableEditor.App.Blocks">
+    <!-- 표 화면들이 같이 쓰는 틀(칩, 블록, 가로 목록, 줄 머리 글). 색·크기는 Theme 의 키로만 -->
+
+    <!-- 조건 칩: 머리(보조 글) + 값(굵게) -->
+    <DataTemplate x:Key="ChipT" DataType="b:Chip">
+        <Border Style="{StaticResource Cond}" ToolTip="{Binding Full}">
+            <DockPanel VerticalAlignment="Center">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding Head}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Text}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text}" VerticalAlignment="Center"
+                           Margin="{StaticResource Gap.L4}" TextTrimming="CharacterEllipsis" Visibility="{Binding Text, Converter={StaticResource Shown}}"/>
+            </DockPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 넓은 칸의 칩(적재, 수동 조건): 말줄임 한계만 넓다 -->
+    <DataTemplate x:Key="WideChipT" DataType="b:Chip">
+        <Border Style="{StaticResource Cond}" MaxWidth="{StaticResource CondWideMax}" ToolTip="{Binding Full}">
+            <DockPanel VerticalAlignment="Center">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding Head}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Text}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text}" VerticalAlignment="Center"
+                           Margin="{StaticResource Gap.L4}" TextTrimming="CharacterEllipsis" Visibility="{Binding Text, Converter={StaticResource Shown}}"/>
+            </DockPanel>
+        </Border>
+    </DataTemplate>
+
+    <ItemsPanelTemplate x:Key="Across"><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+
+    <DataTemplate x:Key="BlockT" DataType="b:BlockVm">
+        <v:BlockView Margin="{StaticResource Gap.R6}"/>
+    </DataTemplate>
+    <DataTemplate x:Key="LookBlockT" DataType="b:BlockVm">
+        <v:BlockView Margin="{StaticResource Gap.R6}" IsHitTestVisible="False"/>
+    </DataTemplate>
+
+    <Style x:Key="HeadCell" TargetType="TextBlock" BasedOn="{StaticResource T.Head}"/>
+
+    <!-- 줄 상태 글: 아이콘 + 글(경고 색). 오류면 화면이 아이콘·색을 바꾼다 -->
+    <Style x:Key="StatusText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
+        <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+        <Setter Property="Foreground" Value="{StaticResource Warn}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- 줄 번호(흐린 고정폭) -->
+    <Style x:Key="RowNo" TargetType="TextBlock" BasedOn="{StaticResource T.Faint}">
+        <Setter Property="FontFamily" Value="{StaticResource Mono}"/>
+    </Style>
+
+    <!-- 빈 표: 낱말 하나 + [추가] -->
+    <Style x:Key="EmptyWord" TargetType="TextBlock" BasedOn="{StaticResource T.Empty}">
+        <Setter Property="Margin" Value="{StaticResource Gap.B16}"/>
+    </Style>
+</ResourceDictionary>

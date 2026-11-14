@@ -12,9 +12,6 @@ namespace TableEditor.App.ViewModels;
 /// <summary>태그 보기 한 줄: 프로파일 하나에 맞는 줄(조건 있는 줄은 조건별, 사양 9.2절 태그 보기).</summary>
 public sealed record LookRow(string Profile, bool IsAny, bool IsGroupStart, IReadOnlyList<Chip> Chips, string OrdinalText, IReadOnlyList<BlockVm> Blocks, bool None);
 
-/// <summary>C 글자 한 줄을 셋으로: 앞, 강조, 뒤.</summary>
-public sealed record CodeLine(string Before, string Mark, string After);
-
 /// <summary>추가 메뉴 항목: 분류 → 동작. Enabled = 칸이 남는가.</summary>
 public sealed record ActionChoice(string Palette, string Text, GrammarEntry Entry, bool Enabled);
 
@@ -22,15 +19,15 @@ public sealed record ActionChoice(string Palette, string Text, GrammarEntry Entr
 /// 태그 화면: 거르기, 줄 표, 줄 안 편집(태그·프로파일·주석), 선택 줄 칸(칸 편집기, C 글자), 동작 넣기·지우기·옮기기,
 /// 줄 복제·삭제·옮기기, 보기 전환. 명령은 모두 <see cref="MainVm.Apply"/> 로 가서 새 사이트가 된다.
 /// </summary>
-public sealed partial class TagVm : Observable
+public sealed class TagVm : BlockHost
 {
     public const string AllProfiles = "전체";
 
     readonly MainVm main;
-    Site site = null!;
+    Site site { get => Site; set => Site = value; }
     IReadOnlyList<TagRowVm> all = [];
 
-    public TagVm(MainVm main)
+    public TagVm(MainVm main) : base(main)
     {
         this.main = main;
         Add = new Command(() => _ = main.AddRowsAsync(), () => main.CanEdit);
@@ -44,18 +41,10 @@ public sealed partial class TagVm : Observable
         EditRaw = new Command(() => { if (Selected != null) _ = main.EditRawAsync(Selected.Piece); }, () => main.Settings.Advanced && Selected != null);
     }
 
-    public bool IsTagArea => true;
-
     /// <summary>사이트를 다시 그린다. touched = 방금 명령이 쓴 조각(있으면 그 줄들을 고른다). 없으면 앞 고르기를 순번으로 되살린다.</summary>
     public void Reload(Site s, IReadOnlyList<Finding> findings, IReadOnlyDictionary<string, int> baseline, IReadOnlyList<Piece>? touched)
     {
-        var left = new Dictionary<string, int>(baseline);
-        bool Changed(Piece p)
-        {
-            if (!left.TryGetValue(p.Text, out var n) || n == 0) return true;
-            left[p.Text] = n - 1;
-            return false;
-        }
+        var Changed = ChangedBy(baseline);
         var prevOrd = SelectedRows.Select(r => r.Ordinal).ToList();
         var prevPrimary = Selected?.Ordinal;
         var prevBlock = Picked?.Index ?? -1;
@@ -101,11 +90,7 @@ public sealed partial class TagVm : Observable
             primary = Rows.FirstOrDefault(r => r.Ordinal == prevPrimary && r.Ordinal > 0) ?? pick.FirstOrDefault();
         }
         SetSelection(pick, primary, scroll: touched is { Count: > 0 });
-        if (primary != null && (sameRow || pick.Count == 1))
-        {
-            if (prevBlock >= 0 && prevBlock < primary.Blocks.Count) Picked = primary.Blocks[prevBlock];
-            if (prevField >= 0 && prevField < Fields.Count) Fields[prevField].IsHot = true;
-        }
+        if (primary != null && (sameRow || pick.Count == 1)) Restore(primary.Blocks, prevBlock, prevField);
         RebuildLook();
     }
 
@@ -234,63 +219,19 @@ public sealed partial class TagVm : Observable
     /// <summary>사용자가 블록을 눌러 골랐다(Del 이 블록을 지운다). 줄을 다시 고르면 풀린다.</summary>
     public bool BlockPickedByUser { get; set; }
 
-    BlockVm? picked;
-    public BlockVm? Picked
+    public override bool IsTagArea => true;
+    protected override Piece? CodePiece => Selected?.Piece;
+
+    protected override void OnPicked()
     {
-        get => picked;
-        set
-        {
-            if (picked != null) picked.IsPicked = false;
-            bool changed = Set(ref picked, value);
-            if (picked != null) picked.IsPicked = true;
-            if (!changed) return;
-            Fields = picked == null ? [] : picked.Fields.Select((f, i) => new FieldVm(this, site.Names, f, i)).ToList();
-            foreach (var f in Fields) f.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(FieldVm.IsHot)) Raise(nameof(Code)); };
-            Raise(nameof(Fields));
-            Raise(nameof(HasFields));
-            Raise(nameof(DetailTitle));
-            Raise(nameof(DetailHead));
-            Raise(nameof(Code));
-            CommandManager.InvalidateRequerySuggested();
-        }
-    }
-
-    public IReadOnlyList<FieldVm> Fields { get; private set; } = [];
-    public bool HasFields => Fields.Count > 0;
-
-    int HotFieldIndex => Fields.FirstOrDefault(f => f.IsHot)?.Index ?? -1;
-
-    /// <summary>칸 강조: 하나만.</summary>
-    public void Hot(FieldVm f)
-    {
-        foreach (var x in Fields) x.IsHot = ReferenceEquals(x, f);
+        Raise(nameof(DetailTitle));
+        Raise(nameof(DetailHead));
     }
 
     /// <summary>선택 줄 머리 앞부분: <c>9줄 · 태그 34 · </c>(뒤에 블록 머리 이름을 굵게).</summary>
     public string DetailTitle => Selected == null ? "" : Selected.Rule == null ? "원문" : $"{Selected.OrdinalText}줄 · 태그 {Selected.TagText} · ";
 
     public string DetailHead => Picked == null || Picked.Raw ? "" : Picked.Head;
-
-    /// <summary>문장의 C 글자 한 줄: 앞, 강조(강조 칸 또는 고른 블록), 뒤.</summary>
-    public CodeLine Code
-    {
-        get
-        {
-            if (Selected == null) return new("", "", "");
-            var text = Selected.Piece.Text.TrimEnd('\r', '\n');
-            int lead = text.Length - text.TrimStart().Length;
-            var a = Fields.FirstOrDefault(f => f.IsHot)?.Info.Arg ?? Picked?.Arg;
-            if (a == null || a.Offset < lead || a.Offset + a.Text.Length > text.Length)
-                return new(Flat(text.TrimStart()), "", "");
-            return new(Flat(text[lead..a.Offset]), Flat(a.Text), Flat(text[(a.Offset + a.Text.Length)..]));
-        }
-    }
-
-    [GeneratedRegex(@"[ \t]*\r?\n[ \t]*")]
-    private static partial Regex Breaks();
-
-    /// <summary>줄바꿈과 그 뒤 들여쓰기만 한 칸으로. 같은 줄 안 공백은 그대로 둔다.</summary>
-    static string Flat(string s) => Breaks().Replace(s, " ");
 
     // ---- 명령 ----
 
@@ -305,14 +246,6 @@ public sealed partial class TagVm : Observable
     public ICommand EditRaw { get; }
 
     IReadOnlyList<TagRule> SelectedRules => SelectedRows.Select(r => r.Rule).OfType<TagRule>().ToList();
-
-    /// <summary>칸 값 바꾸기 → 인자 바꾸기 명령. 같은 블록·칸을 강조로 남긴다.</summary>
-    public void SetField(FieldVm f, string text)
-    {
-        if (Selected?.Piece is not Statement st) return;
-        int fieldIndex = f.Index;
-        if (main.Apply(SiteEdit.SetArg(site, st, f.Info.Arg, text)) && fieldIndex < Fields.Count) Hot(Fields[fieldIndex]);
-    }
 
     /// <summary>태그 번호: 고른 줄 모두(<see cref="TagEdit.Renumber"/>). 범위 규칙은 <c>처음-끝</c> 으로 끝도 바꾼다.</summary>
     void CommitTagText(TagRowVm? row)
@@ -344,30 +277,6 @@ public sealed partial class TagVm : Observable
     {
         if (row?.Piece is not Statement st || row.CommentDraft.Trim() == row.Comment) return;
         if (!main.Apply(SiteEdit.SetComment(site, st, row.CommentDraft))) row.ResetDrafts();
-    }
-
-    /// <summary>
-    /// 줄 여럿에 같은 명령을 차례로: 줄 수가 안 바뀌는 명령이라 (파일, 조각 순번)으로 새 사이트에서 다시 찾는다. 하나라도 막히면 모두 안 한다.
-    /// </summary>
-    static EditResult Chain(Site s, IReadOnlyList<Piece> pieces, Func<Site, Piece, EditResult> step)
-    {
-        var keys = pieces.Select(p => Locate(s, p)).ToList();
-        var touched = new List<Piece>();
-        foreach (var (file, index) in keys)
-        {
-            var r = step(s, s.File(file)!.Pieces[index]);
-            if (!r.Ok) return r;
-            s = r.Site!;
-            touched.Add(s.File(file)!.Pieces[index]);
-        }
-        return new EditResult(s, null, touched);
-    }
-
-    static (string File, int Index) Locate(Site s, Piece p)
-    {
-        var f = s.FileOf(p);
-        for (int i = 0; i < f.Pieces.Count; i++) if (ReferenceEquals(f.Pieces[i], p)) return (f.Name, i);
-        throw new InvalidOperationException("조각 없음");
     }
 
     // ---- 동작 ----

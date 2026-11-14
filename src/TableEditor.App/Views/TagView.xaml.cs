@@ -9,9 +9,6 @@ namespace TableEditor.App.Views;
 /// <summary>태그 화면: 여러 줄 고르기, 끌어 옮기기, 동작 추가 메뉴, 칸 확정, Del.</summary>
 public partial class TagView : UserControl
 {
-    public static readonly RoutedCommand CommitField = new();
-    public static readonly RoutedCommand RevertField = new();
-
     TagVm? vm;
     bool pushing;
 
@@ -19,8 +16,6 @@ public partial class TagView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, _) => Attach(DataContext as TagVm);
-        CommandBindings.Add(new CommandBinding(CommitField, (_, e) => (e.Parameter as FieldVm)?.Commit()));
-        CommandBindings.Add(new CommandBinding(RevertField, (_, e) => (e.Parameter as FieldVm)?.Revert()));
     }
 
     void Attach(TagVm? next)
@@ -78,16 +73,6 @@ public partial class TagView : UserControl
     public bool RowsHaveFocus => IsKeyboardFocusWithin;
 
     // ---- 칸 ----
-
-    void OnFieldFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (((FrameworkElement)sender).DataContext is FieldVm f) vm?.Hot(f);
-    }
-
-    void OnFieldLost(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (((FrameworkElement)sender).DataContext is FieldVm f) f.Commit();
-    }
 
     void OnNoteLost(object sender, KeyboardFocusChangedEventArgs e)
     {

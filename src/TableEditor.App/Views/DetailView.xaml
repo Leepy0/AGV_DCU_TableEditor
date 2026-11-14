@@ -1,0 +1,84 @@
+<UserControl x:Class="TableEditor.App.Views.DetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:TableEditor.App.ViewModels"
+             xmlns:b="clr-namespace:TableEditor.App.Blocks">
+    <!-- 선택 줄 칸들 + C 글자 한 줄. DataContext = BlockHost(화면 VM). 모든 표 화면이 같이 쓴다 -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="FieldT" DataType="vm:FieldVm">
+            <StackPanel Margin="{StaticResource Gap.R12}">
+                <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.B4}"/>
+                <Grid>
+                    <ComboBox x:Name="List" Style="{StaticResource Drop}" MinWidth="{StaticResource FieldMinWidth}" ItemsSource="{Binding Items}"
+                              SelectedItem="{Binding Picked}" Visibility="{Binding IsList, Converter={StaticResource Shown}}"
+                              GotKeyboardFocus="OnFieldFocus" AutomationProperties.Name="{Binding Label}">
+                        <ComboBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource T.Faint}" FontSize="{StaticResource Fs.Tiny}" Margin="{StaticResource Pad.NavLabel}"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ComboBox.GroupStyle>
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="b:Choice">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Note}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L12}"
+                                               Visibility="{Binding Note, Converter={StaticResource Shown}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Grid Visibility="{Binding IsBox, Converter={StaticResource Shown}}" MinWidth="{StaticResource FieldMinWidth}">
+                        <TextBox x:Name="Box" Style="{StaticResource EditBox}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                                 GotKeyboardFocus="OnFieldFocus" LostKeyboardFocus="OnFieldLost" AutomationProperties.Name="{Binding Label}">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Enter" Command="{Binding CommitCmd}"/>
+                                <KeyBinding Key="Escape" Command="{Binding RevertCmd}"/>
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <TextBlock Text="{Binding Small}" Style="{StaticResource T.Faint}" HorizontalAlignment="Right" Margin="{StaticResource TextRight12}"
+                                   IsHitTestVisible="False" Visibility="{Binding Small, Converter={StaticResource Shown}}"/>
+                    </Grid>
+                    <!-- 읽기 전용: 상자 모양 + 값(흐린 바탕) -->
+                    <Border Style="{StaticResource FieldBox}" Background="{StaticResource Well}" Visibility="{Binding Locked, Converter={StaticResource Shown}}"
+                            ToolTip="{Binding Text}">
+                        <TextBlock Text="{Binding Shown}" Foreground="{StaticResource Text2}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </Border>
+                </Grid>
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Mono}" Value="True">
+                    <Setter TargetName="Box" Property="FontFamily" Value="{StaticResource Mono}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Small, Converter={StaticResource Shown}}" Value="Visible">
+                    <Setter TargetName="Box" Property="Padding" Value="{StaticResource Pad.BoxSmall}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsHot}" Value="True">
+                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                    <Setter TargetName="Box" Property="BorderThickness" Value="{StaticResource Bd.Focus}"/>
+                    <Setter TargetName="List" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Invalid}" Value="True">
+                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Err}"/>
+                    <Setter TargetName="Box" Property="BorderThickness" Value="{StaticResource Bd.Pick}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+    <StackPanel>
+        <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource FieldT}" Focusable="False" KeyboardNavigation.TabNavigation="Continue"
+                      Visibility="{Binding HasFields, Converter={StaticResource Shown}}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+        <Border Height="{StaticResource CodeHeight}" Background="{StaticResource Code}" CornerRadius="{StaticResource R.4}"
+                Padding="{StaticResource Pad.Box}" Margin="{StaticResource Gap.T12}">
+            <TextBlock FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" xml:space="preserve"><Run Text="{Binding Code.Before, Mode=OneWay}"/><Run Text="{Binding Code.Mark, Mode=OneWay}" Background="{StaticResource Mark}"/><Run Text="{Binding Code.After, Mode=OneWay}"/></TextBlock>
+        </Border>
+    </StackPanel>
+</UserControl>

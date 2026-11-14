@@ -7,7 +7,10 @@ using TableEditor.Engine.Text;
 namespace TableEditor.App.Blocks;
 
 /// <summary>블록·칩 안의 값 하나. Label = 앞 작은 라벨, Small = 뒤 작은 글(초, 단위).</summary>
-public sealed record Part(string? Label, string Value, string? Small);
+public sealed record Part(string? Label, string Value, string? Small)
+{
+    public override string ToString() => string.Join(" ", new[] { Label, Value, Small }.Where(s => !string.IsNullOrEmpty(s)));
+}
 
 /// <summary>선택 줄 칸 하나의 바탕: 라벨, 인자(고칠 자리), 문법 칸.</summary>
 public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec);
@@ -45,6 +48,9 @@ public sealed class BlockVm : Observable
     public bool IsPicked { get => picked; set => Set(ref picked, value); }
 
     public ICommand? Pick { get; set; }
+
+    /// <summary>화면 읽기 프로그램의 블록 이름: 머리 + 값.</summary>
+    public override string ToString() => string.Join(" ", Parts.Select(p => p.ToString()).Prepend(Head).Where(s => s.Length > 0));
 
     /// <summary>고르기 없는 사본(태그 보기처럼 읽기만 하는 곳).</summary>
     public BlockVm Copy() => new() { Head = Head, Cat = Cat, Parts = Parts, Fields = Fields, Cells = Cells, Raw = Raw, Mark = Mark, Arg = Arg, Index = Index };

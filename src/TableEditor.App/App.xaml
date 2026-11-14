@@ -8,6 +8,7 @@
                 <!-- .NET 내장 Fluent(라이트) 위에 목업 값만 덮는다 -->
                 <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Light.xaml"/>
                 <ResourceDictionary Source="Theme/Theme.xaml"/>
+                <ResourceDictionary Source="Views/Shared.xaml"/>
                 <ResourceDictionary Source="Views/Dialogs.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

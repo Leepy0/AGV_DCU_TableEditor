@@ -35,6 +35,7 @@ public sealed class TagRowVm : Observable
     public bool IsRaw => Rule == null;
     public bool IsRange => Rule?.IsRange == true;
     public bool IsChanged { get; }
+    public override string ToString() => $"{OrdinalText}줄 태그 {TagText} {ProfileText}";
 
     bool repeat, groupStart, current;
     public bool IsRepeat { get => repeat; set => Set(ref repeat, value); }

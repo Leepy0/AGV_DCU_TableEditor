@@ -7,26 +7,6 @@
              xmlns:chk="clr-namespace:TableEditor.Engine.Check;assembly=TableEditor.Engine"
              x:Name="Me">
     <UserControl.Resources>
-        <!-- 조건 칩: 머리(보조 글) + 값(굵게) -->
-        <DataTemplate x:Key="ChipT" DataType="b:Chip">
-            <Border Style="{StaticResource Cond}" ToolTip="{Binding Full}">
-                <DockPanel VerticalAlignment="Center">
-                    <TextBlock DockPanel.Dock="Left" Text="{Binding Head}" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding Text}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text}" VerticalAlignment="Center"
-                               Margin="{StaticResource Gap.L4}" TextTrimming="CharacterEllipsis" Visibility="{Binding Text, Converter={StaticResource Shown}}"/>
-                </DockPanel>
-            </Border>
-        </DataTemplate>
-
-        <ItemsPanelTemplate x:Key="Across"><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-
-        <DataTemplate x:Key="BlockT" DataType="b:BlockVm">
-            <v:BlockView Margin="{StaticResource Gap.R6}"/>
-        </DataTemplate>
-        <DataTemplate x:Key="LookBlockT" DataType="b:BlockVm">
-            <v:BlockView Margin="{StaticResource Gap.R6}" IsHitTestVisible="False"/>
-        </DataTemplate>
-
         <!-- 줄 표 한 줄 -->
         <DataTemplate x:Key="RowT" DataType="vm:TagRowVm">
             <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent" AllowDrop="True" Drop="OnRowDrop">
@@ -191,65 +171,6 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
-        <!-- 선택 줄 칸 하나: 칸 종류마다 편집기 -->
-        <DataTemplate x:Key="FieldT" DataType="vm:FieldVm">
-            <StackPanel Margin="{StaticResource Gap.R12}">
-                <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.B4}"/>
-                <Grid>
-                    <ComboBox x:Name="List" Style="{StaticResource Drop}" MinWidth="{StaticResource FieldMinWidth}" ItemsSource="{Binding Items}"
-                              SelectedItem="{Binding Picked}" Visibility="{Binding IsList, Converter={StaticResource Shown}}"
-                              GotKeyboardFocus="OnFieldFocus" AutomationProperties.Name="{Binding Label}">
-                        <ComboBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" Style="{StaticResource T.Faint}" FontSize="{StaticResource Fs.Tiny}" Margin="{StaticResource Pad.NavLabel}"/>
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
-                            </GroupStyle>
-                        </ComboBox.GroupStyle>
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate DataType="b:Choice">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding Note}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L12}"
-                                               Visibility="{Binding Note, Converter={StaticResource Shown}}"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <Grid Visibility="{Binding IsBox, Converter={StaticResource Shown}}" MinWidth="{StaticResource FieldMinWidth}">
-                        <TextBox x:Name="Box" Style="{StaticResource EditBox}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
-                                 GotKeyboardFocus="OnFieldFocus" LostKeyboardFocus="OnFieldLost" AutomationProperties.Name="{Binding Label}">
-                            <TextBox.InputBindings>
-                                <KeyBinding Key="Enter" Command="{x:Static v:TagView.CommitField}" CommandParameter="{Binding}"/>
-                                <KeyBinding Key="Escape" Command="{x:Static v:TagView.RevertField}" CommandParameter="{Binding}"/>
-                            </TextBox.InputBindings>
-                        </TextBox>
-                        <TextBlock Text="{Binding Small}" Style="{StaticResource T.Faint}" HorizontalAlignment="Right" Margin="{StaticResource TextRight12}"
-                                   IsHitTestVisible="False" Visibility="{Binding Small, Converter={StaticResource Shown}}"/>
-                    </Grid>
-                </Grid>
-            </StackPanel>
-            <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding Mono}" Value="True">
-                    <Setter TargetName="Box" Property="FontFamily" Value="{StaticResource Mono}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Small, Converter={StaticResource Shown}}" Value="Visible">
-                    <Setter TargetName="Box" Property="Padding" Value="{StaticResource Pad.BoxSmall}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsHot}" Value="True">
-                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                    <Setter TargetName="Box" Property="BorderThickness" Value="{StaticResource Bd.Focus}"/>
-                    <Setter TargetName="List" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Invalid}" Value="True">
-                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Err}"/>
-                    <Setter TargetName="Box" Property="BorderThickness" Value="{StaticResource Bd.Pick}"/>
-                </DataTrigger>
-            </DataTemplate.Triggers>
-        </DataTemplate>
-
         <Style x:Key="HeadCell" TargetType="TextBlock" BasedOn="{StaticResource T.Head}"/>
     </UserControl.Resources>
 
@@ -367,17 +288,7 @@
                         <Run Text="{Binding DetailTitle, Mode=OneWay}"/><Run Text="{Binding DetailHead, Mode=OneWay}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text}"/>
                     </TextBlock>
                 </DockPanel>
-                <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource FieldT}" Focusable="False" KeyboardNavigation.TabNavigation="Continue"
-                              Visibility="{Binding HasFields, Converter={StaticResource Shown}}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                </ItemsControl>
-                <Border Height="{StaticResource CodeHeight}" Background="{StaticResource Code}" CornerRadius="{StaticResource R.4}"
-                        Padding="{StaticResource Pad.Box}" Margin="{StaticResource Gap.T12}">
-                    <TextBlock FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
-                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" xml:space="preserve"><Run Text="{Binding Code.Before, Mode=OneWay}"/><Run Text="{Binding Code.Mark, Mode=OneWay}" Background="{StaticResource Mark}"/><Run Text="{Binding Code.After, Mode=OneWay}"/></TextBlock>
-                </Border>
+                <v:DetailView/>
             </StackPanel>
         </Border>
     </Grid>

@@ -196,45 +196,38 @@ public sealed class SignalVm(string name, string? note, bool on) : Observable
     public bool On { get => o; set => Set(ref o, value); }
 }
 
-/// <summary>조건 팝업: 확장 조건 0~2개 + 입력 조건(묶음 여러 개). 읽을 수 없는 입력 글은 글 상자로 둔다.</summary>
-public sealed class CondVm : DialogVm
+/// <summary>
+/// 입력 조건 한 칸(묶음 여러 개: 켜짐 / 꺼짐 / 하나라도 + 신호). 읽을 수 없는 글은 글 상자로 둔다.
+/// 조건 팝업·적재 조건 팝업·수동 조건 팝업이 같이 쓴다. wrap = 묶음 하나여도 <c>IN( … )</c> 로 쓴다.
+/// </summary>
+public sealed class InputVm : Observable
 {
     readonly IReadOnlyList<Choice> inputs;
+    readonly bool wrap;
 
-    public override string Title => "조건";
-    public ObservableCollection<XRowVm> XRows { get; } = [];
+    public string Label { get; }
     public ObservableCollection<GroupVm> Groups { get; } = [];
-    public IReadOnlyList<GrammarEntry> XKinds => XRowVm.Kinds;
 
     /// <summary>묶음으로 못 푼 입력 조건 글(있으면 이 글을 그대로 쓴다).</summary>
     public string? RawInput { get; set; }
     public bool HasRawInput => RawInput != null;
 
-    public ICommand AddX { get; }
-    public ICommand RemoveX { get; }
     public ICommand AddGroup { get; }
     public ICommand RemoveGroup { get; }
-    public ICommand Ok { get; }
 
-    public CondVm(TagRule rule, NameDict names)
+    public InputVm(string label, Arg? arg, NameDict names, bool wrap) : this(label, arg?.Node, arg?.Text, names, wrap) { }
+
+    public InputVm(string label, Node? node, string? raw, NameDict names, bool wrap)
     {
+        Label = label;
+        this.wrap = wrap;
         inputs = Choices.For(new ArgSpec(ArgKind.Input), names);
-        var read = TagEdit.ReadCondition(rule);
-        foreach (var x in read?.X ?? [])
-            if (XRowVm.Kinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args));
-        if (read?.Input is { } input && rule.Cond is { } c)
-        {
-            var node = (c.Node as CallNode)?.Args[^1].Node;
-            if (!ReadGroups(node)) RawInput = input;
-        }
-        AddX = new Command(() => XRows.Add(new XRowVm(XRowVm.Kinds.First(k => k.Name == "X_FORWARD"), [])), () => XRows.Count < 2);
-        RemoveX = new Command(p => { if (p is XRowVm x) XRows.Remove(x); });
+        if (node != null && !ReadGroups(node)) RawInput = raw;
         AddGroup = new Command(() => Groups.Add(new GroupVm("ON", inputs, [])), () => RawInput == null);
         RemoveGroup = new Command(p => { if (p is GroupVm g) Groups.Remove(g); });
-        Ok = new Command(() => Close("ok"));
     }
 
-    bool ReadGroups(Node? n)
+    bool ReadGroups(Node n)
     {
         IEnumerable<string> Names(CallNode c) => c.Args.Select(a => a.Text.Trim());
         switch (n)
@@ -252,18 +245,110 @@ public sealed class CondVm : DialogVm
         }
     }
 
+    /// <summary>입력 조건 글: 묶음 하나면 그 묶음(wrap 이면 <c>IN( … )</c>), 여럿이면 <c>IN( … )</c>, 없으면 null.</summary>
+    public string? Text()
+    {
+        if (RawInput != null) return RawInput;
+        var gs = Groups.Select(g => g.Text).OfType<string>().ToList();
+        return gs.Count switch { 0 => null, 1 when !wrap => gs[0], _ => $"IN( {string.Join(", ", gs)} )" };
+    }
+}
+
+/// <summary>조건 팝업: 확장 조건 0~2개 + 입력 조건(묶음 여러 개).</summary>
+public sealed class CondVm : DialogVm
+{
+    public override string Title => "조건";
+    public ObservableCollection<XRowVm> XRows { get; } = [];
+    public IReadOnlyList<GrammarEntry> XKinds => XRowVm.Kinds;
+    public InputVm In { get; }
+
+    public ObservableCollection<GroupVm> Groups => In.Groups;
+    public ICommand AddX { get; }
+    public ICommand RemoveX { get; }
+    public ICommand AddGroup => In.AddGroup;
+    public ICommand Ok { get; }
+
+    public CondVm(TagRule rule, NameDict names)
+    {
+        var read = TagEdit.ReadCondition(rule);
+        foreach (var x in read?.X ?? [])
+            if (XRowVm.Kinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args));
+        var node = read?.Input != null && rule.Cond is { } c ? (c.Node as CallNode)?.Args[^1].Node : null;
+        In = new InputVm("입력", node, read?.Input, names, wrap: false);
+        AddX = new Command(() => XRows.Add(new XRowVm(XRowVm.Kinds.First(k => k.Name == "X_FORWARD"), [])), () => XRows.Count < 2);
+        RemoveX = new Command(p => { if (p is XRowVm x) XRows.Remove(x); });
+        Ok = new Command(() => Close("ok"));
+    }
+
     public IReadOnlyList<XCond> X => XRows.Select(r => r.ToCond()).ToList();
 
-    /// <summary>입력 조건 글: 묶음 하나면 그 묶음, 여럿이면 <c>IN( … )</c>, 없으면 null.</summary>
-    public string? Input
+    public string? Input => In.Text();
+}
+
+/// <summary>적재 조건 팝업(<c>LOAD_IF( 이름, 조건 1[, 조건 2] )</c>): 조건 둘, 둘째는 없어도 된다.</summary>
+public sealed class LoadVm : DialogVm
+{
+    public LoadVm(Statement st, NameDict names)
     {
-        get
-        {
-            if (RawInput != null) return RawInput;
-            var gs = Groups.Select(g => g.Text).OfType<string>().ToList();
-            return gs.Count switch { 0 => null, 1 => gs[0], _ => $"IN( {string.Join(", ", gs)} )" };
-        }
+        Name = st.Args[0].Text;
+        First = new InputVm("조건 1", st.Args.Count > 1 ? st.Args[1] : null, names, wrap: true);
+        Second = new InputVm("조건 2", st.Args.Count > 2 ? st.Args[2] : null, names, wrap: true);
+        Ok = new Command(() => Close("ok"), () => First.Groups.Any(g => g.Text != null) || First.RawInput != null);
     }
+
+    public override string Title => "적재 조건";
+    public string Name { get; }
+    public InputVm First { get; }
+    public InputVm Second { get; }
+    public ICommand Ok { get; }
+}
+
+/// <summary>수동 가지 조건 팝업: 입력 / 키 / 없음.</summary>
+public sealed class ManCondVm : DialogVm
+{
+    public static readonly IReadOnlyList<string> Keys = CoreConstants.Keys;
+
+    public ManCondVm(Arg cond, NameDict names)
+    {
+        var n = cond.Node;
+        if (n is CallNode { Name: "KEY", Args.Count: 1 } k) { mode = 1; key = k.Args[0].Text.Trim(); }
+        else if (n is NameNode { Name: "NO_IN" }) mode = 2;
+        In = new InputVm("입력", mode == 0 ? cond : null, names, wrap: true);
+        Ok = new Command(() => Close("ok"));
+    }
+
+    public override string Title => "조건";
+    public InputVm In { get; }
+    public ICommand Ok { get; }
+
+    int mode;
+    public bool IsInput { get => mode == 0; set { if (value) SetMode(0); } }
+    public bool IsKey { get => mode == 1; set { if (value) SetMode(1); } }
+    public bool IsNone { get => mode == 2; set { if (value) SetMode(2); } }
+
+    void SetMode(int m)
+    {
+        mode = m;
+        Raise(nameof(IsInput));
+        Raise(nameof(IsKey));
+        Raise(nameof(IsNone));
+    }
+
+    string key = Keys[2];
+    public string Key { get => key; set { if (value != null) Set(ref key, value); } }
+
+    /// <summary>조건 칸 글: <c>IN( … )</c> / <c>KEY( 키 )</c> / <c>NO_IN</c>(입력 묶음이 없어도).</summary>
+    public string Text => mode switch { 1 => $"KEY( {key} )", 2 => "NO_IN", _ => In.Text() ?? "NO_IN" };
+}
+
+/// <summary>이름 하나 받기(새 프로파일, 이름 바꾸기).</summary>
+public sealed class NameVm(string title, string text, string ok) : DialogVm
+{
+    public override string Title => title;
+    string t = text;
+    public string Text { get => t; set => Set(ref t, value); }
+    public string OkText => ok;
+    public ICommand Ok => new Command(() => { if (Text.Trim().Length > 0) Close("ok"); });
 }
 
 /// <summary>원문 글자 고치기(고급 모드).</summary>

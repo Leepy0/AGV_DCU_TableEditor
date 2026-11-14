@@ -36,19 +36,82 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         };
     }
 
+    /// <summary>문장 하나 = 블록 하나(시퀀스 스텝, 수동 입력 줄). 문법 표의 그 자리 줄로 칸을 만든다. 모르면 원문 블록.</summary>
+    public BlockVm Statement(Statement st, Place place, int index = -1)
+    {
+        var entry = Facts.Fit(GrammarTable.Find(st.Name, place), st.Args);
+        if (entry == null) return RawBlock(st.Text, null, MarkOf(st, null), index);
+        return new BlockVm
+        {
+            Head = entry.Head, Cat = entry.Palette.Length > 0 ? entry.Palette : entry.Category, Parts = PartsOf(entry, st.Args, true),
+            Fields = FieldsOf(entry, st.Args), Cells = 0, Mark = MarkOf(st, null), Index = index,
+        };
+    }
+
+    // ---- 수동 표 ----
+
+    static readonly ArgSpec OutSpec = new(ArgKind.Output) { Label = "출력" };
+
+    /// <summary>수동 표 출력 칸 하나 → 블록: <c>ON</c> 켬, <c>OFF</c> 끔, <c>BELT</c> 벨트, <c>NO_OUT</c> 출력 없음.</summary>
+    public BlockVm ManOut(Statement st, Arg a, int index)
+    {
+        var mark = MarkOf(st, a);
+        var (name, args) = Split(a.Node);
+        switch (name)
+        {
+            case "ON" or "OFF" when args.Count > 0:
+                return new BlockVm
+                {
+                    Head = name == "ON" ? "켬" : "끔", Cat = "출력", Parts = args.Select(x => new Part(null, Collapse(x.Text), null)).ToList(),
+                    Fields = args.Select(x => new FieldInfo("출력", x, OutSpec)).ToList(), Cells = 0, Arg = a, Mark = mark, Index = index,
+                };
+            case "BELT" when GrammarTable.Find("BELT", Place.Manual).FirstOrDefault() is { } e && args.Count == 2:
+                return new BlockVm { Head = e.Head, Cat = "벨트", Parts = PartsOf(e, args, true), Fields = FieldsOf(e, args), Cells = 0, Arg = a, Mark = mark, Index = index };
+            case "NO_OUT" when args.Count == 0:
+                return new BlockVm { Head = "출력 없음", Cat = "기타", Parts = [], Fields = [], Cells = 0, Arg = a, Mark = mark, Index = index };
+            default:
+                return RawBlock(a.Text, a, mark, index);
+        }
+    }
+
+    /// <summary>수동 조건 칸 → 칩: <c>IN( 묶음… )</c> 은 묶음마다, <c>KEY( 키 )</c>, <c>NO_IN</c> 은 없음.</summary>
+    public IReadOnlyList<Chip> ManChips(Arg cond)
+    {
+        var (name, args) = Split(cond.Node);
+        return name switch
+        {
+            "IN" => args.Select(x => ChipOf(x, Place.InputCond)).ToList(),
+            "ON" or "OFF" or "ANY_ON" => [ChipOf(cond, Place.InputCond)],
+            "KEY" when args.Count == 1 => [new Chip("키", [new(null, Collapse(args[0].Text), null)])],
+            "NO_IN" => [new Chip("없음", [])],
+            _ => [new Chip(Collapse(cond.Text), [])],
+        };
+    }
+
+    /// <summary>프로파일 적재 칸 → 칩: 센서 묶음은 <c>센서 A B</c>, 적재 조건은 <c>조건 이름</c>.</summary>
+    public static IReadOnlyList<Chip> LoadChips(Arg? load)
+    {
+        if (load == null) return [];
+        var (name, args) = Split(load.Node);
+        return name == "LOAD_SENSORS"
+            ? [new Chip("센서", args.Select(x => new Part(null, Collapse(x.Text), null)).ToList())]
+            : [new Chip("조건", [new(null, Collapse(load.Text), null)])];
+    }
+
     /// <summary>원문 블록: 회색, 첫 줄만.</summary>
     public static BlockVm RawBlock(string text, Arg? a = null, Severity? mark = null, int index = -1) => new()
     {
         Head = "", Cat = "raw", Raw = true, Parts = [new(null, FirstLine(text), null)], Fields = [], Cells = 1, Arg = a, Mark = mark, Index = index,
     };
 
-    Severity? MarkOf(Statement st, Arg a)
+    /// <summary>칸에 걸린 검사 결과의 등급(a = null 이면 문장 어디든).</summary>
+    Severity? MarkOf(Statement st, Arg? a)
     {
         Severity? worst = null;
         foreach (var f in findings)
         {
             if (!ReferenceEquals(f.Piece, st) || f.Cell is not { } c) continue;
-            if (c.Offset < a.Offset || c.Offset > a.Offset + a.Text.Length) continue;
+            if (a != null && (c.Offset < a.Offset || c.Offset > a.Offset + a.Text.Length)) continue;
             if (worst == null || f.Severity == Severity.Error) worst = f.Severity;
         }
         return worst;
@@ -110,7 +173,8 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
                 if (sub.Count == 0) parts.Add(new(null, ie.Head, null));
                 else
                 {
-                    sub[0] = sub[0] with { Label = ie.Head };
+                    // 안쪽 묶음 머리(꺼짐 등)가 있으면 앞에 붙인다. IN 은 묶음 머리만으로 뜻이 선다
+                    sub[0] = sub[0] with { Label = sub[0].Label == null ? ie.Head : ie.Name == "IN" ? sub[0].Label : $"{ie.Head} {sub[0].Label}" };
                     parts.AddRange(sub);
                 }
                 continue;
@@ -165,8 +229,11 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         Place? place = kind switch
         {
             ArgKind.XCond => Place.ExtCond,
-            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 or ArgKind.Until => Place.InputCond,
+            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 => Place.InputCond,
             ArgKind.FromSensor => Place.TagAction,
+            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber => Place.Step,
+            ArgKind.Timeout => Place.InputCond,
+            ArgKind.LoadSensors => Place.Frame,
             _ => null,
         };
         return place is { } p && Facts.Allowed(kind, Area.Tag).Contains(name) ? Inner(name, args, p) : null;

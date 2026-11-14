@@ -5,6 +5,8 @@
     <!-- 색·간격·글자·radius 는 여기에만 둔다(목업 mock.css 의 값). 화면 코드는 키로만 쓴다. -->
 
     <v:CatBrush x:Key="CatBrush"/>
+    <v:MapBrush x:Key="MapBrush"/>
+    <v:Indent x:Key="IndentMargin"/>
     <v:Shown x:Key="Shown"/>
     <v:Not x:Key="Not"/>
     <!-- 팝업 처음 포커스 단추 표시(Button.Tag) -->
@@ -338,6 +340,11 @@
         <Setter Property="Width" Value="{StaticResource SmallButtonWidth}"/>
         <Setter Property="Height" Value="{StaticResource SmallButtonHeight}"/>
         <Setter Property="FontSize" Value="{StaticResource Fs.Mid}"/>
+    </Style>
+
+    <!-- 글이 긴 줄(프로파일 삭제 등): 그 줄 단추 모두 이 폭 -->
+    <Style x:Key="Btn.Wide" TargetType="Button" BasedOn="{StaticResource Btn.Small}">
+        <Setter Property="Width" Value="104"/>
     </Style>
 
     <!-- 오류 수 배지 -->
@@ -831,6 +838,74 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- ===== 표 화면(프로파일·수동·시퀀스·대응표·IO) ===== -->
+    <!-- 호기 지도 칸 색: 블록 띠 색을 돌려 쓴다(빨강·노랑 없음). 프로파일 순번 % 8 -->
+    <x:Array x:Key="Map.Cats" Type="sys:String">
+        <sys:String>Cat.시퀀스</sys:String>
+        <sys:String>Cat.속도·방향</sys:String>
+        <sys:String>Cat.회전</sys:String>
+        <sys:String>Cat.보고</sys:String>
+        <sys:String>Cat.장애물</sys:String>
+        <sys:String>Cat.분기</sys:String>
+        <sys:String>Cat.정지</sys:String>
+        <sys:String>Cat.기타</sys:String>
+    </x:Array>
+    <sys:Double x:Key="MapCell">30</sys:Double>
+    <sys:Double x:Key="MapTint">0.3</sys:Double>
+    <sys:Double x:Key="MapWidth">352</sys:Double>
+    <Thickness x:Key="Map.Gap">1</Thickness>
+    <Thickness x:Key="Pad.Map">16,0,16,16</Thickness>
+    <Thickness x:Key="Pad.MapHead">16,0</Thickness>
+    <sys:Double x:Key="WideButtonWidth">104</sys:Double>
+    <!-- 프로파일 표 열: 손잡이, 줄, 프로파일, 타입, 처음, 끝, 적재(나머지), 상태 -->
+    <GridLength x:Key="Col.Pf">200</GridLength>
+    <GridLength x:Key="Col.PfShort">176</GridLength>
+    <GridLength x:Key="Col.Num">56</GridLength>
+    <GridLength x:Key="Col.Note">136</GridLength>
+    <!-- 프로파일 이름 앞 색 점 자리(점 8 + 간격 8): 머리 글도 이만큼 민다 -->
+    <Thickness x:Key="Pf.Head">16,0,0,0</Thickness>
+    <!-- 줄 번호 바로 뒤 드롭다운: 왼쪽으로 당기지 않는다(번호를 덮지 않게). 옆 글은 상자 안 글 자리(12)에 맞춘다 -->
+    <Thickness x:Key="Cell.Flush">0,0,8,0</Thickness>
+    <Thickness x:Key="Text.InBox">12,0,8,0</Thickness>
+    <!-- 넓은 칸의 칩(적재, 수동 조건) -->
+    <sys:Double x:Key="CondWideMax">200</sys:Double>
+    <GridLength x:Key="Col.State">184</GridLength>
+    <!-- 대응표 열: 손잡이, 줄, 프로파일, 시퀀스 ID, 표 이름(나머지), 상태 -->
+    <GridLength x:Key="Col.SeqId">240</GridLength>
+    <!-- 수동 카드 -->
+    <Thickness x:Key="Pad.Cards">16,8,16,16</Thickness>
+    <Thickness x:Key="Gap.Card">0,0,0,12</Thickness>
+    <Thickness x:Key="Pad.CardHead">0,0,16,0</Thickness>
+    <sys:Double x:Key="CardHeadHeight">44</sys:Double>
+    <GridLength x:Key="Col.Branch">260</GridLength>
+    <!-- 입력 카드 머리 글: 손잡이 32 + 간격 12(카드 머리 프로파일과 같은 자리) -->
+    <Thickness x:Key="Pad.InputHead">44,0,0,0</Thickness>
+    <GridLength x:Key="Col.Arrow">28</GridLength>
+    <!-- 시퀀스: 나무 폭, 들여쓰기 한 단, 라벨 이름표 -->
+    <GridLength x:Key="TreeWidth">264</GridLength>
+    <sys:Double x:Key="TreeRowHeight">32</sys:Double>
+    <sys:Double x:Key="Indent">24</sys:Double>
+    <Thickness x:Key="Tree.L0">16,0,12,0</Thickness>
+    <Thickness x:Key="Tree.L1">28,0,12,0</Thickness>
+    <Thickness x:Key="Tree.L2">40,0,12,0</Thickness>
+    <sys:Double x:Key="SelectLine">2</sys:Double>
+    <Thickness x:Key="Sel.Top">0,10,0,0</Thickness>
+    <Thickness x:Key="Sel.Bottom">0,0,0,10</Thickness>
+    <Thickness x:Key="Sel.Both">0,10,0,10</Thickness>
+    <Thickness x:Key="Sel.Pad">12,0,0,0</Thickness>
+    <GridLength x:Key="Col.SelLine">12</GridLength>
+    <sys:Double x:Key="LabelTagHeight">24</sys:Double>
+    <CornerRadius x:Key="R.Tag">12</CornerRadius>
+    <Thickness x:Key="Pad.LabelTag">10,0</Thickness>
+    <!-- IO 맵 -->
+    <GridLength x:Key="Col.IoId">40</GridLength>
+    <GridLength x:Key="Col.IoCore">132</GridLength>
+    <GridLength x:Key="Col.Belt">96</GridLength>
+    <Thickness x:Key="Pad.Io">16,0,16,16</Thickness>
+    <Thickness x:Key="Pad.IoRow">0,6</Thickness>
+    <Thickness x:Key="Gap.IoCol">0,0,16,0</Thickness>
+    <Thickness x:Key="Gap.Section">0,24,0,8</Thickness>
+
     <!-- 미리 보기 표 -->
     <Style x:Key="MatrixNew" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
