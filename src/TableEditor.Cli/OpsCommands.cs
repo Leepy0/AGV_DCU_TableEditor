@@ -45,13 +45,13 @@ static class OpsCommands
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Console.WriteLine("압축 태그 표");
-        var pk = await TagPack.RunAsync(app, site, gcc, Print, cts.Token);
+        var pk = await SitePack.RunAsync(app, site, gcc, Print, cts.Token);
         if (!pk.Ok)
         {
             Console.Error.WriteLine($"압축 실패 · {pk.Step} · {pk.Reason}");
             return 1;
         }
-        Console.WriteLine(pk.Changed ? "tag_packed.c 바뀜" : "tag_packed.c 같음");
+        Console.WriteLine(pk.Changed ? "생성물 바뀜: " + string.Join(", ", pk.Written) : "생성물 같음");
         if (pos[0] == "pack") return 0;
 
         Console.WriteLine("빌드" + (field ? " (현장)" : ""));

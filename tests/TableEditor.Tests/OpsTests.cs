@@ -52,6 +52,9 @@ static class OpsTests
             "규칙 1100 개: 1024 넘음",
             "규칙 222(범위 0), 조건 25, 입력 3, 동작 89 -> build/tag_pack/tag_packed.c",
             "seq_pack: 시퀀스 스텝이 64 를 넘는다: DEMO_SEQ 스텝 70",
+            "seq_pack: 시퀀스 ID 는 64 미만: DEMO_SEQ ID 70",
+            "seq_pack: 왕복이 다르다 (3)",
+            "seq_pack: ACT 스텝이 64 를 넘는다: DEMO_ACT 스텝 66",
         };
         var g = BuildErrors.Parse(gcc, site);
         check(g.Any(x => x.Source == "gcc" && x.File == "tag_table.c" && x.Line == 103 && x.Text.StartsWith("'FB' undeclared")), "BuildErrors gcc 오류");
@@ -60,6 +63,7 @@ static class OpsTests
         check(g.Any(x => x.Source == "tag_pack_gen" && x.Number == 3 && x.Text == "태그 921: 조건이 겹침") && g.Any(x => x.Number == 4) && g.Any(x => x.Number == 1100), "BuildErrors tag_pack_gen");
         check(g.Count(x => x.Source == "tag_pack_gen") == 3, "BuildErrors 성공 줄은 오류 아님");
         check(g.Any(x => x.Source == "seq_pack_gen" && x.Text.StartsWith("시퀀스 스텝이")), "BuildErrors seq_pack_gen");
+        check(g.Count(x => x.Source == "seq_pack_gen") == 4 && g.Any(x => x.Text == "왕복이 다르다 (3)") && g.Any(x => x.Text.StartsWith("ACT 스텝이")), "BuildErrors seq_pack_gen 꼴 4가지");
 
         var chk = new[]
         {
@@ -143,9 +147,13 @@ static class OpsTests
         Directory.CreateDirectory(dir);
         try
         {
-            var p = TagPack.RunAsync(dir, "T900_FAKE", none).GetAwaiter().GetResult();
+            var p = SitePack.RunAsync(dir, "T900_FAKE", none).GetAwaiter().GetResult();
             check(!p.Ok && p.Reason!.Contains("gcc 없음"), "TagPack gcc 없음은 실패 값");
-            var p2 = TagPack.RunAsync(dir, @"..\x", none).GetAwaiter().GetResult();
+            Directory.CreateDirectory(Path.Combine(dir, "site", "T900_FAKE"));
+            File.WriteAllText(Path.Combine(dir, "site", "T900_FAKE", "foo_packed.c"), "/* x */\n");
+            var p3 = SitePack.RunAsync(dir, "T900_FAKE", Environment.ProcessPath).GetAwaiter().GetResult();
+            check(!p3.Ok && p3.Reason!.Contains("모르는 생성물"), "SitePack 모르는 *_packed.c 는 실패 값");
+            var p2 = SitePack.RunAsync(dir, @"..\x", none).GetAwaiter().GetResult();
             check(!p2.Ok && p2.Step == "입력", "TagPack 잘못된 사이트 이름");
             var b = SiteBuild.RunAsync(dir, "T900_FAKE").GetAwaiter().GetResult();
             check(!b.Ok && b.Reason!.Contains("check.ps1"), "SiteBuild check.ps1 없음은 실패 값");
@@ -162,12 +170,12 @@ static class OpsTests
         {
             File.WriteAllBytes(Path.Combine(dir, "a.h"), "x\r\ny\r\n"u8.ToArray());
             // CRLF 를 LF 로 맞춘 해시: LF 파일과 같아야 한다
-            check(TagPack.NormHash("x\r\ny\r\n"u8.ToArray()) == TagPack.NormHash("x\ny\n"u8.ToArray()), "NormHash 줄 끝 무관");
-            check(TagPack.NormHash("a"u8.ToArray()) == "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "NormHash SHA-256");
+            check(SitePack.NormHash("x\r\ny\r\n"u8.ToArray()) == SitePack.NormHash("x\ny\n"u8.ToArray()), "NormHash 줄 끝 무관");
+            check(SitePack.NormHash("a"u8.ToArray()) == "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "NormHash SHA-256");
             var data = "/* 생성물 */\r\nint x;\r\n"u8.ToArray();
-            var s = Encoding.UTF8.GetString(TagPack.Stamp(data, ["a.h"], dir));
+            var s = Encoding.UTF8.GetString(SitePack.Stamp(data, ["a.h"], dir));
             var lines = s.Split("\r\n");
-            check(lines[0] == "/* 생성물 */" && lines[1].StartsWith("/* 원본 해시(SHA-256, 줄 끝 LF).") && lines[2] == " * src a.h " + TagPack.NormHash("x\ny\n"u8.ToArray())
+            check(lines[0] == "/* 생성물 */" && lines[1].StartsWith("/* 원본 해시(SHA-256, 줄 끝 LF).") && lines[2] == " * src a.h " + SitePack.NormHash("x\ny\n"u8.ToArray())
                 && lines[3] == " */" && lines[4] == "int x;", "Stamp 첫 주석 다음 줄에 원본 해시, 줄 끝 CRLF 유지");
         }
         finally { Directory.Delete(dir, true); }
