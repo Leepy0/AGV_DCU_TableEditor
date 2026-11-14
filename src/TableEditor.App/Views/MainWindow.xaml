@@ -77,27 +77,53 @@
         <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
             <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource SiteWidth}" FontWeight="{StaticResource Semi}"
                       VerticalAlignment="Center" Margin="{StaticResource Gap.R8}" ItemsSource="{Binding Sites}" SelectedItem="{Binding SiteName}"
-                      AutomationProperties.Name="사이트"/>
+                      IsEnabled="{Binding IsReadOnly, Converter={StaticResource Not}}" AutomationProperties.Name="사이트"/>
+            <!-- 옛 표 보기: 띠 + [돌아가기] -->
+            <Border DockPanel.Dock="Left" Style="{StaticResource ReadOnlyBand}" Visibility="{Binding IsReadOnly, Converter={StaticResource Shown}}">
+                <TextBlock Text="{Binding ReadOnlyText}" VerticalAlignment="Center"/>
+            </Border>
+            <Button DockPanel.Dock="Left" Content="돌아가기" Style="{StaticResource Btn.Outline}" Command="{Binding BackFromView}" Margin="{StaticResource Gap.R8}"
+                    Visibility="{Binding IsReadOnly, Converter={StaticResource Shown}}"/>
             <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding CoreVersion, Converter={StaticResource Shown}}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="코어" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding CoreVersion}" Style="{StaticResource ChipValue}"/>
                 </StackPanel>
             </Border>
-            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding HasRepo, Converter={StaticResource Shown}}">
+            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding HasRepo, Converter={StaticResource Shown}}" AutomationProperties.Name="깃 상태">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="깃" VerticalAlignment="Center"/>
-                    <TextBlock Text="—" Style="{StaticResource ChipValue}"/>
+                    <TextBlock Text="{Binding GitText}" Style="{StaticResource ChipValue}"/>
                 </StackPanel>
             </Border>
-            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}">
+            <!-- 변경 칩: 누르면 [버리기] -->
+            <Button x:Name="ChangesChip" DockPanel.Dock="Left" Style="{StaticResource ChipButton}" Click="OnChipMenu" AutomationProperties.Name="변경"
+                    Visibility="{Binding IsReadOnly, Converter={StaticResource Shown}, ConverterParameter=not}">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="버리기" Command="{Binding Discard}"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
                 <StackPanel Orientation="Horizontal">
                     <Ellipse Width="{StaticResource Dot}" Height="{StaticResource Dot}" Fill="{StaticResource Accent}" Margin="{StaticResource Gap.R6}"
                              VerticalAlignment="Center" Visibility="{Binding HasChanges, Converter={StaticResource Shown}}"/>
                     <TextBlock Text="변경" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding ChangeCount}" Style="{StaticResource ChipValue}"/>
                 </StackPanel>
-            </Border>
+            </Button>
+            <!-- 바깥 변경: 누르면 [다시 읽기] -->
+            <Button DockPanel.Dock="Left" Style="{StaticResource ChipButton}" Click="OnChipMenu" AutomationProperties.Name="바깥 변경"
+                    Visibility="{Binding HasExternal, Converter={StaticResource Shown}}">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="다시 읽기" Command="{Binding ReloadExternal}"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+                <StackPanel Orientation="Horizontal">
+                    <Image Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R6}"/>
+                    <TextBlock Text="바깥 변경" VerticalAlignment="Center" Foreground="{StaticResource Text}"/>
+                </StackPanel>
+            </Button>
             <!-- 오래 걸리는 일: 낱말 + 진행 -->
             <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Visibility="{Binding HasBusyText, Converter={StaticResource Shown}}">
                 <StackPanel Orientation="Horizontal">
@@ -107,22 +133,33 @@
                 </StackPanel>
             </Border>
             <!-- 막힌 명령의 까닭(잠깐) -->
-            <Border DockPanel.Dock="Left" Style="{StaticResource TopChip}" Background="{StaticResource ErrBg}" Visibility="{Binding HasNotice, Converter={StaticResource Shown}}">
+            <Border DockPanel.Dock="Left" Visibility="{Binding HasNotice, Converter={StaticResource Shown}}" ToolTip="{Binding Notice}">
+                <Border.Style>
+                    <Style TargetType="Border" BasedOn="{StaticResource TopChip}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding NoticeIsError}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource ErrBg}"/>
+                                <Setter Property="TextElement.Foreground" Value="{StaticResource Err}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <StackPanel Orientation="Horizontal">
-                    <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R6}"/>
-                    <TextBlock Text="{Binding Notice}" Foreground="{StaticResource Err}" VerticalAlignment="Center" MaxWidth="{StaticResource SettingsBox}" TextTrimming="CharacterEllipsis"/>
+                    <Image Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Margin="{StaticResource Gap.R6}"
+                           Visibility="{Binding NoticeIsError, Converter={StaticResource Shown}}"/>
+                    <TextBlock Text="{Binding Notice}" VerticalAlignment="Center" MaxWidth="{StaticResource SettingsBox}" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
             </Border>
 
-            <Button DockPanel.Dock="Right" Content="빌드" Style="{StaticResource Btn}" Command="{Binding Build}" IsEnabled="{Binding HasRepo}"/>
-            <Button DockPanel.Dock="Right" Content="올리기" Style="{StaticResource Btn}" Command="{Binding Push}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
+            <Button DockPanel.Dock="Right" Content="빌드" Style="{StaticResource Btn}" Command="{Binding Build}"/>
+            <Button DockPanel.Dock="Right" Content="올리기" Style="{StaticResource Btn}" Command="{Binding Push}" Margin="{StaticResource Gap.R8}"/>
             <Grid DockPanel.Dock="Right" Margin="{StaticResource Gap.R8}" VerticalAlignment="Center">
                 <Button Content="저장" Style="{StaticResource Btn.Primary}" Command="{Binding Save}"/>
                 <Border Style="{StaticResource Badge}" Visibility="{Binding HasErrors, Converter={StaticResource Shown}}">
                     <TextBlock Text="{Binding ErrorCount}" Style="{StaticResource BadgeText}"/>
                 </Border>
             </Grid>
-            <Button DockPanel.Dock="Right" Content="받기" Style="{StaticResource Btn}" Command="{Binding Pull}" IsEnabled="{Binding HasRepo}" Margin="{StaticResource Gap.R8}"/>
+            <Button DockPanel.Dock="Right" Content="받기" Style="{StaticResource Btn}" Command="{Binding Pull}" Margin="{StaticResource Gap.R8}"/>
         </DockPanel>
 
         <Grid Grid.Row="1" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
@@ -165,8 +202,10 @@
                                   Visibility="{Binding DataContext.IsManualTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
                     <v:SettingsView DataContext="{Binding Config}"
                                     Visibility="{Binding DataContext.IsSettingsTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
-                    <TextBlock Text="준비 중" Style="{StaticResource T.Empty}"
-                               Visibility="{Binding IsOtherTab, Converter={StaticResource Shown}}"/>
+                    <v:BuildView x:Name="BuildPaneView" DataContext="{Binding BuildPane}"
+                                 Visibility="{Binding DataContext.IsBuildTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
+                    <v:HistoryView x:Name="HistoryPane" DataContext="{Binding History}"
+                                   Visibility="{Binding DataContext.IsHistoryTab, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Shown}}"/>
 
                     <!-- 검사 목록 -->
                     <Border Grid.Row="1" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}">

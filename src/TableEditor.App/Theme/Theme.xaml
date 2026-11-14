@@ -906,6 +906,107 @@
     <Thickness x:Key="Gap.IoCol">0,0,16,0</Thickness>
     <Thickness x:Key="Gap.Section">0,24,0,8</Thickness>
 
+    <!-- ===== 깃·빌드·이력 ===== -->
+    <!-- 단계 아이콘: 대기 = 흐린 고리, 도는 중 = 강조 고리 + 점 -->
+    <DrawingImage x:Key="IconWait">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 L14,0 L14,14 L0,14 Z"/>
+                <GeometryDrawing Geometry="M7,1.25 A5.75,5.75 0 1 1 6.99,1.25 Z">
+                    <GeometryDrawing.Pen><Pen Brush="{StaticResource Line2}" Thickness="1.5"/></GeometryDrawing.Pen>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+    <DrawingImage x:Key="IconRun">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 L14,0 L14,14 L0,14 Z"/>
+                <GeometryDrawing Geometry="M7,1.25 A5.75,5.75 0 1 1 6.99,1.25 Z">
+                    <GeometryDrawing.Pen><Pen Brush="{StaticResource Accent}" Thickness="1.5"/></GeometryDrawing.Pen>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="{StaticResource Accent}" Geometry="M7,4.5 A2.5,2.5 0 1 1 6.99,4.5 Z"/>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+    <!-- 단계 사이 꺾쇠(오른쪽) -->
+    <Geometry x:Key="ChevronRight">M0,0 L4,4 L0,8</Geometry>
+    <Thickness x:Key="Gap.Stage">16,0,16,0</Thickness>
+    <!-- 빌드 출력 -->
+    <sys:Double x:Key="OutLineHeight">20</sys:Double>
+    <Thickness x:Key="Pad.Out">16,0,16,0</Thickness>
+    <Thickness x:Key="Pad.OutList">12,8</Thickness>
+    <GridLength x:Key="Col.ResLabel">56</GridLength>
+    <sys:Double x:Key="ResRowHeight">32</sys:Double>
+    <GridLength x:Key="ResRowLength">32</GridLength>
+    <!-- 이력 열: 날짜, 사람, 사유(나머지), 표시, 커밋 -->
+    <GridLength x:Key="Col.Date">168</GridLength>
+    <GridLength x:Key="Col.Who">136</GridLength>
+    <GridLength x:Key="Col.Mark">136</GridLength>
+    <GridLength x:Key="Col.Hash">96</GridLength>
+    <Thickness x:Key="Pad.HistRow">16,0</Thickness>
+    <!-- 작은 표시(회차·대기) -->
+    <sys:Double x:Key="MarkHeight">22</sys:Double>
+    <Style x:Key="Tick" TargetType="Border">
+        <Setter Property="Height" Value="{StaticResource MarkHeight}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource R.Badge}"/>
+        <Setter Property="Background" Value="{StaticResource Chip}"/>
+        <Setter Property="Padding" Value="{StaticResource Pad.Chip}"/>
+        <Setter Property="Margin" Value="{StaticResource Gap.R6}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextElement.FontSize" Value="{StaticResource Fs.Tiny}"/>
+        <Setter Property="TextElement.FontWeight" Value="{StaticResource Semi}"/>
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Text2}"/>
+    </Style>
+    <Style x:Key="Tick.Accent" TargetType="Border" BasedOn="{StaticResource Tick}">
+        <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Accent}"/>
+    </Style>
+    <!-- 위 줄 누르는 칩(변경·바깥 변경): 칩 모양 단추 -->
+    <Style x:Key="ChipButton" TargetType="Button">
+        <Setter Property="Height" Value="{StaticResource ChipHeight}"/>
+        <Setter Property="Margin" Value="{StaticResource Gap.R8}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
+        <Setter Property="Foreground" Value="{StaticResource Text2}"/>
+        <Setter Property="Background" Value="{StaticResource Chip}"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="{StaticResource R.Chip}" Padding="{StaticResource Pad.Chip}"
+                            BorderBrush="{StaticResource Text}" BorderThickness="0">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource NavOn}"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Bd" Property="BorderThickness" Value="{StaticResource Bd.Pick}"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!-- 읽기 전용 띠 -->
+    <Style x:Key="ReadOnlyBand" TargetType="Border" BasedOn="{StaticResource TopChip}">
+        <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Accent}"/>
+        <Setter Property="TextElement.FontWeight" Value="{StaticResource Semi}"/>
+    </Style>
+    <!-- 팝업: 글이 긴 단추 줄(충돌) -->
+    <sys:Double x:Key="DialogWideButtonWidth">232</sys:Double>
+    <Style x:Key="Btn.DialogWide" TargetType="Button" BasedOn="{StaticResource Btn.Dialog}">
+        <Setter Property="Width" Value="{StaticResource DialogWideButtonWidth}"/>
+    </Style>
+    <Style x:Key="Btn.DialogWidePrimary" TargetType="Button" BasedOn="{StaticResource Btn.DialogPrimary}">
+        <Setter Property="Width" Value="{StaticResource DialogWideButtonWidth}"/>
+    </Style>
+    <!-- 팝업 값 줄(라벨 + 값) -->
+    <GridLength x:Key="Fact.Label">96</GridLength>
+    <sys:Double x:Key="FactRowHeight">32</sys:Double>
+    <sys:Double x:Key="FileListMax">200</sys:Double>
+    <Thickness x:Key="Pad.FileList">12,8</Thickness>
+    <sys:Double x:Key="VersionListMax">240</sys:Double>
+
     <!-- 미리 보기 표 -->
     <Style x:Key="MatrixNew" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>

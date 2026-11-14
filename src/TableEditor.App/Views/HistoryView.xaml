@@ -1,0 +1,91 @@
+<UserControl x:Class="TableEditor.App.Views.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:TableEditor.App.ViewModels">
+    <!-- 이력(사양 9.2절): 날짜, 사람, 사유, 회차·대기 표시. 고른 줄 [보기][되돌리기] -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="RowT" DataType="vm:HistoryRow">
+            <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent">
+                <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
+                <Border x:Name="Side" Width="{StaticResource Bar.W}" HorizontalAlignment="Left"/>
+                <Grid Margin="{StaticResource Pad.HistRow}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Col.Date}"/>
+                        <ColumnDefinition Width="{StaticResource Col.Who}"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="{StaticResource Col.Mark}"/>
+                        <ColumnDefinition Width="{StaticResource Col.Hash}"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Date}" Style="{StaticResource T.Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource Text2}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Author}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Margin="{StaticResource Gap.R12}"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Reason}" ToolTip="{Binding Reason}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Margin="{StaticResource Gap.R12}"/>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal">
+                        <Border Style="{StaticResource Tick.Accent}" Visibility="{Binding IsRound, Converter={StaticResource Shown}}">
+                            <TextBlock Text="{Binding Round}" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Style="{StaticResource Tick}" Visibility="{Binding Waiting, Converter={StaticResource Shown}}">
+                            <TextBlock Text="대기" VerticalAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Grid.Column="4" Text="{Binding Hash}" Style="{StaticResource RowNo}"/>
+                </Grid>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource AccentBg}"/>
+                    <Setter TargetName="Side" Property="Background" Value="{StaticResource Accent}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Height="{StaticResource HeadHeight}" Margin="{StaticResource Gap.T8}">
+            <Border BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.Bottom}"/>
+            <Grid Margin="{StaticResource Pad.HistRow}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="{StaticResource Col.Date}"/>
+                    <ColumnDefinition Width="{StaticResource Col.Who}"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="{StaticResource Col.Mark}"/>
+                    <ColumnDefinition Width="{StaticResource Col.Hash}"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="날짜" Style="{StaticResource HeadCell}"/>
+                <TextBlock Grid.Column="1" Text="사람" Style="{StaticResource HeadCell}"/>
+                <TextBlock Grid.Column="2" Text="사유" Style="{StaticResource HeadCell}"/>
+                <TextBlock Grid.Column="4" Text="커밋" Style="{StaticResource HeadCell}"/>
+            </Grid>
+        </Grid>
+
+        <ListBox Grid.Row="1" Style="{StaticResource Rows}" ItemContainerStyle="{StaticResource RowItem}" ItemsSource="{Binding Rows}"
+                 ItemTemplate="{StaticResource RowT}" SelectedItem="{Binding Selected}" AutomationProperties.Name="이력"/>
+        <TextBlock Grid.Row="1" Text="이력 없음" Style="{StaticResource T.Empty}" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}}"/>
+        <ProgressBar Grid.Row="1" IsIndeterminate="True" Width="{StaticResource EmptyButtonWidth}" Height="{StaticResource Bar.W}"
+                     Visibility="{Binding IsLoading, Converter={StaticResource Shown}}"/>
+
+        <!-- 고른 줄: 해시·날짜·사람, 사유 + [보기][되돌리기] -->
+        <Border Grid.Row="2" Background="{StaticResource Well}" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}"
+                Padding="{StaticResource Pad.Detail}" Visibility="{Binding HasSelection, Converter={StaticResource Shown}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="보기" Style="{StaticResource Btn}" Command="{Binding View}" Margin="{StaticResource Gap.R8}"/>
+                    <Button Content="되돌리기" Style="{StaticResource Btn}" Command="{Binding Revert}"/>
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource T.Label}">
+                        <Run Text="{Binding Selected.Hash, Mode=OneWay}" FontFamily="{StaticResource Mono}"/><Run Text=" · "/><Run Text="{Binding Selected.Date, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Selected.Author, Mode=OneWay}"/>
+                    </TextBlock>
+                    <TextBlock Text="{Binding Selected.Reason}" FontWeight="{StaticResource Semi}" TextTrimming="CharacterEllipsis" Margin="{StaticResource Gap.T8}"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -47,7 +47,7 @@ public sealed record FindingVm(Finding Finding, string At, TabVm? Tab)
 /// 창 전체: 위 줄, 왼쪽 탭, 검사 목록, 지금 탭의 화면, 팝업. 편집은 <see cref="EditHistory"/> 위에서 돌고(되돌리기 = 사이트 바꿔 끼우기),
 /// 명령마다 사이트 전체를 다시 검사한다(설계서 4.5절).
 /// </summary>
-public sealed class MainVm : Observable
+public sealed partial class MainVm : Observable
 {
     public const string TagTab = "태그";
     public const string SettingsName = "설정";
@@ -87,7 +87,8 @@ public sealed class MainVm : Observable
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
         Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);
         Redo = new Command(() => Step(h => h.Redo()), () => CanEdit && history?.CanRedo == true);
-        Save = new Command(() => _ = SaveAsync(), () => CanEdit);
+        Save = new Command(() => _ = SaveAsync(), () => CanEdit && op != "save");
+        InitOps();
         draftTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
         draftTimer.Tick += (_, _) => { draftTimer.Stop(); WriteDraft(); };
         noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -122,7 +123,7 @@ public sealed class MainVm : Observable
         if (!await ConfirmLeaveAsync()) { siteName = old; Raise(nameof(SiteName)); return; }
         siteName = name;
         Raise(nameof(SiteName));
-        await TryOpen(() => OpenAsync(Path.Combine(Repo!, "site", name), Path.Combine(Repo!, "core")));
+        await TryOpen(() => OpenRepoSiteAsync(Path.Combine(Repo!, "site", name)));
     }
 
     bool empty = true;
@@ -140,7 +141,14 @@ public sealed class MainVm : Observable
         var pick = site != null && Sites.Contains(site) ? site : Sites.FirstOrDefault();
         siteName = pick;
         Raise(nameof(SiteName));
-        return pick == null ? Task.CompletedTask : OpenAsync(Path.Combine(dir, pick), Path.Combine(Repo, "core"));
+        return pick == null ? Task.CompletedTask : OpenRepoSiteAsync(Path.Combine(dir, pick));
+    }
+
+    async Task OpenRepoSiteAsync(string folder)
+    {
+        await OpenAsync(folder, Path.Combine(Repo!, "core"));
+        History.Stale();
+        await RefreshGitAsync();
     }
 
     /// <summary>사이트 폴더만 연다(저장소 없이).</summary>
@@ -226,12 +234,13 @@ public sealed class MainVm : Observable
 
     // ---- 편집 ----
 
-    public bool CanEdit => Site != null && Dialog == null && !IsBusy;
+    public bool CanEdit => Site != null && Dialog == null && !IsBusy && !IsReadOnly;
 
     /// <summary>명령 결과를 쌓고 다시 그린다. 막히면 까닭을 잠깐 보인다. 성공 여부.</summary>
     public bool Apply(EditResult r)
     {
         if (history == null) return false;
+        if (IsReadOnly) { Notify("읽기 전용"); Refresh(null, draft: false); return false; }
         if (!r.Ok) { Notify(r.Error ?? "막힘"); return false; }
         if (ReferenceEquals(r.Site, history.Current)) return true;
         history.Push(r);
@@ -305,8 +314,13 @@ public sealed class MainVm : Observable
         Notice = null;
     }
 
-    public void Notify(string text)
+    bool noticeError = true;
+    /// <summary>알림이 막힘·실패인가(빨간 칩). 아니면 회색 칩(받은 회차 번호 올림, 보관 가지 이름 등).</summary>
+    public bool NoticeIsError { get => noticeError; private set => Set(ref noticeError, value); }
+
+    public void Notify(string text, bool error = true)
     {
+        NoticeIsError = error;
         Notice = text;
         noticeTimer.Stop();
         noticeTimer.Start();
@@ -318,11 +332,25 @@ public sealed class MainVm : Observable
 
     /// <summary>
     /// [저장](Ctrl+S): 오류가 있으면 검사 목록의 첫 오류로 가서 고른다(저장 안 함, 초안은 남는다).
-    /// 바깥에서 바뀌었으면 팝업. 저장소로 열었으면 저장 뒤 태그 압축(실패는 검사 목록에). 저장했는가.
+    /// 저장소로 열었으면 사유 한 줄 팝업 → 파일 → 압축 → 커밋(사양 8.2절). 바뀐 것이 없으면 조용히 끝.
+    /// 바깥에서 바뀌었으면 팝업. 저장했는가.
     /// </summary>
     public async Task<bool> SaveAsync()
     {
-        if (Site is not { } s || !CanEdit) return false;
+        if (Site is not { } s || !CanEdit || op == "save") return false;
+        string? reason = null;
+        if (Repo != null && siteName != null && !Checker.Run(s).Any(f => f.Severity == Severity.Error))
+        {
+            if (SaveFiles.Changed(s).Count == 0) return true;
+            var rv = new ReasonVm();
+            if (await Show(rv) != "ok") return false;
+            reason = rv.Text.Trim();
+        }
+        return await Locked("save", "저장", () => SaveFilesAsync(s, reason));
+    }
+
+    async Task<bool> SaveFilesAsync(Site s, string? reason)
+    {
         IsBusy = true;
         SaveResult r;
         try { r = await Task.Run(() => SaveFiles.Save(s)); }
@@ -332,7 +360,7 @@ public sealed class MainVm : Observable
         {
             var key = await Show(new AskVm("바깥에서 바뀜", r.Conflicts,
                 [new("reload", "다시 읽기"), new("overwrite", "내 것으로 덮기"), new("cancel", "취소", Default: true)]));
-            if (key == "reload") { await TryOpen(() => OpenAsync(s.Folder, s.CoreFolder)); return false; }
+            if (key == "reload") { await ReloadAsync(); return false; }
             if (key != "overwrite") return false;
             IsBusy = true;
             try { r = await Task.Run(() => SaveFiles.Save(s, overwrite: true)); }
@@ -346,7 +374,12 @@ public sealed class MainVm : Observable
                 Notify(r.Reason ?? "검사 오류");
                 return false;
             case SaveStatus.Failed:
-                await Show(new AskVm("저장 실패", [r.Reason ?? ""], [new("ok", "닫기", Primary: true, Default: true)]));
+                // R-3: 파일은 저장 전으로 되돌렸다. 화면의 편집과 디스크가 어긋날 수 있어 다시 읽기만 길이다
+                bool r3 = r.Reason?.StartsWith("R-3", StringComparison.Ordinal) == true;
+                var k = await Show(new AskVm("저장 실패", [r.Reason ?? ""], r3
+                    ? [new("close", "닫기", Default: true), new("reload", "다시 읽기", Primary: true)]
+                    : [new("close", "닫기", Primary: true, Default: true)]));
+                if (k == "reload") await ReloadAsync();
                 return false;
             case SaveStatus.NoChange:
                 return true;
@@ -355,46 +388,23 @@ public sealed class MainVm : Observable
         history!.MarkSaved(r.Site);
         baseline = Baseline(r.Site);
         packFindings = [];
+        external = [];
+        Raise(nameof(HasExternal));
         Refresh(null, draft: false);
-        if (Repo != null && siteName != null) await PackAsync(Repo, siteName);
-        await AfterSaveAsync(r);
+        await AfterSaveAsync(reason);
         return true;
     }
 
-    /// <summary>태그 압축(사양 7.2절 3). 진행 표시, 화면은 멈추지 않는다. 실패하면 검사 목록에 올린다.</summary>
-    async Task PackAsync(string root, string site)
-    {
-        BusyText = "태그 압축";
-        IsBusy = true;
-        try
-        {
-            var pr = await SitePack.RunAsync(root, site, Settings.GccPath);
-            if (!pr.Ok) packFindings = [new Finding("압축", Severity.Error, "tag_packed.c", null, null, $"{pr.Step} · {pr.Reason}", [], [])];
-        }
-        catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            packFindings = [new Finding("압축", Severity.Error, "tag_packed.c", null, null, e.Message, [], [])];
-        }
-        finally
-        {
-            IsBusy = false;
-            BusyText = null;
-        }
-        if (packFindings.Count > 0 && Site is { } s) SetFindings(s, Checker.Run(s).Concat(packFindings).ToList());
-    }
-
-    /// <summary>저장 뒤 할 일을 붙이는 자리(깃 커밋은 작업 6 이 여기에 붙인다). 지금은 아무것도 안 한다.</summary>
-    static Task AfterSaveAsync(SaveResult saved) => Task.CompletedTask;
-
-    /// <summary>저장 안 한 변경이 있으면 [저장][버리기][취소]. 나가도 되는가.</summary>
-    public async Task<bool> ConfirmLeaveAsync()
+    /// <summary>저장 안 한 변경이 있으면 [저장][버리기][취소]. 나가도 되는가. reload = 버리면 디스크에서 다시 연다(받기·되돌리기 전).</summary>
+    public async Task<bool> ConfirmLeaveAsync(bool reload = false)
     {
         if (!Dirty) return true;
         var key = await Show(new AskVm("저장 안 함", [$"변경 {ChangeCount}"],
             [new("save", "저장", Primary: true), new("drop", "버리기"), new("cancel", "취소", Default: true)]));
-        if (key == "save") return await SaveAsync();
+        if (key == "save") return await SaveAsync() && !Dirty;
         if (key == "drop")
         {
+            if (reload) { await ReloadAsync(); return true; }
             draftTimer.Stop();
             if (Site is { } s) TryDraft(() => Drafts.Clear(s));
             return true;
@@ -530,9 +540,10 @@ public sealed class MainVm : Observable
             if (!Set(ref tab, value)) return;
             old.Changed();
             value.Changed();
-            foreach (var n in new[] { nameof(IsTagTab), nameof(IsSettingsTab), nameof(IsOtherTab), nameof(IsProfileTab), nameof(IsIoTab), nameof(IsSeqTab), nameof(IsMapTab), nameof(IsManualTab) })
+            foreach (var n in new[] { nameof(IsTagTab), nameof(IsSettingsTab), nameof(IsBuildTab), nameof(IsHistoryTab), nameof(IsProfileTab), nameof(IsIoTab), nameof(IsSeqTab), nameof(IsMapTab), nameof(IsManualTab) })
                 Raise(n);
             if (IsSettingsTab && Config.Tools.Count == 0 && Settings.Volatile == false) _ = Config.ProbeAsync();
+            if (IsHistoryTab) _ = History.ShownAsync();
         }
     }
 
@@ -543,7 +554,8 @@ public sealed class MainVm : Observable
     public bool IsSeqTab => Tab.Name == SeqTab;
     public bool IsMapTab => Tab.Name == MapTab;
     public bool IsManualTab => Tab.Name == ManualTab;
-    public bool IsOtherTab => Tab.Group == 1;
+    public bool IsBuildTab => Tab.Name == BuildTabName;
+    public bool IsHistoryTab => Tab.Name == HistoryTabName;
 
     public ICommand GoTo { get; }
 
@@ -580,9 +592,4 @@ public sealed class MainVm : Observable
     /// <summary>설정 화면 [폴더]: 창이 폴더 고르기를 띄운다.</summary>
     public Action? PickRepoRequested { get; set; }
 
-    // ---- 위 줄 ----
-
-    public ICommand Pull { get; } = Command.None;
-    public ICommand Push { get; } = Command.None;
-    public ICommand Build { get; } = Command.None;
 }

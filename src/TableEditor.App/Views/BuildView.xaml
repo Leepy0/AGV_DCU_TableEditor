@@ -1,0 +1,131 @@
+<UserControl x:Class="TableEditor.App.Views.BuildView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:TableEditor.App.ViewModels">
+    <!-- 빌드 결과(사양 9.2절): 단계(검사 → 압축 → 개발 → 현장), 출력 줄, 결과 경로, [폴더 열기][회차 내기] -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="StageT" DataType="vm:StageVm">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Path x:Name="Sep" Data="{StaticResource ChevronRight}" Stroke="{StaticResource Text3}" StrokeThickness="{StaticResource Chev.Stroke}"
+                      VerticalAlignment="Center" Margin="{StaticResource Gap.Stage}"/>
+                <Image x:Name="Ico" Style="{StaticResource Icon}" Source="{StaticResource IconWait}" Margin="{StaticResource Gap.R8}"/>
+                <TextBlock Text="{Binding Name}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center" Margin="{StaticResource Gap.R8}"/>
+                <TextBlock x:Name="W" Text="{Binding Word}" Style="{StaticResource T.Faint}"/>
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                    <Setter TargetName="Sep" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:StageState.Run}">
+                    <Setter TargetName="Ico" Property="Source" Value="{StaticResource IconRun}"/>
+                    <Setter TargetName="W" Property="Foreground" Value="{StaticResource Accent}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:StageState.Pass}">
+                    <Setter TargetName="Ico" Property="Source" Value="{StaticResource IconOk}"/>
+                    <Setter TargetName="W" Property="Foreground" Value="{StaticResource Text2}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:StageState.Fail}">
+                    <Setter TargetName="Ico" Property="Source" Value="{StaticResource IconErr}"/>
+                    <Setter TargetName="W" Property="Foreground" Value="{StaticResource Err}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:StageState.Cancel}">
+                    <Setter TargetName="W" Property="Foreground" Value="{StaticResource Text2}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <Style x:Key="ResLabel" TargetType="TextBlock" BasedOn="{StaticResource T.Label}"/>
+        <Style x:Key="ResPath" TargetType="TextBlock" BasedOn="{StaticResource T.Mono}">
+            <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 머리: 제목 + 단계 + [취소] -->
+        <DockPanel Height="{StaticResource BarHeight}" Margin="{StaticResource Pad.Bar}" LastChildFill="False">
+            <Button DockPanel.Dock="Right" Content="취소" Style="{StaticResource Btn}" Command="{Binding Cancel}"
+                    Visibility="{Binding Running, Converter={StaticResource Shown}}"/>
+            <TextBlock DockPanel.Dock="Left" Text="{Binding Title}" FontSize="{StaticResource Fs.Body}" FontWeight="{StaticResource Semi}"
+                       VerticalAlignment="Center" Margin="{StaticResource Gap.R24}"/>
+            <ItemsControl DockPanel.Dock="Left" ItemsSource="{Binding Stages}" ItemTemplate="{StaticResource StageT}" Focusable="False"
+                          ItemsPanel="{StaticResource Across}" VerticalAlignment="Center" AutomationProperties.Name="단계"/>
+        </DockPanel>
+
+        <!-- 출력 줄: 고정폭, 가상화, 끝 따라가기(위로 올리면 풀림) -->
+        <Border Grid.Row="1" Margin="{StaticResource Pad.Out}" Background="{StaticResource Well}" BorderBrush="{StaticResource Line}"
+                BorderThickness="{StaticResource Bd.1}" CornerRadius="{StaticResource R.4}">
+            <Grid>
+                <ListBox x:Name="Out" ItemsSource="{Binding Lines}" Background="Transparent" BorderThickness="0" Padding="{StaticResource Pad.OutList}"
+                         FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="출력">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource RowItem}"/>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Height="{StaticResource OutLineHeight}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <!-- 빈 화면: 낱말 + [빌드] -->
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding Started, Converter={StaticResource Shown}, ConverterParameter=not}">
+                    <TextBlock Text="기록 없음" Style="{StaticResource EmptyWord}"/>
+                    <Button Content="빌드" Style="{StaticResource Btn.Outline}" Command="{Binding Run}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 결과: 개발·현장 .out, 회차 줄·코어 줄, [폴더 열기][회차 내기][README 열기] -->
+        <Grid Grid.Row="2" Margin="{StaticResource Pad.Detail}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{StaticResource Col.ResLabel}"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="{StaticResource ResRowLength}"/>
+                <RowDefinition Height="{StaticResource ResRowLength}"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Text="개발" Style="{StaticResource ResLabel}"/>
+            <TextBlock Grid.Column="1" Text="{Binding DevText}" ToolTip="{Binding DevOut}" Style="{StaticResource ResPath}"/>
+            <TextBlock Grid.Row="1" Text="현장" Style="{StaticResource ResLabel}"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FieldText}" ToolTip="{Binding FieldOut}" Style="{StaticResource ResPath}"/>
+            <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="폴더 열기" Style="{StaticResource Btn}" Command="{Binding OpenFolder}" Margin="{StaticResource Gap.R8}"/>
+                <Button Content="회차 내기" Style="{StaticResource Btn.Outline}" Command="{Binding Round}"/>
+            </StackPanel>
+
+            <!-- 회차 줄 머리 + [README 열기] / 코어 올리기 결과 줄 -->
+            <StackPanel Grid.Row="2" Grid.ColumnSpan="3">
+                <Grid MinHeight="{StaticResource ResRowHeight}" Margin="{StaticResource Gap.T8}" Visibility="{Binding HasReadme, Converter={StaticResource Shown}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Col.ResLabel}"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="회차" Style="{StaticResource ResLabel}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ReadmeLine}" ToolTip="{Binding ReadmeLine}" Style="{StaticResource ResPath}" Foreground="{StaticResource Text}"
+                               Margin="{StaticResource Gap.R8}"/>
+                    <Button Grid.Column="2" Content="README 열기" Style="{StaticResource Btn}" Width="{StaticResource WideButtonWidth}" Command="{Binding OpenReadme}"/>
+                </Grid>
+                <Grid Height="{StaticResource ResRowHeight}" Margin="{StaticResource Gap.T8}" Visibility="{Binding HasResult, Converter={StaticResource Shown}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Col.ResLabel}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding ResultLabel}" Style="{StaticResource ResLabel}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ResultLine}" ToolTip="{Binding ResultLine}" Style="{StaticResource ResPath}" Foreground="{StaticResource Text}"/>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

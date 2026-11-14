@@ -116,6 +116,7 @@ public partial class App : Application
             : folder != null ? vm.OpenRepoAsync(folder)
             : Task.CompletedTask);
         if (a.Repo != null && !shot && !vm.IsEmpty) { settings.LastRepo = vm.Repo; settings.Save(); }
+        if (!shot && vm.HasRepo) _ = vm.StartupAsync(); // 작성자·연결 확인·대기 올리기(사양 8.1·8.3절)
 
         if (a.Tab != null && vm.Tabs.FirstOrDefault(t => t.Name == a.Tab) is { } tab) vm.Tab = tab;
         if (a.Select is int n) vm.Tag.SelectOrdinal(n);

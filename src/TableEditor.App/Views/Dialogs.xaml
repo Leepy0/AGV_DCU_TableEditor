@@ -451,6 +451,185 @@
         </Border>
     </DataTemplate>
 
+    <!-- 저장 사유 한 줄: Enter = 저장, 빈 글이면 저장이 흐림 -->
+    <DataTemplate DataType="{x:Type vm:ReasonVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Frow.Label}"/>
+                        <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="사유" Style="{StaticResource FrowLabel}" Margin="0"/>
+                    <TextBox Grid.Column="2" Style="{StaticResource EditBox}" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" MaxLength="200"
+                             AutomationProperties.Name="사유">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Enter" Command="{Binding Ok}"/>
+                        </TextBox.InputBindings>
+                    </TextBox>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
+                        <Button Content="저장" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 작성자: 이름·메일 -->
+    <DataTemplate DataType="{x:Type vm:AuthorVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Frow.Label}"/>
+                        <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="이름" Style="{StaticResource FrowLabel}"/>
+                    <TextBox Grid.Column="2" Style="{StaticResource EditBox}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="{StaticResource Gap.B16}"
+                             AutomationProperties.Name="이름"/>
+                    <TextBlock Grid.Row="1" Text="메일" Style="{StaticResource FrowLabel}" Margin="0"/>
+                    <TextBox Grid.Row="1" Grid.Column="2" Style="{StaticResource EditBox}" Text="{Binding Mail, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="메일">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Enter" Command="{Binding Ok}"/>
+                        </TextBox.InputBindings>
+                    </TextBox>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
+                        <Button Content="저장" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 확인(값 위주): 라벨 + 값 줄, 단추(기본 포커스 = 취소) -->
+    <DataTemplate DataType="{x:Type vm:FactsVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                </Border>
+                <ItemsControl ItemsSource="{Binding Facts}" Margin="{StaticResource Pad.DialogBody}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:Fact}">
+                            <Grid MinHeight="{StaticResource FactRowHeight}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{StaticResource Fact.Label}"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" FontSize="{StaticResource Fs.Mid}"/>
+                                <TextBlock x:Name="V" Grid.Column="1" Text="{Binding Value}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Mono}" Value="True">
+                                    <Setter TargetName="V" Property="FontFamily" Value="{StaticResource Mono}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Style="{StaticResource DialogFoot}">
+                    <ItemsControl ItemsSource="{Binding Buttons}" HorizontalAlignment="Right" VerticalAlignment="Center" Focusable="False" ItemsPanel="{StaticResource Across}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:AskButton}">
+                                <Button x:Name="B" Content="{Binding Label}" Style="{StaticResource Btn.Dialog}" Tag="{Binding Default}"
+                                        Command="{Binding DataContext.Press, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Key}"/>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Primary}" Value="True">
+                                        <Setter TargetName="B" Property="Style" Value="{StaticResource Btn.DialogPrimary}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 받기 충돌: 파일 목록 + [내 것 보관하고 원격 받기][그대로 두기](기본 포커스) -->
+    <DataTemplate DataType="{x:Type vm:ConflictVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Style="{StaticResource T.Label}"/>
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                    </DockPanel>
+                </Border>
+                <Border Margin="{StaticResource Pad.DialogBody}" Background="{StaticResource Well}" BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.1}"
+                        CornerRadius="{StaticResource R.4}">
+                    <ScrollViewer MaxHeight="{StaticResource FileListMax}" VerticalScrollBarVisibility="Auto" Focusable="False">
+                        <ItemsControl ItemsSource="{Binding Files}" Margin="{StaticResource Pad.FileList}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Height="{StaticResource FactRowHeight}">
+                                        <Image Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R8}"/>
+                                        <TextBlock Text="{Binding}" Style="{StaticResource T.Mono}" FontSize="{StaticResource Fs.Small}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="내 것 보관하고 원격 받기" Style="{StaticResource Btn.DialogWide}" Command="{Binding Keep}"/>
+                        <Button Content="그대로 두기" Style="{StaticResource Btn.DialogWidePrimary}" Command="{Binding Cancel}" Tag="{StaticResource True}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 코어 버전 고르기: 지금 버전, 목록(받는 중 / 오프라인) -->
+    <DataTemplate DataType="{x:Type vm:VersionsVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource T.Label}"><Run Text="지금 "/><Run Text="{Binding Current, Mode=OneWay}" FontWeight="{StaticResource Semi}"/></TextBlock>
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                    </DockPanel>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}" MinHeight="{StaticResource SignalsMax}">
+                    <Border BorderBrush="{StaticResource Line}" BorderThickness="{StaticResource Bd.1}" CornerRadius="{StaticResource R.4}">
+                        <ListBox ItemsSource="{Binding Versions}" SelectedItem="{Binding Selected}" MaxHeight="{StaticResource VersionListMax}" BorderThickness="0"
+                                 FontFamily="{StaticResource Mono}" AutomationProperties.Name="코어 버전"/>
+                    </Border>
+                    <ProgressBar IsIndeterminate="True" Width="{StaticResource EmptyButtonWidth}" Height="{StaticResource Bar.W}"
+                                 Visibility="{Binding IsLoading, Converter={StaticResource Shown}}"/>
+                    <TextBlock Text="오프라인" Style="{StaticResource T.Empty}" Visibility="{Binding IsOffline, Converter={StaticResource Shown}}"/>
+                    <TextBlock Text="버전 없음" Style="{StaticResource T.Empty}" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}}"/>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}" Tag="{StaticResource True}"/>
+                        <Button Content="고르기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
     <!-- 원문(고급) -->
     <DataTemplate DataType="{x:Type vm:RawVm}">
         <Border Style="{StaticResource DialogCard}">

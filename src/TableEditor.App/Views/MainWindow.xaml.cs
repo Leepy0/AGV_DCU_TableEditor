@@ -30,7 +30,17 @@ public partial class MainWindow : Window
         vm.Went += _ => FocusPane();
         vm.DialogShown += _ => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog);
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
+        Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
         if (remember) Restore();
+    }
+
+    /// <summary>위 줄 칩(변경·바깥 변경)을 누르면 작은 메뉴.</summary>
+    void OnChipMenu(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } b) return;
+        menu.PlacementTarget = b;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
     }
 
     void Switch()
@@ -134,6 +144,7 @@ public partial class MainWindow : Window
             settings.LastRepo = vm.Repo;
             settings.Save();
             vm.Config.RepoChanged();
+            await vm.StartupAsync();
         }
     }
 }
