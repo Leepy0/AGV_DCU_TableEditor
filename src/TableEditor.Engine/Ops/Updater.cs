@@ -439,6 +439,14 @@ public static class Updater
         if (parent == null || !Directory.Exists(parent)) return left;
         foreach (var d in Directory.GetDirectories(parent, Path.GetFileName(TrashPrefix(install)) + "*"))
         {
+            if (IsLink(d)) { left.Add(Path.GetFileName(d)); continue; } // 링크·정션: 따라가 지우지 않는다
+            // 지우다 끊겨 표지까지 지운 빈 트리(파일·링크 없음)는 표지가 없어도 지운다
+            if (!File.Exists(Path.Combine(d, TrashName)) && !Walk(d).Any(f => f is FileInfo || f.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                try { Directory.Delete(d, recursive: true); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } // 다음에
+                continue;
+            }
             // 지우다 끊긴 trash 는 표지가 일부 없을 수 있다: .te-trash 와 "목록 밖 없음"(files.txt 가 없으면 남은 파일이 모두 목록 밖)만 본다
             var c = Check(d);
             if (!File.Exists(Path.Combine(d, TrashName)) || c.HasGit || c.Extra.Count > 0) { left.Add(Path.GetFileName(d)); continue; }
@@ -455,6 +463,8 @@ public static class Updater
     /// </summary>
     static void DeleteOurs(string dir)
     {
+        // 폴더 자체나 그 안에 링크·정션이 있으면 지우지 않는다(대상을 따라가 지우지 않게). 부르는 쪽 검사(Ours)를 한 번 더
+        if (IsLink(dir) || Walk(dir).Any(f => f.Attributes.HasFlag(FileAttributes.ReparsePoint))) throw new UpdateException(Path.GetFileName(dir) + " 링크");
         static void Del(string f) { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
         string[] last = [Path.Combine(dir, "VERSION"), Path.Combine(dir, ReadyName), Path.Combine(dir, ListName), Path.Combine(dir, TrashName)];
         var exe = Path.Combine(dir, ExeName);
@@ -486,6 +496,7 @@ public static class Updater
     public static FolderCheck Check(string dir)
     {
         if (!Directory.Exists(dir)) return new(false, false, false, [], []);
+        if (IsLink(dir)) return new(true, false, false, [], [Path.GetFileName(dir) + " (링크)"]); // 링크·정션 폴더는 옮기기·지우기·적용 모두 막음
         var list = Path.Combine(dir, ListName);
         bool marked = File.Exists(list) && File.Exists(Path.Combine(dir, "VERSION")) && File.Exists(Path.Combine(dir, ExeName));
         var expect = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
@@ -497,8 +508,7 @@ public static class Updater
         var missing = new List<string>();
         var extra = new List<string>();
         bool git = false;
-        var opt = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = false };
-        foreach (var f in new DirectoryInfo(dir).EnumerateFileSystemInfos("*", opt))
+        foreach (var f in Walk(dir))
         {
             var rel = f.FullName[root.Length..];
             if (f.Name.Equals(".git", StringComparison.OrdinalIgnoreCase)) git = true;
@@ -514,6 +524,22 @@ public static class Updater
         }
         missing.AddRange(expect.Keys.Where(k => !seen.Contains(k)));
         return new(true, marked, git, missing, extra);
+    }
+
+    /// <summary>폴더 자체가 링크·정션(ReparsePoint)인가.</summary>
+    public static bool IsLink(string dir) => Directory.Exists(dir) && new DirectoryInfo(dir).Attributes.HasFlag(FileAttributes.ReparsePoint);
+
+    /// <summary>폴더 안 모든 항목(숨김·시스템 포함). 링크·정션은 내놓되 그 안으로는 들어가지 않는다.</summary>
+    static IEnumerable<FileSystemInfo> Walk(string dir)
+    {
+        var opt = new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false };
+        var stack = new Stack<DirectoryInfo>([new DirectoryInfo(dir)]);
+        while (stack.TryPop(out var cur))
+            foreach (var f in cur.EnumerateFileSystemInfos("*", opt))
+            {
+                yield return f;
+                if (f is DirectoryInfo d && !d.Attributes.HasFlag(FileAttributes.ReparsePoint)) stack.Push(d);
+            }
     }
 
     /// <summary>폴더의 VERSION 버전. 없거나 틀리면 null.</summary>
@@ -698,7 +724,7 @@ public static class Updater
         rem TE_MODE apply, rollback or recover. TE_DST install folder. TE_SRC folder to move in. TE_PID app process.
         rem TE_START 1 = start the app after success. TE_RESULT, TE_LOG, TE_LOCK files. TE_STAMP trash name. TE_WAIT wait loops. TE_TRIES rename tries.
         rem Nothing is deleted here. Folders to drop are renamed to TE_DST.trash-TE_STAMP-a and marked; the app deletes them after checking.
-        rem Only folders with files.txt, VERSION and TableEditor.exe are moved.
+        rem Only folders with files.txt, VERSION and TableEditor.exe are moved, never links or junctions (attribute l).
         set "SYS=%SystemRoot%\System32"
         set "OLD=%TE_DST%.old"
         set "TA=%TE_DST%.trash-%TE_STAMP%-a"
@@ -832,6 +858,10 @@ public static class Updater
         exit /b 0
 
         :ours
+        set "XA="
+        for %%I in ("%X%") do set "XA=%%~aI"
+        if not defined XA exit /b 1
+        if not "%XA:l=%"=="%XA%" exit /b 1
         if not exist "%X%\files.txt" exit /b 1
         if not exist "%X%\VERSION" exit /b 1
         if not exist "%X%\TableEditor.exe" exit /b 1

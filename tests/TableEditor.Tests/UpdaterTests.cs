@@ -18,6 +18,76 @@ static class UpdaterTests
         Redirect(check);
         Sha(check);
         Helper(check);
+        Links(check);
+    }
+
+    /// <summary>정션(링크): .old·.new·trash 가 정션이거나 안에 정션이 있어도 대상을 따라가 옮기거나 지우지 않는다. 빈 trash 트리는 표지 없이도 지운다.</summary>
+    static void Links(Action<bool, string> check)
+    {
+        var root = Temp("link");
+        try
+        {
+            var upd = Path.Combine(root, "upd");
+            var install = Path.Combine(root, "TE");
+            var victim = Path.Combine(root, "victim");
+            Pack(install, "v0.2.0", "cur", "a.dll");
+            Pack(victim, "v0.1.0", "old", "b.dll");
+            File.WriteAllText(Path.Combine(victim, Updater.TrashName), "x");
+            int Files() => Directory.GetFiles(victim, "*", SearchOption.AllDirectories).Length;
+            int before = Files();
+
+            // .old 가 정션 → 앱이 막고, 도우미도 막음(대상 그대로)
+            Junction(Updater.OldDir(install), victim);
+            PackNew(install, "v0.3.0", "new");
+            check(Updater.IsLink(Updater.OldDir(install)) && !Updater.Check(Updater.OldDir(install)).Ours
+                && Updater.Blockers(install, "apply").Any(x => x.Contains("우리 것 아님")), "정션 .old → 앱이 막음");
+            using (var p = Updater.StartHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, false, upd, 5, 2), upd)) p.WaitForExit();
+            check(Updater.TakeResult(upd) == "fail-notours" && Files() == before && Read(install, Updater.ExeName) == "cur", "정션 .old → 도우미도 막음, 대상 그대로");
+            Directory.Delete(Updater.OldDir(install)); // 정션만 지움(대상은 그대로)
+
+            // trash 자체가 정션 → 남기고 이름만
+            var t1 = install + ".trash-1-a";
+            Junction(t1, victim);
+            var left = Updater.EmptyTrash(install);
+            check(left.Contains(Path.GetFileName(t1)) && Files() == before, "정션 trash → 지우지 않음(대상 파일 그대로)");
+            Directory.Delete(t1);
+
+            // trash 안에 정션 → 목록 밖, 남김
+            var t2 = install + ".trash-2-a";
+            Pack(t2, "v0.1.0", "old", "c.dll");
+            File.WriteAllText(Path.Combine(t2, Updater.TrashName), "x");
+            Junction(Path.Combine(t2, "link"), victim);
+            left = Updater.EmptyTrash(install);
+            check(left.Contains(Path.GetFileName(t2)) && Files() == before, "trash 안 정션 → 지우지 않음(대상 그대로)");
+            Directory.Delete(Path.Combine(t2, "link"));
+            Directory.Delete(t2, true);
+
+            // 표지까지 지운 뒤 끊긴 빈 trash 트리 → 표지 없이도 지움, 팝업 없음
+            var t3 = install + ".trash-3-a";
+            Directory.CreateDirectory(Path.Combine(t3, "gcc", "bin"));
+            left = Updater.EmptyTrash(install);
+            check(!Directory.Exists(t3) && left.Count == 0, "빈 trash 트리 → 지움");
+
+            // .new 가 정션 → 받은 버전 아님, 버리기도 안 함
+            Directory.Delete(Updater.NewDir(install), true);
+            Junction(Updater.NewDir(install), victim);
+            check(Updater.Pending(install, new Version(0, 0, 1)) == null && !Updater.Discard(install) && Files() == before, "정션 .new → 받은 버전 아님, 버리기 안 함");
+            Directory.Delete(Updater.NewDir(install));
+        }
+        finally
+        {
+            foreach (var d in Directory.GetDirectories(root, "*", SearchOption.TopDirectoryOnly))
+                if (Updater.IsLink(d)) Directory.Delete(d);
+            try { Directory.Delete(root, true); } catch (IOException) { }
+        }
+    }
+
+    static void Junction(string link, string target)
+    {
+        using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), $"/d /s /c \"mklink /J \"{link}\" \"{target}\"\"")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        p.WaitForExit();
+        if (!Updater.IsLink(link)) throw new InvalidOperationException("정션을 못 만듦: " + link);
     }
 
     static Version V(string s) => Updater.TryParseVersion(s, out var v) ? v : throw new FormatException(s);
