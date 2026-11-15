@@ -64,6 +64,7 @@ public sealed partial class MainVm : Observable
     public MapVm Map { get; }
     public IoVm Io { get; }
     public SettingsVm Config { get; }
+    public UpdateVm Update { get; }
 
     public const string ProfileTab = "프로파일", IoTab = "IO 맵", SeqTab = "시퀀스", MapTab = "대응표", ManualTab = "수동";
 
@@ -83,6 +84,7 @@ public sealed partial class MainVm : Observable
         Map = new MapVm(this);
         Io = new IoVm();
         Config = new SettingsVm(settings, this);
+        Update = new UpdateVm(this, settings);
         GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
         Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);

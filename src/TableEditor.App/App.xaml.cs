@@ -13,17 +13,18 @@ namespace TableEditor.App;
 /// <summary>
 /// 여는 법: <c>--site &lt;사이트 폴더&gt;</c>(깃·빌드 꺼짐) 또는 <c>--repo &lt;앱 루트&gt; [--site &lt;사이트 이름&gt;]</c>.
 /// 인자가 없으면 설정의 마지막 저장소, 그것도 없으면 빈 화면. 같은 폴더를 두 창이 열지 못한다(이름 붙인 뮤텍스).
-/// 캡처: <c>--shot &lt;png&gt; [--tab &lt;탭&gt;] [--select &lt;줄&gt;] [--view]</c> → 1280×900 창 내용을 배율 2 로 쓰고 끝낸다.
+/// 캡처: <c>--shot &lt;png&gt; [--tab &lt;탭&gt;] [--select &lt;줄&gt;] [--view] [--fake-update start|tick]</c> → 1280×900 창 내용을 배율 2 로 쓰고 끝낸다.
+/// <c>--fake-update</c> = 지금 판을 0.0.1 로 낮춰 업데이트 팝업(start)·토스트(tick)를 띄운다(네트워크 없음).
 /// 줄 수: <c>--counts &lt;파일&gt;</c> → 화면 줄 수를 쓰고 끝낸다(실제 사이트 확인).
 /// 자체 시험: <c>--selftest &lt;작업 폴더&gt; [--shots &lt;폴더&gt;]</c> → 종료 코드 0 = 통과(<see cref="SelfTest"/>).
 /// </summary>
 public partial class App : Application
 {
-    sealed record Args(string? Repo, string? Site, string? Shot, string? Tab, int? Select, bool View, string? SelfTest, string? Shots, string? Counts);
+    sealed record Args(string? Repo, string? Site, string? Shot, string? Tab, int? Select, bool View, string? SelfTest, string? Shots, string? Counts, string? FakeUpdate);
 
     static Args Parse(string[] a)
     {
-        string? repo = null, site = null, shot = null, tab = null, selftest = null, shots = null, counts = null;
+        string? repo = null, site = null, shot = null, tab = null, selftest = null, shots = null, counts = null, fake = null;
         int? select = null;
         bool view = false;
         for (int i = 0; i < a.Length; i++)
@@ -40,9 +41,10 @@ public partial class App : Application
                 case "--selftest": selftest = Next(); break;
                 case "--shots": shots = Next(); break;
                 case "--counts": counts = Next(); break;
+                case "--fake-update": fake = Next(); break;
             }
         }
-        return new(repo, site, shot, tab, select, view, selftest, shots, counts);
+        return new(repo, site, shot, tab, select, view, selftest, shots, counts, fake);
     }
 
     static string CrashLog => Path.Combine(Path.GetDirectoryName(Settings.FilePath)!, "crash.log");
@@ -121,6 +123,14 @@ public partial class App : Application
         if (a.Tab != null && vm.Tabs.FirstOrDefault(t => t.Name == a.Tab) is { } tab) vm.Tab = tab;
         if (a.Select is int n) vm.Tag.SelectOrdinal(n);
         if (a.View) vm.Tag.IsLook = true;
+        if (a.FakeUpdate != null)
+        {
+            // 캡처에 이 PC 경로가 들지 않게(설정은 메모리에만)
+            (settings.GccPath, settings.Cl2000Path) = (@"D:\tools\gcc\bin\gcc.exe", @"C:\ti\ti-cgt-c2000_18.12.2.LTS\bin\cl2000.exe");
+            vm.Config.Reload();
+            vm.Update.Fake(a.FakeUpdate);
+        }
+        else if (!shot) _ = vm.Update.StartAsync(); // 새 판 확인(시작 팝업·1시간 토스트)
 
         if (a.Counts != null)
         {

@@ -76,17 +76,6 @@ public sealed class SettingsVm : Observable
 
     internal MainVm Main => main;
 
-    /// <summary>프로그램 버전(어셈블리 버전, 빌드 꼬리표는 뺀다).</summary>
-    public string AppVersion => Version;
-
-    public static string Version
-    {
-        get
-        {
-            var asm = typeof(SettingsVm).Assembly;
-            var info = asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion;
-            return (info ?? asm.GetName().Version?.ToString() ?? "?").Split('+')[0];
-        }
-    }
+    /// <summary>프로그램 업데이트 칸(판·채널·커밋, 확인·받기·적용·되돌리기, 자동 확인).</summary>
+    public UpdateVm Update => main.Update;
 }

@@ -9,7 +9,14 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- WPF 바인딩이 문화권을 찾는다. 불변 문화권만 두면 첫 바인딩에서 죽는다 -->
     <InvariantGlobalization>false</InvariantGlobalization>
+    <Version>0.2.0</Version>
+    <!-- tools/release.ps1 이 -p:BuildChannel=release 로 넘긴다. 그 밖(dotnet build, bin 폴더)은 local: 자기 교체 안 함 -->
+    <BuildChannel Condition="'$(BuildChannel)' == ''">local</BuildChannel>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildChannel" Value="$(BuildChannel)" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\TableEditor.Engine\TableEditor.Engine.csproj" />
