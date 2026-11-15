@@ -26,8 +26,6 @@ public sealed class Settings
 
     /// <summary>시작·1시간마다 새 판 확인.</summary>
     public bool UpdateAuto { get; set; } = true;
-    /// <summary>받아서 풀고 검증한 새 판(닫을 때 적용).</summary>
-    public TableEditor.Engine.Ops.PendingUpdate? UpdatePending { get; set; }
     /// <summary>되돌린 판: 자동 확인으로 다시 알리지 않는다.</summary>
     public string? UpdateSkip { get; set; }
 

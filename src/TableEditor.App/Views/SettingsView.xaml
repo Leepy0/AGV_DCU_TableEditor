@@ -131,7 +131,7 @@
                 <TextBlock Text="{Binding Update.BuildText}" Style="{StaticResource T.Mono}" VerticalAlignment="Center" AutomationProperties.Name="프로그램 버전"/>
             </Border>
 
-            <!-- 업데이트: 상태 칩 + [지금 확인][받기][닫고 적용][되돌리기] + 진행률 -->
+            <!-- 업데이트: [지금 확인][받기][닫고 적용][버리기][되돌리기] + 상태 칩 + 진행률 -->
             <TextBlock Grid.Row="10" Text="업데이트" Style="{StaticResource SetLabel}" VerticalAlignment="Top" Margin="{StaticResource Gap.T8}"/>
             <StackPanel Grid.Row="10" Grid.Column="2" Margin="{StaticResource Gap.B16}">
                 <StackPanel Orientation="Horizontal">
@@ -143,6 +143,7 @@
                                 Visibility="{Binding Update.IsDownloading, Converter={StaticResource Shown}}"/>
                     </Grid>
                     <Button Content="닫고 적용" Style="{StaticResource UpdBtn}" Command="{Binding Update.ApplyNow}" Tag="{Binding Update.ApplyPrimary}"/>
+                    <Button Content="버리기" Style="{StaticResource UpdBtn}" Command="{Binding Update.DiscardPending}"/>
                     <Button Content="되돌리기" Style="{StaticResource UpdBtn}" Command="{Binding Update.Rollback}" ToolTip="{Binding Update.OldVersion}"/>
                     <Border AutomationProperties.Name="업데이트 상태">
                         <Border.Style>

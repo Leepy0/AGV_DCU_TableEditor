@@ -80,6 +80,15 @@ public partial class App : Application
         base.OnStartup(e);
         var a = Parse(e.Args);
         bool shot = a.Shot != null || a.SelfTest != null || a.Counts != null;
+        if (a.FakeUpdate != null && a.Shot == null) a = a with { FakeUpdate = null }; // 캡처 훅은 --shot 과만
+        if (!shot && TableEditor.Engine.Ops.Updater.CanSelfUpdate && TableEditor.Engine.Ops.Updater.LockFresh(TableEditor.Engine.Ops.Updater.UpdateDir))
+        {
+            // 교체 도우미가 도는 중: 설치 폴더를 잡지 않게 일하는 폴더를 옮기고, 알린 뒤 끝낸다(도우미가 끝나면 새 판이 열린다)
+            Environment.CurrentDirectory = TableEditor.Engine.Ops.Updater.DataDir;
+            MessageBox.Show("업데이트 중", "표 편집기");
+            Shutdown(5);
+            return;
+        }
         var settings = shot ? Settings.InMemory() : Settings.Load();
         var vm = new MainVm(settings) { DraftCheck = !shot };
         var w = new MainWindow(vm, settings, remember: !shot);
