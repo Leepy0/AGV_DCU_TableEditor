@@ -54,6 +54,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         {
             Value = WordOf(entry),
             Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)),
+            Drops = w => ActionForms.Dropped(forms.First(e => WordOf(e) == w), entry, args),
         };
         return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }

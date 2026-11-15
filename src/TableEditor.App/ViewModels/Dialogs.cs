@@ -376,11 +376,17 @@ public sealed class StepVm : DialogVm
     readonly IReadOnlyList<StepChoice> all;
     readonly Func<GrammarEntry, string> preview;
 
-    public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview)
+    readonly Func<GrammarEntry, IReadOnlyList<string>> drops;
+
+    /// <summary>drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
+    public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview,
+        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)
     {
         Title = title;
         OkText = okText;
         this.preview = preview;
+        this.drops = drops ?? (_ => []);
+        Comment = string.IsNullOrWhiteSpace(comment) ? null : comment;
         all = SeqEdit.StepRows(act).Select(e => new StepChoice(Choices.MenuText(e), e)).ToList();
         Categories = [.. GrammarTable.StepPalette.Append(Other).Where(c => all.Any(x => Cat(x.Entry) == c))];
         category = current != null && Categories.Contains(Cat(current)) ? Cat(current) : Categories[0];
@@ -414,9 +420,17 @@ public sealed class StepVm : DialogVm
     public IReadOnlyList<StepChoice> Commands { get; private set; }
 
     StepChoice command;
-    public StepChoice Command { get => command; set { if (value != null && Set(ref command, value)) Raise(nameof(Preview)); } }
+    public StepChoice Command { get => command; set { if (value != null && Set(ref command, value)) { Raise(nameof(Preview)); Raise(nameof(Drops)); Raise(nameof(HasDrops)); } } }
 
     public string Preview => preview(Command.Entry);
+
+    /// <summary>버릴 인자(쉼표로). 없으면 빈 글자.</summary>
+    public string Drops => string.Join(", ", drops(Command.Entry));
+    public bool HasDrops => Drops.Length > 0;
+
+    /// <summary>바꿀 줄의 꼬리 주석(그대로 남는다).</summary>
+    public string? Comment { get; }
+    public bool HasComment => Comment != null;
 }
 
 /// <summary>[표 추가] 팝업: 이름 + 대응표 줄(프로파일, 시퀀스 ID).</summary>

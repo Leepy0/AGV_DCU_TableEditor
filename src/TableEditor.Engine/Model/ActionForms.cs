@@ -36,7 +36,15 @@ public static class ActionForms
     /// from 꼴의 인자들을 to 꼴 글자로: 같은 종류 칸(숫자·거리는 단위가 같으면 같은 칸)의 인자는 그대로 옮기고, 없는 칸은 fill 로 채운다.
     /// 생략 칸은 옮길 인자가 있을 때만 쓴다.
     /// </summary>
-    public static string Convert(GrammarEntry to, GrammarEntry from, IReadOnlyList<Arg> args, Func<ArgSpec, string> fill)
+    public static string Convert(GrammarEntry to, GrammarEntry from, IReadOnlyList<Arg> args, Func<ArgSpec, string> fill) => Map(to, from, args, fill).Text;
+
+    /// <summary>
+    /// 꼴을 바꾸면 버려지는 인자 글(옮길 칸이 없는 것). 꼴을 가르는 낱말 하나 칸(TAPE 등)은 꼴 자체라 빼고 센다.
+    /// 화면이 바꾸기 전에 확인 팝업으로 보인다.
+    /// </summary>
+    public static IReadOnlyList<string> Dropped(GrammarEntry to, GrammarEntry from, IReadOnlyList<Arg> args) => Map(to, from, args, _ => "").Dropped;
+
+    static (string Text, IReadOnlyList<string> Dropped) Map(GrammarEntry to, GrammarEntry from, IReadOnlyList<Arg> args, Func<ArgSpec, string> fill)
     {
         var specs = Facts.Expand(from, args.Count) ?? [];
         var left = args.Select((a, i) => (Arg: a, Spec: i < specs.Count ? specs[i] : null)).ToList();
@@ -49,7 +57,8 @@ public static class ActionForms
                 else if (k < spec.Least) outArgs.Add(fill(spec));
                 else break;
             }
-        return Form.Call(to.Name, outArgs);
+        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).ToList();
+        return (Form.Call(to.Name, outArgs), dropped);
     }
 
     static bool Numeric(ArgSpec s) => s.Kind is ArgKind.Number or ArgKind.StopDist;

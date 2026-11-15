@@ -437,7 +437,9 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+</Grid.RowDefinitions>
                     <TextBlock Text="분류" Style="{StaticResource FrowLabel}"/>
                     <ComboBox Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
                               ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" AutomationProperties.Name="분류"/>
@@ -450,6 +452,12 @@
                         <TextBlock Text="{Binding Preview}" FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </Border>
+                    <TextBlock Grid.Row="3" Text="버릴 인자" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasDrops, Converter={StaticResource Shown}}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Drops}" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Err}" VerticalAlignment="Center"
+                               Margin="{StaticResource Gap.T12}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasDrops, Converter={StaticResource Shown}}"/>
+                    <TextBlock Grid.Row="4" Text="주석 확인" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasComment, Converter={StaticResource Shown}}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding Comment}" Foreground="{StaticResource Warn}" VerticalAlignment="Center"
+                               Margin="{StaticResource Gap.T12}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasComment, Converter={StaticResource Shown}}"/>
                 </Grid>
                 <Border Style="{StaticResource DialogFoot}">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">

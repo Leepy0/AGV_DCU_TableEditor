@@ -129,9 +129,13 @@ public sealed class FieldVm : Observable
         if (Locked || Invalid) return;
         var t = text.Trim();
         if (t == Original) return;
-        owner.SetField(this, Info.Write?.Invoke(t) ?? t);
+        owner.SetField(this, t);
     }
 
-    /// <summary>Esc: 원래 글로.</summary>
-    public void Revert() => Text = Original;
+    /// <summary>Esc·확인 팝업 취소: 원래 글로(드롭다운이면 원래 항목으로).</summary>
+    public void Revert()
+    {
+        Text = Original;
+        if (IsList && Items?.Cast<Choice>().FirstOrDefault(c => c.Name == Original) is { } c) { picked = c; Raise(nameof(Picked)); }
+    }
 }

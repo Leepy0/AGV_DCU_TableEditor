@@ -43,6 +43,9 @@ public sealed class StepRowVm : Observable
     public BlockVm Block { get; init; } = null!;
     public bool IsChanged { get; init; }
     public string Comment { get; init; } = "";
+
+    /// <summary>명령을 바꾼 줄: 옛 꼬리 주석이 맞는지 볼 것(주석은 그대로 둔다).</summary>
+    public bool CommentCheck { get; init; }
     public string? Status { get; init; }
     public Severity? StatusSeverity { get; init; }
     public bool IsRaw => Block.Raw;
@@ -249,6 +252,7 @@ public sealed class SeqVm : BlockHost
                 InSelect = inSpan, SelectTop = inSpan && span.From == i, SelectBottom = inSpan && span.To == i,
                 Block = st != null ? b.Statement(st, Place.Step) : BlockBuilder.RawBlock(p.Text),
                 IsChanged = changed(p), Comment = st == null ? "" : Strip(st.TailComment), Status = worst?.Text, StatusSeverity = worst?.Severity,
+                CommentCheck = st != null && st.TailComment.Length > 0 && commentCheck.Contains(p.Text),
             });
         }
         foreach (var r in list)
@@ -334,19 +338,33 @@ public sealed class SeqVm : BlockHost
         var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names));
         if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
         var e = d.Command.Entry;
-        int index = SelectedStep is { Ordinal: > 0 } s ? s.Ordinal : zone.Statements.Count;
+        int index = SelectedStep is { } s ? (s.Ordinal > 0 ? s.Ordinal : SlotOf(s, zone)) : zone.Statements.Count;
         Main.Apply(SiteEdit.Insert(Site, zone, index, [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())]));
     }
 
-    /// <summary>[명령 바꾸기]: 같은 종류 칸의 인자는 옮겨 그 줄을 다시 쓴다(<see cref="SeqEdit.Change"/>).</summary>
+    /// <summary>명령을 바꾼 줄의 글자(꼬리 주석 확인 표시). 글자가 같은 줄이면 다시 그린 뒤에도 표시가 남는다.</summary>
+    readonly HashSet<string> commentCheck = [];
+
+    /// <summary>
+    /// [명령 바꾸기]: 같은 종류 칸의 인자는 옮겨 그 줄을 다시 쓴다(<see cref="SeqEdit.Change"/>). 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.
+    /// 팝업에 버릴 인자와 "주석 확인"(옛 꼬리 주석)을 보인다. 주석은 지우지 않고 그 줄 주석 칸에 표시만 한다.
+    /// </summary>
     public async Task ChangeStepAsync()
     {
         if (SelectedStep?.Piece is not Statement st || Zone is not { } z) return;
+        if (SeqEdit.LabelUses(z, st) is { Count: > 0 } uses)
+        {
+            await Main.Show(new AskVm("바꿀 수 없음", [$"라벨 {SelectedStep.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(At)], OkOnly));
+            return;
+        }
         var from = SeqEdit.EntryOf(st);
         string Preview(GrammarEntry to) => from == null ? Choices.DefaultText(to, Site.Names) : ActionForms.Convert(to, from, st.Args, Fill);
-        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview);
+        IReadOnlyList<string> Drops(GrammarEntry to) => from == null ? [] : ActionForms.Dropped(to, from, st.Args);
+        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment));
         if (await Main.Show(d) != "ok" || d.Command.Entry == from) return;
-        Main.Apply(SeqEdit.Change(Site, st, d.Command.Entry, Fill));
+        var r = SeqEdit.Change(Site, st, d.Command.Entry, Fill);
+        if (r.Ok && st.TailComment.Length > 0 && r.Touched.FirstOrDefault() is { } changed) commentCheck.Add(changed.Text);
+        Main.Apply(r);
     }
 
     /// <summary>[삭제]·Del: 고른 스텝. 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.</summary>
@@ -358,17 +376,46 @@ public sealed class SeqVm : BlockHost
             await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(At)], OkOnly));
             return;
         }
-        var next = Steps.SkipWhile(r => !ReferenceEquals(r, row)).Skip(1).FirstOrDefault(r => r.Ordinal > 0);
+        // 짝 표지(분기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
+        List<Piece> pieces = [row.Piece];
+        List<string>? ask = null;
+        if (row.Piece is Statement { Name: "SELECT_BEGIN" or "SELECT_END" } sel && Partner(z, sel) is { } other)
+        {
+            pieces.Add(other);
+            ask = [$"분기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
+        }
+        else if (row.Piece is Statement end && end.Name.StartsWith("END_", StringComparison.Ordinal) && ReferenceEquals(z.Statements[^1], end))
+            ask = [$"끝 줄 · {row.Ordinal}줄 {end.Name}"];
+        else if (row.Piece.Kind == PieceKind.Raw)
+            ask = [$"원문 · {row.Piece.EndLine - row.Piece.StartLine + 1}줄", BlockBuilder.FirstLine(row.Piece.Text)];
+        if (ask != null && await Main.Show(new AskVm("스텝 삭제", ask, [new AskButton("cancel", "취소", Default: true), new AskButton("delete", "삭제", Primary: true)])) != "delete") return;
+        var next = Steps.SkipWhile(r => !ReferenceEquals(r, row)).Skip(1).FirstOrDefault(r => r.Ordinal > 0 && !pieces.Contains(r.Piece));
         int nextOrd = next?.Ordinal ?? 0;
-        if (Main.Apply(SiteEdit.Delete(Site, [row.Piece])) && nextOrd > 0)
-            SelectStep(Steps.FirstOrDefault(r => r.Ordinal == nextOrd - (row.Ordinal > 0 ? 1 : 0)), true);
+        int gone = pieces.Count(p => p is Statement s2 && z.Ordinal(s2) < nextOrd);
+        if (Main.Apply(SiteEdit.Delete(Site, pieces)) && nextOrd > 0)
+            SelectStep(Steps.FirstOrDefault(r => r.Ordinal == nextOrd - gone), true);
     }
+
+    /// <summary>분기 시작의 짝 끝(뒤로 첫 SELECT_END), 분기 끝의 짝 시작(앞으로 첫 SELECT_BEGIN).</summary>
+    static Statement? Partner(ZoneBlock z, Statement st)
+    {
+        var list = z.Statements.ToList();
+        int i = list.IndexOf(st);
+        return st.Name == "SELECT_BEGIN"
+            ? list.Skip(i + 1).FirstOrDefault(x => x.Name == "SELECT_END")
+            : list.Take(i).LastOrDefault(x => x.Name == "SELECT_BEGIN");
+    }
+
+    /// <summary>줄의 구역 문장 자리: 문장 줄이면 그 앞(순번 - 1), 원문 줄이면 다음 문장 줄 앞(없으면 끝).</summary>
+    int SlotOf(StepRowVm row, ZoneBlock z) =>
+        row.Ordinal > 0 ? row.Ordinal - 1 : Steps.SkipWhile(r => !ReferenceEquals(r, row)).FirstOrDefault(r => r.Ordinal > 0) is { } n ? n.Ordinal - 1 : z.Statements.Count;
 
     /// <summary>스텝 끌어 옮기기: target 앞으로(null 이면 끝으로).</summary>
     public void MoveStep(StepRowVm from, StepRowVm? target)
     {
         if (Zone is not { } z || ReferenceEquals(from, target) || from.Piece is not Statement) return;
-        int index = target is { Ordinal: > 0 } t ? t.Ordinal - 1 : z.Statements.Count;
+        int index = target == null ? z.Statements.Count : SlotOf(target, z);
+        if (index == from.Ordinal - 1 || index == from.Ordinal) return; // 같은 자리: 되돌리기 단계를 쌓지 않는다
         Main.Apply(SiteEdit.Move(Site, [from.Piece], z, index));
     }
 

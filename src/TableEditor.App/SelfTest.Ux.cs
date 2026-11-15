@@ -1,13 +1,15 @@
 using System.IO;
 using TableEditor.App.Blocks;
 using TableEditor.App.ViewModels;
+using TableEditor.Engine.Model;
+using TableEditor.Engine.Text;
 
 namespace TableEditor.App;
 
 /// <summary>
 /// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집, 프로파일 구분. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
 /// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png, tag_chips.png,
-/// seq_add.png, seq_label_block.png, seq_chips.png, seq_table_add.png, seq_delete_block.png.
+/// seq_add.png, seq_label_block.png, seq_chips.png, seq_table_add.png, seq_delete_block.png, tag_drop_ask.png, seq_comment_check.png, seq_pair_delete.png.
 /// </summary>
 public sealed partial class SelfTest
 {
@@ -265,6 +267,103 @@ public sealed partial class SelfTest
         var disk = File.ReadAllBytes(Path.Combine(site, "seq_table.c"));
         Check(saved && disk.AsSpan().SequenceEqual(bytes) && Diff(seqOrig, System.Text.Encoding.UTF8.GetString(disk)) == (1, 6),
             $"저장 바이트 = 편집본, 원문과 차이 (1, 6) {Diff(seqOrig, System.Text.Encoding.UTF8.GetString(disk))}");
+
+        await ReviewFixes();
+    }
+
+    /// <summary>검토 5~8: 값 버림 팝업, 명령 바꾸기 주석 확인·버릴 인자, 원문 줄 자리·같은 자리 끌기, 짝 표지·끝 줄·원문 줄 지우기 팝업.</summary>
+    async Task ReviewFixes()
+    {
+        var S = vm.Seq;
+        int changes = vm.ChangeCount;
+
+        Step("값 버림 팝업: 태그 6 AGV_STOP( 30 ) → TAPE(30 버림) 취소 → 바꾸기");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await PickBlock(6, "ANY_PROFILE", 0);
+        var tagBefore = TagText;
+        var pos = Tag.Fields.First(f => f.Label == "위치");
+        var (drop, dropDone) = await Open<AskVm>(() => { pos.Picked = pos.Items!.Cast<Choice>().First(c => c.Name == "TAPE"); return Task.CompletedTask; });
+        Check(drop.Title == "값 버림" && drop.Lines.Contains("30") && drop.Buttons.First(b => b.Default).Key == "cancel", $"버릴 인자 팝업 ({string.Join(" / ", drop.Lines)})");
+        await Shot("tag_drop_ask.png");
+        drop.Close("cancel");
+        await Idle();
+        Check(TagText == tagBefore && Tag.Fields.First(f => f.Label == "위치").Text == "cm", "취소면 그대로·칸 cm");
+        pos = Tag.Fields.First(f => f.Label == "위치");
+        (drop, dropDone) = await Open<AskVm>(() => { pos.Picked = pos.Items!.Cast<Choice>().First(c => c.Name == "TAPE"); return Task.CompletedTask; });
+        drop.Close("ok");
+        await Idle();
+        Check(Row(6).Rule!.St.Text.Contains("AGV_STOP( TAPE ),"), "바꾸기면 TAPE");
+
+        Step("명령 바꾸기: 주석 확인(주석 그대로·칸 표시), 버릴 인자 보임, 라벨 줄 바꾸기 막힘");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        S.SelectTable("belt_unload");
+        var off = (Statement)S.Steps.First(r => r.Piece.Text.Contains("BELT_OFF( 1 )")).Piece;
+        vm.Apply(SiteEdit.SetComment(vm.Site!, off, "벨트 끔"));
+        await Idle();
+        S.SelectStep(S.Steps.First(r => r.Piece.Text.Contains("BELT_OFF( 1 )")), true);
+        var (chg, chgDone) = await Open<StepVm>(() => S.ChangeStepAsync());
+        Check(chg.HasComment && chg.Comment == "벨트 끔" && !chg.HasDrops, "주석 확인 · 버릴 것 없음");
+        chg.Command = chg.Commands.First(c => c.Entry.Name == "BELT_ON");
+        await Shot("seq_comment_check.png");
+        chg.Ok.Execute(null);
+        await chgDone;
+        await Idle();
+        var on = S.Steps.First(r => r.Piece.Text.Contains("BELT_ON( 1, CW )"));
+        Check(on.Piece.Text.Contains("/* 벨트 끔 */") && on.CommentCheck, $"주석 그대로·주석 확인 표시 ({on.Piece.Text.Trim()})");
+        S.SelectTable("box_turn_unload");
+        S.SelectStep(S.Steps.First(r => r.Piece.Text.Contains("AGV_MOVE( 200, TAPE_GD )")), true);
+        (chg, chgDone) = await Open<StepVm>(() => S.ChangeStepAsync());
+        chg.Category = "대기";
+        chg.Command = chg.Commands.First(c => c.Entry.Name == "DELAY");
+        Check(chg.HasDrops && chg.Drops.Contains("200") && chg.Drops.Contains("TAPE_GD"), $"버릴 인자 {chg.Drops}");
+        chg.Close(null);
+        await chgDone;
+        S.SelectTable("belt_unload");
+        S.SelectStep(S.Steps.First(r => r.Label == "RUN"), true);
+        var (lab, labDone) = await Open<AskVm>(() => S.ChangeStepAsync());
+        Check(lab.Title == "바꿀 수 없음", "라벨 줄 바꾸기 막힘");
+        lab.Close("ok");
+        await labDone;
+
+        Step("원문 줄 자리·같은 자리 끌기");
+        var pulse = (Statement)S.Steps.First(r => r.Piece.Text.Contains("OUT_PULSE")).Piece;
+        vm.Apply(SiteEdit.ReplaceText(vm.Site!, pulse, "        OUT_PULSE( /* 원문 */ DEMO_LAMP, 50, 50, 3 )"));
+        await Idle();
+        var raw = S.Steps.First(r => r.IsRaw);
+        int nextAfterRaw = S.Steps.SkipWhile(r => !ReferenceEquals(r, raw)).First(r => r.Ordinal > 0).Ordinal;
+        int c0 = vm.ChangeCount;
+        var first = S.Steps.First(r => r.Ordinal == 1);
+        S.MoveStep(first, S.Steps.First(r => r.Ordinal == 2));
+        Check(vm.ChangeCount == c0, "같은 자리 끌기 = 단계 없음");
+        var mover = S.Steps.Last(r => r.Ordinal > 0 && r.Piece.Text.Contains("AGV_FORBACK"));
+        S.MoveStep(mover, raw);
+        await Idle();
+        var moved = S.Steps.First(r => r.Piece.Text.Contains("AGV_FORBACK"));
+        Check(vm.ChangeCount == c0 + 1 && moved.Ordinal == nextAfterRaw && S.Steps.Last(r => r.Ordinal > 0).Block.Head == "끝 재출발",
+            $"원문 줄 위에 놓으면 다음 문장 앞 ({moved.Ordinal}, {nextAfterRaw})");
+
+        Step("지우기 팝업: 분기 시작·끝 짝째, 끝 줄, 원문 줄");
+        S.SelectStep(S.Steps.First(r => r.Block.Head == "분기 시작"), true);
+        var (pair, pairDone) = await Open<AskVm>(() => S.DeleteStepAsync());
+        Check(pair.Title == "스텝 삭제" && pair.Lines[0].Contains("짝") && pair.Buttons.First(b => b.Default).Key == "cancel", $"짝 팝업 ({pair.Lines[0]})");
+        await Shot("seq_pair_delete.png");
+        pair.Close("delete");
+        await pairDone;
+        await Idle();
+        Check(!S.Steps.Any(r => r.Block.Head is "분기 시작" or "분기 끝") && vm.ErrorCount == 0, $"짝 둘 다 지움·오류 0 ({vm.ErrorCount})");
+        S.SelectStep(S.Steps.Last(r => r.Ordinal > 0), true);
+        var (endAsk, endDone) = await Open<AskVm>(() => S.DeleteStepAsync());
+        Check(endAsk.Lines[0].StartsWith("끝 줄", StringComparison.Ordinal), "끝 줄 팝업");
+        int c1 = vm.ChangeCount;
+        endAsk.Close("cancel");
+        await endDone;
+        S.SelectStep(S.Steps.First(r => r.IsRaw), true);
+        var (rawAsk, rawDone) = await Open<AskVm>(() => S.DeleteStepAsync());
+        Check(rawAsk.Lines[0].StartsWith("원문", StringComparison.Ordinal), "원문 줄 팝업");
+        rawAsk.Close("cancel");
+        await rawDone;
+        Check(vm.ChangeCount == c1, "취소면 그대로");
+        while (vm.ChangeCount > changes && vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
     }
 
     /// <summary>머리 줄에 보이는 표 안 칸 편집기 수.</summary>

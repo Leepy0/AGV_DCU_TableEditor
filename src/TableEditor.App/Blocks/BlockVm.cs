@@ -25,6 +25,9 @@ public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec)
 {
     public string? Value { get; init; }
     public Func<string, string>? Write { get; init; }
+
+    /// <summary>고른 낱말로 바꾸면 버려지는 인자 글(꼴 칸). 있으면 확인 팝업.</summary>
+    public Func<string, IReadOnlyList<string>>? Drops { get; init; }
 }
 
 /// <summary>조건 칩: 머리 + 값들. Text = 값을 한 줄로(칸이 좁으면 말줄임), Full = 머리 + 값(툴팁).</summary>

@@ -85,8 +85,11 @@
                                           VerticalAlignment="Center"/>
                     </Grid>
                     <Grid Grid.Column="3">
-                        <TextBlock Text="{Binding Comment}" ToolTip="{Binding Comment}" Style="{StaticResource T.Label}" TextTrimming="CharacterEllipsis"
-                                   Visibility="{Binding Status, Converter={StaticResource Shown}, ConverterParameter=not}"/>
+                        <DockPanel Visibility="{Binding Status, Converter={StaticResource Shown}, ConverterParameter=not}">
+                            <TextBlock DockPanel.Dock="Left" Text="주석 확인" Style="{StaticResource StatusText}" Margin="{StaticResource Gap.R6}"
+                                       Visibility="{Binding CommentCheck, Converter={StaticResource Shown}}"/>
+                            <TextBlock Text="{Binding Comment}" ToolTip="{Binding Comment}" Style="{StaticResource T.Label}" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
                         <StackPanel Orientation="Horizontal" ToolTip="{Binding Status}" Visibility="{Binding Status, Converter={StaticResource Shown}}">
                             <Image x:Name="StIcon" Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" Margin="{StaticResource Gap.R6}"/>
                             <TextBlock x:Name="StText" Text="{Binding Status}" Style="{StaticResource StatusText}"/>
