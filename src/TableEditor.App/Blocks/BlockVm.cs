@@ -12,8 +12,15 @@ public sealed record Part(string? Label, string Value, string? Small)
     public override string ToString() => string.Join(" ", new[] { Label, Value, Small }.Where(s => !string.IsNullOrEmpty(s)));
 }
 
-/// <summary>선택 줄 칸 하나의 바탕: 라벨, 인자(고칠 자리), 문법 칸.</summary>
-public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec);
+/// <summary>
+/// 선택 줄 칸 하나의 바탕: 라벨, 인자(고칠 자리), 문법 칸. 꼴 칸(<see cref="TableEditor.Engine.Model.ActionForms"/>)은
+/// Value = 지금 꼴 낱말, Write = 고른 낱말 → 인자 전체 새 글자.
+/// </summary>
+public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec)
+{
+    public string? Value { get; init; }
+    public Func<string, string>? Write { get; init; }
+}
 
 /// <summary>조건 칩: 머리 + 값들. Text = 값을 한 줄로(칸이 좁으면 말줄임), Full = 머리 + 값(툴팁).</summary>
 public sealed record Chip(string Head, IReadOnlyList<Part> Parts)

@@ -310,6 +310,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await vm.TryOpen(() => vm.OpenSiteAsync(site));
         await Idle();
         await Tables();
+        await Ux();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);

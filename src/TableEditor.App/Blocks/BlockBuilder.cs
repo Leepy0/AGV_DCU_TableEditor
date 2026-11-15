@@ -32,8 +32,30 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return new BlockVm
         {
             Head = entry.Head, Cat = entry.Palette, Parts = PartsOf(entry, args, true),
-            Fields = FieldsOf(entry, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
+            Fields = ActionFields(entry, a, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
         };
+    }
+
+    /// <summary>꼴 칸 낱말(꼴 낱말이 빈 꼴).</summary>
+    public const string Bare = "바로";
+
+    /// <summary>
+    /// 동작 칸들. 꼴이 여럿이면(<see cref="ActionForms"/>) 맨 앞에 위치 칸(바로·cm·TAPE·TAPE_GD·센서)을 두고, 꼴이 정한 낱말 하나뿐인 칸은 뺀다.
+    /// 위치 칸을 바꾸면 그 꼴로 인자 전체를 다시 쓴다(같은 인자 바꾸기 명령).
+    /// </summary>
+    List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
+    {
+        var fields = FieldsOf(entry, args);
+        var forms = ActionForms.Of(entry);
+        if (forms.Count < 2) return fields;
+        string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
+        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = "위치" };
+        var form = new FieldInfo("위치", a, spec)
+        {
+            Value = WordOf(entry),
+            Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)),
+        };
+        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }
 
     /// <summary>문장 하나 = 블록 하나(시퀀스 스텝, 수동 입력 줄). 문법 표의 그 자리 줄로 칸을 만든다. 모르면 원문 블록.</summary>

@@ -46,7 +46,7 @@ public sealed class FieldVm : Observable
         Index = index;
         Locked = locked;
         Editor = Choices.EditorOf(info.Spec);
-        text = BlockBuilder.Collapse(info.Arg.Text);
+        text = Original;
         CommitCmd = new Command(Commit);
         RevertCmd = new Command(Revert);
         if (IsList)
@@ -59,6 +59,9 @@ public sealed class FieldVm : Observable
             picked = list.First(c => c.Name == text);
         }
     }
+
+    /// <summary>처음 글: 꼴 칸이면 꼴 낱말, 아니면 인자 글자.</summary>
+    string Original => Info.Value ?? BlockBuilder.Collapse(Info.Arg.Text);
 
     string text;
     /// <summary>칸 글(상자). 바꾸는 동안은 검사만 하고, <see cref="Commit"/> 때 명령이 된다.</summary>
@@ -122,10 +125,10 @@ public sealed class FieldVm : Observable
     {
         if (Locked || Invalid) return;
         var t = text.Trim();
-        if (t == BlockBuilder.Collapse(Info.Arg.Text)) return;
-        owner.SetField(this, t);
+        if (t == Original) return;
+        owner.SetField(this, Info.Write?.Invoke(t) ?? t);
     }
 
     /// <summary>Esc: 원래 글로.</summary>
-    public void Revert() => Text = BlockBuilder.Collapse(Info.Arg.Text);
+    public void Revert() => Text = Original;
 }
