@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     readonly Settings settings;
     readonly bool remember;
     bool closeConfirmed;
+    bool updateDone;
 
     public MainWindow(MainVm vm, Settings settings, bool remember)
     {
@@ -30,6 +31,7 @@ public partial class MainWindow : Window
         vm.Went += _ => FocusPane();
         vm.DialogShown += _ => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog);
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
+        vm.Update.CloseForUpdate += () => { closeConfirmed = updateDone = true; Close(); }; // 도우미를 띄웠다
         Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
         if (remember) Restore();
     }
@@ -113,6 +115,19 @@ public partial class MainWindow : Window
             {
                 if (!await vm.ConfirmLeaveAsync()) return;
                 closeConfirmed = true;
+                Close();
+            });
+            return;
+        }
+        // 받아 둔 버전: 바깥 도우미를 띄우고(이 프로세스가 끝나길 기다렸다가 교체) 닫는다. 막히면 팝업 뒤 그대로 닫는다
+        if (!updateDone && vm.Update.HasPending)
+        {
+            e.Cancel = true;
+            if (vm.HasDialog) return;
+            Dispatcher.BeginInvoke(async () =>
+            {
+                await vm.Update.ApplyOnCloseAsync();
+                updateDone = true;
                 Close();
             });
             return;

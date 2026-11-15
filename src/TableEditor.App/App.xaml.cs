@@ -13,17 +13,18 @@ namespace TableEditor.App;
 /// <summary>
 /// 여는 법: <c>--site &lt;사이트 폴더&gt;</c>(깃·빌드 꺼짐) 또는 <c>--repo &lt;앱 루트&gt; [--site &lt;사이트 이름&gt;]</c>.
 /// 인자가 없으면 설정의 마지막 저장소, 그것도 없으면 빈 화면. 같은 폴더를 두 창이 열지 못한다(이름 붙인 뮤텍스).
-/// 캡처: <c>--shot &lt;png&gt; [--tab &lt;탭&gt;] [--select &lt;줄&gt;] [--view]</c> → 1280×900 창 내용을 배율 2 로 쓰고 끝낸다.
+/// 캡처: <c>--shot &lt;png&gt; [--tab &lt;탭&gt;] [--select &lt;줄&gt;] [--view] [--fake-update start|tick]</c> → 1280×900 창 내용을 배율 2 로 쓰고 끝낸다.
+/// <c>--fake-update</c> = 현재 버전을 0.0.1 로 낮춰 업데이트 팝업(start)·토스트(tick)를 띄운다(네트워크 없음).
 /// 줄 수: <c>--counts &lt;파일&gt;</c> → 화면 줄 수를 쓰고 끝낸다(실제 사이트 확인).
 /// 자체 시험: <c>--selftest &lt;작업 폴더&gt; [--shots &lt;폴더&gt;]</c> → 종료 코드 0 = 통과(<see cref="SelfTest"/>).
 /// </summary>
 public partial class App : Application
 {
-    sealed record Args(string? Repo, string? Site, string? Shot, string? Tab, int? Select, bool View, string? SelfTest, string? Shots, string? Counts);
+    sealed record Args(string? Repo, string? Site, string? Shot, string? Tab, int? Select, bool View, string? SelfTest, string? Shots, string? Counts, string? FakeUpdate);
 
     static Args Parse(string[] a)
     {
-        string? repo = null, site = null, shot = null, tab = null, selftest = null, shots = null, counts = null;
+        string? repo = null, site = null, shot = null, tab = null, selftest = null, shots = null, counts = null, fake = null;
         int? select = null;
         bool view = false;
         for (int i = 0; i < a.Length; i++)
@@ -40,9 +41,10 @@ public partial class App : Application
                 case "--selftest": selftest = Next(); break;
                 case "--shots": shots = Next(); break;
                 case "--counts": counts = Next(); break;
+                case "--fake-update": fake = Next(); break;
             }
         }
-        return new(repo, site, shot, tab, select, view, selftest, shots, counts);
+        return new(repo, site, shot, tab, select, view, selftest, shots, counts, fake);
     }
 
     static string CrashLog => Path.Combine(Path.GetDirectoryName(Settings.FilePath)!, "crash.log");
@@ -78,6 +80,25 @@ public partial class App : Application
         base.OnStartup(e);
         var a = Parse(e.Args);
         bool shot = a.Shot != null || a.SelfTest != null || a.Counts != null;
+        if (a.FakeUpdate != null && a.Shot == null) a = a with { FakeUpdate = null }; // 캡처 훅은 --shot 과만
+        // 일하는 폴더를 설치 폴더 밖으로: 이 앱과 앱이 띄우는 git·gcc 가 설치 폴더 핸들을 잡으면 업데이트 도우미가 폴더 이름을 못 바꾼다.
+        // 상대 경로 인자는 옮기기 전에 절대 경로로(--repo 와 같이 준 --site 는 사이트 이름이라 그대로)
+        static string? Full(string? p) => p == null ? null : Path.GetFullPath(p);
+        a = a with { Repo = Full(a.Repo), Site = a.Repo == null ? Full(a.Site) : a.Site, Shot = Full(a.Shot), SelfTest = Full(a.SelfTest), Shots = Full(a.Shots), Counts = Full(a.Counts) };
+        try
+        {
+            Directory.CreateDirectory(TableEditor.Engine.Ops.Updater.DataDir);
+            Environment.CurrentDirectory = TableEditor.Engine.Ops.Updater.DataDir;
+        }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+        if (!shot && TableEditor.Engine.Ops.Updater.CanSelfUpdate
+            && TableEditor.Engine.Ops.Updater.LockFresh(TableEditor.Engine.Ops.Updater.UpdateDirFor(TableEditor.Engine.Ops.Updater.InstallDir)))
+        {
+            // 교체 도우미가 도는 중: 알린 뒤 끝낸다(도우미가 끝나면 새 버전이 열린다)
+            MessageBox.Show("업데이트 중", "표 편집기");
+            Shutdown(5);
+            return;
+        }
         var settings = shot ? Settings.InMemory() : Settings.Load();
         var vm = new MainVm(settings) { DraftCheck = !shot };
         var w = new MainWindow(vm, settings, remember: !shot);
@@ -121,6 +142,14 @@ public partial class App : Application
         if (a.Tab != null && vm.Tabs.FirstOrDefault(t => t.Name == a.Tab) is { } tab) vm.Tab = tab;
         if (a.Select is int n) vm.Tag.SelectOrdinal(n);
         if (a.View) vm.Tag.IsLook = true;
+        if (a.FakeUpdate != null)
+        {
+            // 캡처에 이 PC 경로가 들지 않게(설정은 메모리에만)
+            (settings.GccPath, settings.Cl2000Path) = (@"D:\tools\gcc\bin\gcc.exe", @"C:\ti\ti-cgt-c2000_18.12.2.LTS\bin\cl2000.exe");
+            vm.Config.Reload();
+            vm.Update.Fake(a.FakeUpdate);
+        }
+        else if (!shot) _ = vm.Update.StartAsync(); // 새 버전 확인(시작 팝업·1시간 토스트)
 
         if (a.Counts != null)
         {

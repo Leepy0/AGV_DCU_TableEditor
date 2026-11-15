@@ -24,6 +24,11 @@ public sealed class Settings
     public string UserName { get; set; } = "";
     public bool Advanced { get; set; }
 
+    /// <summary>시작·1시간마다 새 버전 확인.</summary>
+    public bool UpdateAuto { get; set; } = true;
+    /// <summary>되돌린 버전: 자동 확인으로 다시 알리지 않는다.</summary>
+    public string? UpdateSkip { get; set; }
+
     public static string FilePath => PathOf;
 
     static string PathOf => System.IO.Path.Combine(
@@ -37,8 +42,20 @@ public sealed class Settings
 
     public static Settings Load()
     {
-        try { return File.Exists(PathOf) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathOf)) ?? new() : new(); }
+        Settings s;
+        try { s = File.Exists(PathOf) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathOf)) ?? new() : new(); }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
+        // 예전 설정의 상대 경로는 예전 기준(설치 폴더 = 그때 일하는 폴더)으로 푼다. 지금은 일하는 폴더가 설정 폴더라 기준이 다르다
+        (s.LastRepo, s.GccPath, s.Cl2000Path) = (Abs(s.LastRepo), Abs(s.GccPath), Abs(s.Cl2000Path));
+        return s;
+    }
+
+    /// <summary>경로를 절대 경로로(상대 경로는 설치 폴더 기준). 비었거나 틀린 글이면 그대로.</summary>
+    public static string? Abs(string? p)
+    {
+        if (string.IsNullOrWhiteSpace(p) || Path.IsPathFullyQualified(p)) return p;
+        try { return Path.GetFullPath(p, AppContext.BaseDirectory); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return p; }
     }
 
     public static Settings InMemory() => new() { Volatile = true };

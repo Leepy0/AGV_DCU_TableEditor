@@ -37,8 +37,9 @@ public sealed class SettingsVm : Observable
 
     public string AppUrl { get => s.AppUrl; set { s.AppUrl = value.Trim(); Save(); } }
     public string CoreUrl { get => s.CoreUrl; set { s.CoreUrl = value.Trim().Length == 0 ? Settings.CoreUrlDefault : value.Trim(); Save(); } }
-    public string GccPath { get => s.GccPath ?? ToolProbe.DefaultGcc(); set { s.GccPath = value.Trim().Length == 0 ? null : value.Trim(); Save(); _ = ProbeAsync(); } }
-    public string Cl2000Path { get => s.Cl2000Path ?? ToolProbe.Cl2000Default; set { s.Cl2000Path = value.Trim().Length == 0 ? null : value.Trim(); Save(); _ = ProbeAsync(); } }
+    // 상대 경로로 넣어도 절대 경로로 둔다(일하는 폴더가 설정 폴더라 상대 경로의 기준이 흔들린다): 설치 폴더 기준
+    public string GccPath { get => s.GccPath ?? ToolProbe.DefaultGcc(); set { s.GccPath = value.Trim().Length == 0 ? null : Settings.Abs(value.Trim()); Save(); _ = ProbeAsync(); } }
+    public string Cl2000Path { get => s.Cl2000Path ?? ToolProbe.Cl2000Default; set { s.Cl2000Path = value.Trim().Length == 0 ? null : Settings.Abs(value.Trim()); Save(); _ = ProbeAsync(); } }
     public string UserName { get => s.UserName; set { s.UserName = value.Trim(); Save(); } }
     public bool Advanced { get => s.Advanced; set { s.Advanced = value; Save(); CommandManager.InvalidateRequerySuggested(); } }
 
@@ -76,17 +77,6 @@ public sealed class SettingsVm : Observable
 
     internal MainVm Main => main;
 
-    /// <summary>프로그램 버전(어셈블리 버전, 빌드 꼬리표는 뺀다).</summary>
-    public string AppVersion => Version;
-
-    public static string Version
-    {
-        get
-        {
-            var asm = typeof(SettingsVm).Assembly;
-            var info = asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion;
-            return (info ?? asm.GetName().Version?.ToString() ?? "?").Split('+')[0];
-        }
-    }
+    /// <summary>프로그램 업데이트 칸(버전·채널·커밋, 확인·받기·적용·되돌리기, 자동 확인).</summary>
+    public UpdateVm Update => main.Update;
 }
