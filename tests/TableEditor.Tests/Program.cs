@@ -239,6 +239,7 @@ var tests = new (string Name, Action Run)[]
     ("편집·저장(작업 2)", () => EditTests.Run(Check, RepoRoot())),
     ("검토 결함: 읽기·편집·저장(작업 8)", () => ReviewTests.Run(Check, RepoRoot())),
     ("깃·회차·코어 올리기(작업 6)", () => GitTests.Run(Check)),
+    ("프로그램 업데이트: 판·매니페스트·SHA·도우미 실제 실행", () => UpdaterTests.Run(Check)),
 
     ("DCU_APP_ROOT(있을 때만)", () =>
     {
