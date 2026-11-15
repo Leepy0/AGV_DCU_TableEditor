@@ -12,9 +12,4 @@
 | `COPYING.winpthreads` | MIT 꼴(mingw-w64 project) | libwinpthread-1.dll |
 | `LICENSE.zlib` | zlib | zlib1.dll |
 | `LICENSE.zstd` | BSD | libzstd.dll |
-
-## 없는 것
-
-| 구성 요소 | 라이선스 | 상태 |
-|---|---|---|
-| libisl | MIT | 글을 못 찾았다. 넣지 않았다 |
+| `LICENSE.isl` | MIT (isl 0.28 의 `LICENSE`) | libisl-23.dll (GMP 로 빌드, imath 는 안 들어감) |

@@ -98,7 +98,7 @@ Step 4 '라이선스·출처'
 $lic = Join-Path $gdst 'licenses'
 New-Item -ItemType Directory -Force $lic | Out-Null
 $licSrc = Join-Path $PSScriptRoot 'gcc-licenses'
-$licNames = 'COPYING3', 'COPYING.RUNTIME', 'COPYING.LIB', 'COPYING3.LIB', 'COPYING.MinGW-w64-runtime.txt', 'COPYING.winpthreads', 'LICENSE.zlib', 'LICENSE.zstd'
+$licNames = 'COPYING3', 'COPYING.RUNTIME', 'COPYING.LIB', 'COPYING3.LIB', 'COPYING.MinGW-w64-runtime.txt', 'COPYING.winpthreads', 'LICENSE.zlib', 'LICENSE.zstd', 'LICENSE.isl'
 foreach ($n in $licNames) {
     if (-not (Test-Path (Join-Path $licSrc $n))) { throw "라이선스 글 없음: tools\gcc-licenses\$n" }
     Copy-Item (Join-Path $licSrc $n) $lic -Force
@@ -138,7 +138,7 @@ $($verLines -join "`n")
   zlib1.dll                    LICENSE.zlib
   libzstd.dll                  LICENSE.zstd (BSD)
   libgmp, libmpfr, libmpc      LGPL-3.0 (COPYING3.LIB, COPYING3)
-  libisl DLL 의 라이선스 글은 이 폴더에 없다. 프로젝트의 소스에 있다.
+  libisl-23.dll                MIT (LICENSE.isl)
 "@
 [IO.File]::WriteAllText((Join-Path $gdst 'SOURCE.txt'), ($src -replace "`r?`n", "`r`n"), (New-Object Text.UTF8Encoding $true))
 Write-Host "라이선스 파일 $(@(Get-ChildItem $lic -Recurse -File).Count)개: $((Get-ChildItem $lic -Recurse -File | ForEach-Object Name) -join ', ')"
