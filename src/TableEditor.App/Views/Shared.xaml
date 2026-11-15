@@ -42,6 +42,41 @@
 
     <ItemsPanelTemplate x:Key="Across"><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
 
+    <!-- 블록(동작 하나·스텝 하나) 안 인자 하나: 옅은 칸. 명령 이름은 칸 밖 굵은 글. 원문 블록은 칸 없이 -->
+    <Style x:Key="ArgPill" TargetType="Border">
+        <Setter Property="Height" Value="{StaticResource PillHeight}"/>
+        <Setter Property="Padding" Value="{StaticResource Pad.Pill}"/>
+        <Setter Property="Margin" Value="{StaticResource Gap.Pill}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource R.4}"/>
+        <Setter Property="Background" Value="{StaticResource Chip}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding DataContext.Raw, RelativeSource={RelativeSource AncestorType=v:BlockView}}" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Padding" Value="0"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <!-- 인자 값. 켬/끔 칸은 ON = 초록 굵게, OFF = 흐리게 -->
+    <Style x:Key="ArgValue" TargetType="TextBlock">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding On}" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource Ok}"/>
+                <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding On}" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource Text3}"/>
+                <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding DataContext.Raw, RelativeSource={RelativeSource AncestorType=v:BlockView}}" Value="True">
+                <Setter Property="FontFamily" Value="{StaticResource Mono}"/>
+                <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
+                <Setter Property="Foreground" Value="{StaticResource Text2}"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
     <DataTemplate x:Key="BlockT" DataType="b:BlockVm">
         <v:BlockView Margin="{StaticResource Gap.R6}"/>
     </DataTemplate>

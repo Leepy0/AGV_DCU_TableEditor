@@ -14,6 +14,7 @@ static class UxTests
         var site = Site.Open(Path.Combine(root, "tests", "fixtures", "T900_DEMO"));
         Forms(site);
         Filter(site);
+        Switches(root);
     }
 
     static Statement Tag(Site s, string start) =>
@@ -91,5 +92,34 @@ static class UxTests
         // 태그 화면 꼴: 원문 줄(프로파일 없음)은 프로파일을 고르면 빠진다
         check(RowFilter.Match("", "PF_BELT", null, false, _ => true) == false && RowFilter.Match("", RowFilter.All, null, false, _ => true), "원문 줄");
         check(RowFilter.Match(" 40 ", "PF_LIFT", "ANY_PROFILE", true, n => n == 40), "태그 40 + 전체 줄");
+    }
+
+    /// <summary>켬/끔 칸: 문법 표 표시 자리, 화면 글 ON·OFF, 고치면 원문에 1·0(저장 바이트 비교).</summary>
+    static void Switches(string root)
+    {
+        var marked = GrammarTable.Rows.SelectMany(r => r.Args.Select((a, i) => (r, a, i))).Where(x => x.a.Switch)
+            .Select(x => $"{x.r.Name}/{x.r.Place}/{x.i}").ToList();
+        check(marked.SequenceEqual(["AGV_TURN/Step/3", "AGV_TURN/TagAction/3"]), "켬/끔 칸 = AGV_TURN 자동 출발 둘: " + string.Join(",", marked));
+
+        var top = Path.Combine(Path.GetTempPath(), "tedit_ux_tests", "switch");
+        if (Directory.Exists(top)) Directory.Delete(top, true);
+        var dir = Directory.CreateDirectory(Path.Combine(top, "app", "site", "T900_DEMO")).FullName;
+        foreach (var f in Directory.GetFiles(Path.Combine(root, "tests", "fixtures", "T900_DEMO"))) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
+        var before = File.ReadAllBytes(Path.Combine(dir, "tag_table.c"));
+        var s = Site.Open(dir);
+        var st = Tag(s, "TAG ( 21,");
+        var turn = (CallNode)new TagRule(st).Actions[0].Node;
+        var specs = Facts.Expand(Facts.Fit(GrammarTable.Find("AGV_TURN", Place.TagAction), turn.Args)!, turn.Args.Count)!;
+        check(specs[3].SwitchText(turn.Args[3].Node) == ArgSpec.On, "자동 출발 1 = ON");
+        check(specs[2].SwitchText(turn.Args[2].Node) == null && specs[4].SwitchText(turn.Args[4].Node) == null, "회전 뒤 0·속도 0 은 숫자 그대로");
+        check(specs[3].SwitchText(new NumberNode(5, "5")) == null, "켬/끔 칸의 다른 값(5)은 숫자");
+
+        var e = SiteEdit.SetArg(s, st, turn.Args[3], ArgSpec.SwitchRaw(ArgSpec.Off));
+        check(e.Ok, "OFF 쓰기");
+        var res = SaveFiles.Save(e.Site!);
+        check(res.Status == SaveStatus.Saved, "저장 " + res.Status);
+        var text = System.Text.Encoding.UTF8.GetString(before);
+        var want = System.Text.Encoding.UTF8.GetBytes(text.Replace("AGV_TURN( CW,  90,  0, 1, 0 )", "AGV_TURN( CW,  90,  0, 0, 0 )"));
+        check(File.ReadAllBytes(Path.Combine(dir, "tag_table.c")).AsSpan().SequenceEqual(want), "저장 바이트 = 그 칸만 1 → 0");
     }
 }

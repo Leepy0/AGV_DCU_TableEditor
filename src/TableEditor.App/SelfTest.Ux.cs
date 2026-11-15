@@ -6,7 +6,7 @@ namespace TableEditor.App;
 
 /// <summary>
 /// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집, 프로파일 구분. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
-/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png.
+/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png, tag_chips.png.
 /// </summary>
 public sealed partial class SelfTest
 {
@@ -145,6 +145,24 @@ public sealed partial class SelfTest
         Check(S.Tree.Where(t => t.Level == 0).Skip(1).All(t => t.IsGroupStart), "나무 둘째 묶음부터 선");
         await Shot("profile_seq.png");
         vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+
+        Step("동작 칩·켬/끔: 회전 자동 출발 1 = ON, 고르면 OFF → 원문 0, 저장 바이트 비교");
+        start = TagText;
+        var r21 = Row(21);
+        var turnParts = r21.Blocks[0].Parts;
+        Check(turnParts.Any(p => p.Label == "출발" && p.Value == "ON" && p.On == true), "출발 ON " + string.Join(" | ", turnParts));
+        Check(turnParts.Any(p => p.Label == "속도" && p.Value == "0" && p.On == null) && turnParts.Any(p => p.Label == "회전 뒤" && p.Value == "0"), "속도 0·회전 뒤 0 은 숫자");
+                await PickBlock(21, "ANY_PROFILE", 0);
+        var auto = Tag.Fields.First(f => f.Label == "자동 출발");
+        Check(auto.IsList && auto.Text == "ON" && auto.Items!.Cast<Choice>().Select(c => c.Name).SequenceEqual(["ON", "OFF"]), "ON·OFF 드롭다운");
+        await Shot("tag_chips.png");
+        auto.Picked = auto.Items!.Cast<Choice>().First(c => c.Name == "OFF");
+        await Idle();
+        var want = start.Replace("AGV_TURN( CW,  90,  0, 1, 0 )", "AGV_TURN( CW,  90,  0, 0, 0 )");
+        Check(want != start && TagText == want && Row(21).Blocks[0].Parts.Any(p => p.Value == "OFF" && p.On == false), "원문 0 · 화면 OFF");
+        saved = await vm.SaveAsync();
+        await Idle();
+        Check(saved && File.ReadAllBytes(Path.Combine(site, "tag_table.c")).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(want)), "저장 바이트 = 그 칸만 1 → 0");
     }
 
     /// <summary>머리 줄에 보이는 표 안 칸 편집기 수.</summary>

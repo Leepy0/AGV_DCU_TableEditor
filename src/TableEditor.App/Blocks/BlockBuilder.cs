@@ -207,6 +207,11 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
                 continue;
             }
             var text = Collapse(a.Text);
+            if (spec.SwitchText(a.Node) is { } sw)
+            {
+                parts.Add(new(numbers > 1 && spec.Kind == ArgKind.Number ? Short(specs, i) : null, sw, null) { On = sw == ArgSpec.On });
+                continue;
+            }
             if (spec.Unit == "도") parts.Add(new(null, text + "°", null));
             else if (spec.Unit == "틱") parts.Add(new(null, text, Seconds(names, a.Node)));
             else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(specs, i), text, null));
@@ -227,10 +232,15 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             var (name, inner) = Split(args[i].Node);
             if (args[i].Node is CallNode && name != null && InnerFor(specs[i].Kind, name, inner) is { } ie && ie.Args.Count > 0)
                 list.AddRange(FieldsOf(ie, inner));
-            else list.Add(new(specs[i].Label, args[i], specs[i]));
+            else list.Add(SwitchField(specs[i], args[i]) ?? new(specs[i].Label, args[i], specs[i]));
         }
         return list;
     }
+
+    /// <summary>켬/끔 칸(값 1·0): ON·OFF 드롭다운. 고르면 원문에 1·0 을 쓴다. 다른 값이면 null(숫자 칸 그대로).</summary>
+    static FieldInfo? SwitchField(ArgSpec spec, Arg a) => spec.SwitchText(a.Node) is { } sw
+        ? new(spec.Label, a, new ArgSpec(ArgKind.Word, Words: [ArgSpec.On, ArgSpec.Off]) { Label = spec.Label }) { Value = sw, Write = ArgSpec.SwitchRaw }
+        : null;
 
     /// <summary>틱 → 초 글자(300 → 3.00).</summary>
     public static string? Seconds(NameDict names, Node n) => names.Value(n) is long v ? (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) : null;
