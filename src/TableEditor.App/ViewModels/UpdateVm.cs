@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -9,10 +8,10 @@ namespace TableEditor.App.ViewModels;
 
 /// <summary>
 /// 프로그램 업데이트(설정 화면의 업데이트 칸 + 위 줄 칩 + 토스트). 참고: AmrMapEditor MainWindow.AppUpdate.
-/// 시작 3초 뒤 확인 → 새 판이면 팝업, 그 뒤 1시간마다 확인 → 처음 보는 새 판이면 토스트.
-/// 받기 → &lt;설치&gt;.new 완성 → 닫을 때(또는 [닫고 적용]) 바깥 도우미가 이름 바꾸기 둘로 교체.
-/// 받아 둔 판은 창마다 기억하지 않고 .new 폴더가 기준이다(여러 창). 캡처·자체 시험(<see cref="Settings.Volatile"/>)은 네트워크를 쓰지 않는다.
-/// 업데이트 때문에 앱이 꺼지지 않게 명령·주기 확인의 예외는 모두 잡아 실패 칩으로 둔다.
+/// 시작 3초 뒤 확인 → 새 버전이면 팝업, 그 뒤 1시간마다 확인 → 처음 보는 새 버전이면 토스트.
+/// 받기 → &lt;설치&gt;.new 완성 → 닫을 때(또는 [닫고 적용]) 바깥 도우미가 이름 바꾸기로 교체. 도우미는 지우지 않고, 버린 폴더는 다음 시작 때 검사 뒤 지운다.
+/// 받아 둔 버전은 창마다 기억하지 않고 .new 폴더가 기준이다(여러 창). 캡처·자체 시험(<see cref="Settings.Volatile"/>)은 네트워크를 쓰지 않는다.
+/// 적용·되돌리기·복구는 모두 같은 검사(<see cref="LaunchCheckedAsync"/>)를 거친다. 업데이트 때문에 앱이 꺼지지 않게 예외는 실패 칩으로 둔다.
 /// </summary>
 public sealed class UpdateVm : Observable
 {
@@ -23,17 +22,14 @@ public sealed class UpdateVm : Observable
     readonly DispatcherTimer hourly = new() { Interval = TimeSpan.FromHours(1) };
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     readonly string install = Updater.InstallDir;
-    readonly string dir = Updater.UpdateDir;
+    readonly string dir = Updater.UpdateDirFor(Updater.InstallDir);
     Version current = Updater.Current;
     Version? pending;
     ReleaseInfo? latest;
     CancellationTokenSource? dl;
-    string? shown; // 팝업·토스트로 이미 알린 판
+    string? shown; // 팝업·토스트로 이미 알린 버전
     string? failure;
     DateTime? checkedAt;
-
-    // 받기·.new 만들기는 창 하나만(이름 붙인 세마포: 스레드에 묶이지 않는다)
-    static readonly Semaphore Gate = new(1, 1, @"Local\AGV_DCU_TableEditor_update");
 
     public UpdateVm(MainVm main, Settings s)
     {
@@ -60,12 +56,14 @@ public sealed class UpdateVm : Observable
     async void Safe(Func<Task> run)
     {
         try { await run(); }
-        catch (Exception e)
-        {
-            failure = Word(e);
-            Now = State.Failed;
-            Raise(nameof(ChipText));
-        }
+        catch (Exception e) { Fail(Word(e)); }
+    }
+
+    void Fail(string word)
+    {
+        failure = word;
+        Now = State.Failed;
+        Raise(nameof(ChipText));
     }
 
     static string Word(Exception e) => e switch
@@ -110,7 +108,7 @@ public sealed class UpdateVm : Observable
     public string ChipText => state switch
     {
         State.Checking => "확인 중",
-        State.Available => $"새 판 {latest?.Version.ToString(3)}",
+        State.Available => $"새 버전 {latest?.Version.ToString(3)}",
         State.Downloading => $"받는 중 {Progress:0}%",
         State.Ready => $"준비됨 {pending?.ToString(3)}",
         State.Failed => $"실패 · {failure}",
@@ -127,7 +125,7 @@ public sealed class UpdateVm : Observable
     public bool DownloadPrimary => state == State.Available;
     public bool ApplyPrimary => state == State.Ready;
 
-    /// <summary>.old 판(되돌릴 곳). 시작할 때 한 번 읽는다(명령 재질의마다 파일을 읽지 않게).</summary>
+    /// <summary>직전 버전(.old, 되돌릴 곳). 시작할 때 한 번 읽는다(명령 재질의마다 파일을 읽지 않게).</summary>
     public string? OldVersion { get; } = Updater.CanSelfUpdate ? Updater.OldVersion(Updater.InstallDir) : null;
 
     public bool AutoCheck
@@ -173,7 +171,7 @@ public sealed class UpdateVm : Observable
     // ---- 시작 ----
 
     /// <summary>
-    /// 시작할 때(캡처·자체 시험 제외, 정식 판만): 끊긴 교체 복구 제안, 정리, 도우미 결과 알림, 3초 뒤 확인, 1시간 주기.
+    /// 시작할 때(캡처·자체 시험 제외, 정식 버전만): 끊긴 교체 복구 제안, 버린 폴더 지우기, 정리, 도우미 결과 알림, 3초 뒤 확인, 1시간 주기.
     /// </summary>
     public async Task StartAsync()
     {
@@ -182,7 +180,9 @@ public sealed class UpdateVm : Observable
         {
             Updater.DropStaleLock(dir);
             if (Updater.Diagnose(install) is { } fix && await OfferRepairAsync(fix)) return;
-            Updater.Cleanup(dir, install, current);
+            var left = await Task.Run(() => Updater.EmptyTrash(install));
+            if (left.Count > 0) await main.Show(new AskVm("남긴 폴더", left, [new AskButton("ok", "닫기", Primary: true, Default: true)]));
+            await Task.Run(() => Updater.Cleanup(dir, install, current));
             RefreshPending();
             switch (Updater.TakeResult(dir))
             {
@@ -197,12 +197,7 @@ public sealed class UpdateVm : Observable
             await CheckAsync(Origin.Start);
             if (s.UpdateAuto) hourly.Start();
         }
-        catch (Exception e)
-        {
-            failure = Word(e);
-            Now = State.Failed;
-            Raise(nameof(ChipText));
-        }
+        catch (Exception e) { Fail(Word(e)); }
     }
 
     static string ResultWord(string w) => w switch
@@ -210,28 +205,24 @@ public sealed class UpdateVm : Observable
         "none" => "결과 없음 · 도우미가 끝나지 않음",
         "fail-tasklist" => "tasklist 실패",
         "fail-wait" => "앱이 끝나지 않음",
-        "fail-src" => "받은 판 없음",
-        "fail-old" => ".old 못 지움",
+        "fail-src" => "받은 버전 없음",
+        "fail-old" => "직전 버전 폴더 못 옮김",
         "fail-notours" => "우리 것 아닌 폴더",
         "fail-busy" => "설치 폴더 사용 중",
-        "fail-noold" => ".old 없음",
+        "fail-noold" => "직전 버전 없음",
         "fail-exists" => "설치 폴더 있음",
         "fail-lost" => "복구 실패 · .old 확인",
         _ => w,
     };
 
-    /// <summary>교체가 끊긴 흔적: [나중에][복구]. 복구 도우미를 띄웠으면 true(창을 닫는다).</summary>
+    /// <summary>교체가 끊긴 흔적: 옮길 경로를 보이고 [나중에](기본)·[복구]. 복구는 적용·되돌리기와 같은 검사를 거친다. 도우미를 띄웠으면 true.</summary>
     async Task<bool> OfferRepairAsync(Repair fix)
     {
         var title = fix.Mode == "recover" ? "설치 폴더 없음" : "설치 불완전";
-        var key = await main.Show(new AskVm(title, [$"{Path.GetFileName(fix.Source)} → {Path.GetFileName(fix.Target)}"],
-            [new AskButton("later", "나중에"), new AskButton("fix", "복구", Primary: true, Default: true)]));
+        var key = await main.Show(new AskVm(title, [fix.Source, $"→ {fix.Target}"],
+            [new AskButton("later", "나중에", Default: true), new AskButton("fix", "복구", Primary: true)]));
         if (key != "fix") return false;
-        if (!Launch(fix.Mode, fix.Target, fix.Mode == "recover" ? fix.Source : null, start: true, out var error))
-        {
-            await Ask("도우미 실패", error ?? "");
-            return false;
-        }
+        if (!await LaunchCheckedAsync(fix.Mode, fix.Target, fix.Mode == "recover" ? fix.Source : null, start: true)) return false;
         CloseForUpdate?.Invoke();
         return true;
     }
@@ -256,47 +247,52 @@ public sealed class UpdateVm : Observable
             var v = r.Version.ToString(3);
             if (from == Origin.Manual || v == shown || v == s.UpdateSkip) return;
             shown = v;
-            if (from == Origin.Start && !main.HasDialog) await OfferAsync(r);
-            else Toast = $"새 판 {v}";
+            // 받을 수 없는 릴리스(매니페스트 없음)는 [받기] 팝업 없이 토스트만
+            if (from == Origin.Start && r.CanDownload && !main.HasDialog) await OfferAsync(r);
+            else Toast = $"새 버전 {v}";
         }
         finally
         {
-            if (state == State.Checking) { failure ??= "확인"; Now = State.Failed; }
+            if (state == State.Checking) Fail(failure ?? "확인");
         }
     }
 
-    /// <summary>시작 팝업: 새 판 · 지금 판 · [나중에][받기].</summary>
+    /// <summary>시작 팝업: 새 버전 · 현재 버전 · [나중에][받기].</summary>
     async Task OfferAsync(ReleaseInfo r)
     {
-        var key = await main.Show(new AskVm("새 판", [$"새 판 {r.Version.ToString(3)}", $"지금 {VersionText}"],
+        var key = await main.Show(new AskVm("새 버전", [$"새 버전 {r.Version.ToString(3)}", $"현재 버전 {VersionText}"],
             [new AskButton("later", "나중에"), new AskButton("get", "받기", Primary: true, Default: true)]));
         if (key == "get") await DownloadAsync();
     }
 
     // ---- 받기 ----
 
-    /// <summary>이 PC·이 판에서 할 수 있는가. 아니면 팝업. mode = <see cref="Updater.Blockers"/>.</summary>
-    async Task<bool> AllowedAsync(string mode)
+    /// <summary>
+    /// 이 PC·이 버전에서 할 수 있는가. 아니면 팝업. mode = prepare · apply · rollback(<see cref="Updater.Blockers"/>) · recover(<see cref="Updater.RecoverBlockers"/>).
+    /// target = 설치 폴더(recover 면 되살릴 자리), source = recover 로 옮길 폴더.
+    /// </summary>
+    async Task<bool> AllowedAsync(string mode, string target, string? source = null)
     {
         if (!Updater.CanSelfUpdate) { await Ask("업데이트 불가", "로컬 빌드"); return false; }
-        if (!Updater.CanReplace(install)) { await Ask("쓰기 권한 없음", install); return false; }
-        if (Updater.DataInside(install, [Updater.DataDir, Settings.FilePath, s.LastRepo, main.Repo, main.Site?.Folder]) is { } inside)
+        if (!Updater.CanReplace(mode == "recover" ? source! : target)) { await Ask("쓰기 권한 없음", target); return false; }
+        if (Updater.DataInside(target, [Updater.DataDir, Settings.FilePath, s.LastRepo, main.Repo, main.Site?.Folder]) is { } inside)
         {
             await Ask("사용자 데이터가 설치 폴더 안", inside);
             return false;
         }
-        var why = await Task.Run(() => Updater.Blockers(install, mode));
+        var why = await Task.Run(() => mode == "recover" ? Updater.RecoverBlockers(source!, target) : Updater.Blockers(target, mode));
         if (why.Count > 0) { await main.Show(new AskVm("막힘", why, [new AskButton("ok", "닫기", Primary: true, Default: true)])); return false; }
         return true;
     }
 
     async Task DownloadAsync()
     {
-        if (latest is not { } r || state == State.Downloading) return;
+        if (!CanNetwork || latest is not { } r || state == State.Downloading) return;
         if (!r.CanDownload) { Toast = $"받기 불가 · 매니페스트 없음 {r.Tag}"; return; }
-        if (!await AllowedAsync("prepare")) return;
+        if (!await AllowedAsync("prepare", install)) return;
         if (Updater.SpaceShort(r, install, dir) is { } space) { await Ask("공간 부족", space); return; }
-        if (!Gate.WaitOne(0)) { await Ask("받기 불가", "다른 창이 받는 중"); return; }
+        var gate = Updater.TryGate(dir);
+        if (gate == null) { await Ask("받기 불가", "다른 창이 받는 중"); return; }
         var cts = dl = new CancellationTokenSource();
         Progress = 0;
         Now = State.Downloading;
@@ -312,14 +308,12 @@ public sealed class UpdateVm : Observable
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { Now = State.Available; }
         catch (Exception e)
         {
-            failure = "받기 · " + Word(e);
-            Now = State.Failed;
-            Raise(nameof(ChipText));
+            Fail("받기 · " + Word(e));
             await Ask("받기 실패", Word(e));
         }
         finally
         {
-            Gate.Release();
+            gate.Dispose();
             if (state == State.Downloading) Now = State.Available;
             cts.Dispose();
             if (ReferenceEquals(dl, cts)) dl = null;
@@ -328,19 +322,19 @@ public sealed class UpdateVm : Observable
 
     async Task DiscardAsync()
     {
-        if (!Gate.WaitOne(0)) { await Ask("버리기 불가", "다른 창이 받는 중"); return; }
-        bool done;
-        try { done = await Task.Run(() => Updater.Discard(install)); }
-        finally { Gate.Release(); }
-        if (!done) { await Ask("버리기 불가", Path.GetFileName(Updater.NewDir(install)) + " 우리 것 아님"); return; }
+        using (var gate = Updater.TryGate(dir))
+        {
+            if (gate == null) { await Ask("버리기 불가", "다른 창이 받는 중"); return; }
+            if (!await Task.Run(() => Updater.Discard(install))) { await Ask("버리기 불가", Path.GetFileName(Updater.NewDir(install))); return; }
+        }
         pending = null;
         Now = latest is { } r && r.Version > current ? State.Available : State.None;
         Toast = "버림";
     }
 
-    // ---- 적용·되돌리기 ----
+    // ---- 적용·되돌리기·복구 ----
 
-    /// <summary>받아 둔 판이 있는가(닫을 때 적용). .new 를 다시 본다(다른 창이 받았을 수 있다).</summary>
+    /// <summary>받아 둔 버전이 있는가(닫을 때 적용). .new 를 다시 본다(다른 창이 받았을 수 있다).</summary>
     public bool HasPending
     {
         get
@@ -351,12 +345,12 @@ public sealed class UpdateVm : Observable
         }
     }
 
-    /// <summary>설치 폴더에서 도는 다른 프로그램(tedit 등)이 끝날 때까지 팝업으로 묻는다. 계속해도 되는가.</summary>
-    async Task<bool> NotBusyAsync()
+    /// <summary>옮길 폴더들(설치·.old·.new·.trash-*)에서 도는 다른 프로그램(tedit, 옛 버전 등)이 끝날 때까지 팝업으로 묻는다. 계속해도 되는가.</summary>
+    async Task<bool> NotBusyAsync(IReadOnlyList<string> dirs)
     {
         while (true)
         {
-            var busy = Updater.RunningIn(install, Environment.ProcessId);
+            var busy = Updater.RunningIn(dirs, Environment.ProcessId);
             if (busy.Count == 0) return true;
             var lines = busy.GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Select(g => g.Count() > 1 ? $"{g.Key} {g.Count()}" : g.Key).ToArray();
             var key = await main.Show(new AskVm("실행 중", lines,
@@ -365,53 +359,48 @@ public sealed class UpdateVm : Observable
         }
     }
 
-    /// <summary>바깥 도우미를 띄운다(이 프로세스가 끝나길 기다렸다가). 띄웠는가.</summary>
-    bool Launch(string mode, string target, string? source, bool start, out string? error)
+    /// <summary>검사(권한·사용자 데이터·막힘·실행 중)를 모두 거친 뒤 도우미를 띄운다(이 프로세스가 끝나길 기다렸다가). 띄웠는가.</summary>
+    async Task<bool> LaunchCheckedAsync(string mode, string target, string? source, bool start)
     {
-        error = null;
+        if (!await AllowedAsync(mode, target, source)) return false;
+        IReadOnlyList<string> family = mode == "recover" ? [source!, .. Updater.Family(target)] : Updater.Family(target);
+        if (!await NotBusyAsync(family)) return false;
+        var helperDir = Updater.UpdateDirFor(target);
         try
         {
-            Process.Start(Updater.HelperStart(mode, target, source, Environment.ProcessId, start, dir))?.Dispose();
+            Updater.StartHelper(Updater.HelperStart(mode, target, source, Environment.ProcessId, start, helperDir), helperDir).Dispose();
             return true;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or UpdateException or System.ComponentModel.Win32Exception)
         {
-            error = e.Message;
+            await Ask("도우미 실패", e.Message);
             return false;
         }
     }
 
-    async Task<bool> LaunchCheckedAsync(string mode, bool start)
-    {
-        if (!await AllowedAsync(mode) || !await NotBusyAsync()) return false;
-        if (Launch(mode, install, mode == "apply" ? Updater.NewDir(install) : null, start, out var error)) return true;
-        await Ask("도우미 실패", error ?? "");
-        return false;
-    }
-
-    /// <summary>창을 닫을 때(받아 둔 판이 있으면): 도우미를 띄우고 끝낸다. 다시 열지 않는다. 막히면 팝업 뒤 그대로 닫는다.</summary>
+    /// <summary>창을 닫을 때(받아 둔 버전이 있으면): 도우미를 띄우고 끝낸다. 다시 열지 않는다. 막히면 팝업 뒤 그대로 닫는다.</summary>
     public async Task ApplyOnCloseAsync()
     {
-        try { if (HasPending) await LaunchCheckedAsync("apply", start: false); }
+        try { if (HasPending) await LaunchCheckedAsync("apply", install, Updater.NewDir(install), start: false); }
         catch (Exception e) { failure = Word(e); } // 닫기는 막지 않는다
     }
 
-    /// <summary>[닫고 적용]: 저장 확인 → 도우미(끝나면 새 판을 연다) → 창 닫기.</summary>
+    /// <summary>[닫고 적용]: 저장 확인 → 도우미(끝나면 새 버전을 연다) → 창 닫기.</summary>
     async Task ApplyNowAsync()
     {
-        if (!HasPending) { RefreshPending(); await Ask("받은 판 없음"); return; }
+        if (!HasPending) { RefreshPending(); await Ask("받은 버전 없음"); return; }
         if (!await main.ConfirmLeaveAsync()) return;
-        if (await LaunchCheckedAsync("apply", start: true)) CloseForUpdate?.Invoke();
+        if (await LaunchCheckedAsync("apply", install, Updater.NewDir(install), start: true)) CloseForUpdate?.Invoke();
     }
 
-    /// <summary>[되돌리기]: .old 판으로. 지금 판은 자동으로 다시 알리지 않는다.</summary>
+    /// <summary>[되돌리기]: 직전 버전(.old)으로. 현재 버전은 자동으로 다시 알리지 않는다.</summary>
     async Task RollbackAsync()
     {
         if (OldVersion is not { } old) return;
-        var key = await main.Show(new AskVm("되돌리기", [$"{VersionText} → {old}"],
+        var key = await main.Show(new AskVm("되돌리기", [$"현재 버전 {VersionText}", $"직전 버전 {old}"],
             [new AskButton("cancel", "취소", Default: true), new AskButton("ok", "되돌리기", Primary: true)]));
         if (key != "ok" || !await main.ConfirmLeaveAsync()) return;
-        if (!await LaunchCheckedAsync("rollback", start: true)) return;
+        if (!await LaunchCheckedAsync("rollback", install, null, start: true)) return;
         s.UpdateSkip = VersionText;
         s.Save();
         CloseForUpdate?.Invoke();
@@ -420,7 +409,7 @@ public sealed class UpdateVm : Observable
     // ---- 캡처 훅 ----
 
     /// <summary>
-    /// <c>--shot … --fake-update start|tick</c>: 네트워크 없이 지금 판을 0.0.1 로 낮추고 이 판을 새 판으로 둔다.
+    /// <c>--shot … --fake-update start|tick</c>: 네트워크 없이 현재 버전을 0.0.1 로 낮추고 이 버전을 새 버전으로 둔다.
     /// start = 시작 팝업, tick = 주기 확인 토스트.
     /// </summary>
     public void Fake(string mode)
@@ -433,6 +422,6 @@ public sealed class UpdateVm : Observable
         Now = State.Available;
         shown = latest.Version.ToString(3);
         if (mode == "start") _ = OfferAsync(latest);
-        else Toast = $"새 판 {shown}";
+        else Toast = $"새 버전 {shown}";
     }
 }

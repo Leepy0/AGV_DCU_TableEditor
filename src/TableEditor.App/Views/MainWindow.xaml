@@ -124,7 +124,7 @@
                     <TextBlock Text="바깥 변경" VerticalAlignment="Center" Foreground="{StaticResource Text}"/>
                 </StackPanel>
             </Button>
-            <!-- 업데이트: 새 판·받는 중·준비됨일 때만. 누르면 설정 화면 -->
+            <!-- 업데이트: 새 버전·받는 중·준비됨일 때만. 누르면 설정 화면 -->
             <Button DockPanel.Dock="Left" Style="{StaticResource ChipButton}" Command="{Binding Update.OpenInfo}" AutomationProperties.Name="업데이트"
                     Visibility="{Binding Update.HasChip, Converter={StaticResource Shown}}">
                 <TextBlock Text="{Binding Update.ChipText}" Foreground="{StaticResource Accent}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center"/>

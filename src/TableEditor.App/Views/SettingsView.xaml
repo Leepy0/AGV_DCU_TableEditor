@@ -124,7 +124,7 @@
                         Command="{Binding DataContext.UpdateCore, RelativeSource={RelativeSource AncestorType=Window}}"/>
             </StackPanel>
 
-            <!-- 프로그램: 판 · 채널 · 커밋 -->
+            <!-- 프로그램: 버전 · 채널 · 커밋 -->
             <TextBlock Grid.Row="9" Text="프로그램" Style="{StaticResource SetLabel}"/>
             <Border Grid.Row="9" Grid.Column="2" Style="{StaticResource FieldBox}" Width="{StaticResource SettingsBox}" HorizontalAlignment="Left"
                     Margin="{StaticResource Gap.B16}">

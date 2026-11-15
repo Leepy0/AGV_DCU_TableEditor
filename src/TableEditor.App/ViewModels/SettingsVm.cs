@@ -76,6 +76,6 @@ public sealed class SettingsVm : Observable
 
     internal MainVm Main => main;
 
-    /// <summary>프로그램 업데이트 칸(판·채널·커밋, 확인·받기·적용·되돌리기, 자동 확인).</summary>
+    /// <summary>프로그램 업데이트 칸(버전·채널·커밋, 확인·받기·적용·되돌리기, 자동 확인).</summary>
     public UpdateVm Update => main.Update;
 }

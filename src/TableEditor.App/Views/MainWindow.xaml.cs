@@ -119,7 +119,7 @@ public partial class MainWindow : Window
             });
             return;
         }
-        // 받아 둔 판: 바깥 도우미를 띄우고(이 프로세스가 끝나길 기다렸다가 교체) 닫는다. 막히면 팝업 뒤 그대로 닫는다
+        // 받아 둔 버전: 바깥 도우미를 띄우고(이 프로세스가 끝나길 기다렸다가 교체) 닫는다. 막히면 팝업 뒤 그대로 닫는다
         if (!updateDone && vm.Update.HasPending)
         {
             e.Cancel = true;

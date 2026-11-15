@@ -14,7 +14,7 @@ namespace TableEditor.App;
 /// 여는 법: <c>--site &lt;사이트 폴더&gt;</c>(깃·빌드 꺼짐) 또는 <c>--repo &lt;앱 루트&gt; [--site &lt;사이트 이름&gt;]</c>.
 /// 인자가 없으면 설정의 마지막 저장소, 그것도 없으면 빈 화면. 같은 폴더를 두 창이 열지 못한다(이름 붙인 뮤텍스).
 /// 캡처: <c>--shot &lt;png&gt; [--tab &lt;탭&gt;] [--select &lt;줄&gt;] [--view] [--fake-update start|tick]</c> → 1280×900 창 내용을 배율 2 로 쓰고 끝낸다.
-/// <c>--fake-update</c> = 지금 판을 0.0.1 로 낮춰 업데이트 팝업(start)·토스트(tick)를 띄운다(네트워크 없음).
+/// <c>--fake-update</c> = 현재 버전을 0.0.1 로 낮춰 업데이트 팝업(start)·토스트(tick)를 띄운다(네트워크 없음).
 /// 줄 수: <c>--counts &lt;파일&gt;</c> → 화면 줄 수를 쓰고 끝낸다(실제 사이트 확인).
 /// 자체 시험: <c>--selftest &lt;작업 폴더&gt; [--shots &lt;폴더&gt;]</c> → 종료 코드 0 = 통과(<see cref="SelfTest"/>).
 /// </summary>
@@ -81,10 +81,20 @@ public partial class App : Application
         var a = Parse(e.Args);
         bool shot = a.Shot != null || a.SelfTest != null || a.Counts != null;
         if (a.FakeUpdate != null && a.Shot == null) a = a with { FakeUpdate = null }; // 캡처 훅은 --shot 과만
-        if (!shot && TableEditor.Engine.Ops.Updater.CanSelfUpdate && TableEditor.Engine.Ops.Updater.LockFresh(TableEditor.Engine.Ops.Updater.UpdateDir))
+        // 일하는 폴더를 설치 폴더 밖으로: 이 앱과 앱이 띄우는 git·gcc 가 설치 폴더 핸들을 잡으면 업데이트 도우미가 폴더 이름을 못 바꾼다.
+        // 상대 경로 인자는 옮기기 전에 절대 경로로(--repo 와 같이 준 --site 는 사이트 이름이라 그대로)
+        static string? Full(string? p) => p == null ? null : Path.GetFullPath(p);
+        a = a with { Repo = Full(a.Repo), Site = a.Repo == null ? Full(a.Site) : a.Site, Shot = Full(a.Shot), SelfTest = Full(a.SelfTest), Shots = Full(a.Shots), Counts = Full(a.Counts) };
+        try
         {
-            // 교체 도우미가 도는 중: 설치 폴더를 잡지 않게 일하는 폴더를 옮기고, 알린 뒤 끝낸다(도우미가 끝나면 새 판이 열린다)
+            Directory.CreateDirectory(TableEditor.Engine.Ops.Updater.DataDir);
             Environment.CurrentDirectory = TableEditor.Engine.Ops.Updater.DataDir;
+        }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+        if (!shot && TableEditor.Engine.Ops.Updater.CanSelfUpdate
+            && TableEditor.Engine.Ops.Updater.LockFresh(TableEditor.Engine.Ops.Updater.UpdateDirFor(TableEditor.Engine.Ops.Updater.InstallDir)))
+        {
+            // 교체 도우미가 도는 중: 알린 뒤 끝낸다(도우미가 끝나면 새 버전이 열린다)
             MessageBox.Show("업데이트 중", "표 편집기");
             Shutdown(5);
             return;
@@ -139,7 +149,7 @@ public partial class App : Application
             vm.Config.Reload();
             vm.Update.Fake(a.FakeUpdate);
         }
-        else if (!shot) _ = vm.Update.StartAsync(); // 새 판 확인(시작 팝업·1시간 토스트)
+        else if (!shot) _ = vm.Update.StartAsync(); // 새 버전 확인(시작 팝업·1시간 토스트)
 
         if (a.Counts != null)
         {

@@ -5,9 +5,9 @@ using System.Text;
 using TableEditor.Engine.Ops;
 
 /// <summary>
-/// 프로그램 업데이트: 판 비교, 매니페스트, 리다이렉트 태그, SHA 불일치 거부, 실패 호스트 이름, files.txt 대조·막힘, 스테이징·.new 준비,
-/// 그리고 교체 도우미(cmd)를 %TEMP% 의 가짜 설치 폴더(한글·공백·&amp; 경로, 도우미 폴더는 &amp;·()·^)에 실제로 돌린다:
-/// 성공, 이전 .old 정리, 실행 중(막힘·그대로), 우리 것 아닌 .old(막힘·보존), 되돌리기, 끊긴 교체 복구, 잠금.
+/// 프로그램 업데이트: 버전 비교, 매니페스트, 리다이렉트 태그, SHA 불일치 거부, 실패 호스트 이름, files.txt 대조·막힘, 스테이징·.new 준비, 차례 잠금, 정리,
+/// 그리고 교체 도우미(cmd)를 %TEMP% 의 가짜 설치 폴더(한글·공백·&amp; 경로, 도우미 폴더는 &amp;·()·^)에 실제로 돌린다.
+/// 도우미는 아무것도 지우지 않는다(버린 폴더는 .trash-*, 앱이 검사 뒤 지움): 사용자 파일이 사라지는 경로(검토 R1·R2·R3)가 없는지 본다.
 /// </summary>
 static class UpdaterTests
 {
@@ -24,11 +24,12 @@ static class UpdaterTests
 
     static void Versions(Action<bool, string> check)
     {
-        check(V("v0.10.0") > V("0.9.0"), "판 0.10 > 0.9");
-        check(V("v0.2.0") == V("0.2.0") && V("0.2") == new Version(0, 2, 0), "판 v 접두·두 자리");
-        check(V("v0.2.0-rc1") == new Version(0, 2, 0) && V("0.2.0+abc1234") == new Version(0, 2, 0), "판 꼬리표 뗌");
-        check(V("v1.0.0") > V("0.99.99") && V("0.1.10") > V("0.1.9"), "판 자리별 숫자 비교");
-        check(!Updater.TryParseVersion("latest", out _) && !Updater.TryParseVersion("", out _), "판 아닌 글");
+        check(V("v0.10.0") > V("0.9.0"), "버전 0.10 > 0.9");
+        check(V("v0.2.0") == V("0.2.0") && V("0.2") == new Version(0, 2, 0), "버전 v 접두·두 자리");
+        check(!Updater.TryParseVersion("v0.2.0-rc1", out _) && !Updater.TryParseVersion("0.2.0+abc1234", out _) && !Updater.TryParseVersion("0.2.0.1", out _),
+            "버전 꼬리표·넷째 자리 → 아님");
+        check(V("v1.0.0") > V("0.99.99") && V("0.1.10") > V("0.1.9"), "버전 자리별 숫자 비교");
+        check(!Updater.TryParseVersion("latest", out _) && !Updater.TryParseVersion("", out _), "버전 아닌 글");
     }
 
     static void Manifest(Action<bool, string> check)
@@ -43,7 +44,7 @@ static class UpdaterTests
         check(r!.AssetUrl == $"{Updater.Releases}/download/v0.2.0/TableEditor-v0.2.0-win-x64.zip", "매니페스트 → 자산 주소");
         var bad = Updater.ParseManifest("""{ "version": "0.3.0", "file": "..\\x.zip", "sha256": "123", "size": 1.5e30, "unpacked": -4 }""");
         check(bad is { File: null, Sha256: null, CanDownload: false, Size: 0, Unpacked: 0 } && bad.Page.EndsWith("/tag/v0.3.0"), "매니페스트 경로 글자·짧은 sha·큰 수·음수 버림");
-        check(Updater.ParseManifest("""{ "version": "x" }""") == null && Updater.ParseManifest("[]") == null, "매니페스트 판 틀림");
+        check(Updater.ParseManifest("""{ "version": "x" }""") == null && Updater.ParseManifest("[]") == null, "매니페스트 버전 틀림");
     }
 
     static void Redirect(Action<bool, string> check)
@@ -110,21 +111,28 @@ static class UpdaterTests
     {
         var root = Temp("helper");
         var procs = new List<Process>();
+        Process Track(Process p) { procs.Add(p); return p; }
         try
         {
-            var install = Path.Combine(root, "가짜 설치 & 판");
             var upd = Path.Combine(root, "upd & (x) ^");
-            Pack(install, "v0.1.0", "old", "gone.dll");
+            check(Updater.UpdateDirFor(Path.Combine(root, "a")) != Updater.UpdateDirFor(Path.Combine(root, "b"))
+                && Updater.UpdateDirFor(Path.Combine(root, "a")) == Updater.UpdateDirFor(Path.Combine(root, "A")), "설치본마다 updates 폴더 따로");
 
-            // 사용자 데이터 위치
+            // 차례 잠금(파일, FileShare.None): 둘째는 못 잡고, 놓으면 잡힌다
+            using (var g1 = Updater.TryGate(upd))
+                check(g1 != null && Updater.TryGate(upd) == null, "차례 잠금: 다른 창은 못 잡음");
+            using (var g2 = Updater.TryGate(upd)) check(g2 != null, "차례 잠금: 놓으면 다시 잡힘");
+
+            // ---- 설치 폴더 검사 ----
+            var install = Path.Combine(root, "가짜 설치 & 판");
+            Pack(install, "v0.1.0", "old", "gone.dll");
             check(Updater.DataInside(install, [Path.Combine(root, "data"), Path.Combine(root, "가짜 설치 & 판2", "x")]) == null, "데이터 밖(이름이 앞만 같은 폴더 포함)");
-            check(Updater.DataInside(install, [Path.Combine(install, "site")]) != null && Updater.DataInside(install, [Updater.NewDir(install) + "\\s"]) != null,
-                "데이터가 설치·.new 안 → 막음");
+            check(Updater.DataInside(install, [Path.Combine(install, "site")]) != null && Updater.DataInside(install, [install + ".trash-1-a\\s"]) != null,
+                "데이터가 설치·.trash 안 → 막음");
             check(Updater.DataInside(Updater.InstallDir, [Updater.DataDir]) == null, "이 PC: 설정 폴더는 설치 폴더 밖");
             check(Updater.CanReplace(install), "쓰기 권한(가짜 설치)");
             check(Updater.Check(install) is { Ours: true, Complete: true } && Updater.Blockers(install, "prepare").Count == 0, "files.txt 대조: 온전·우리 것");
 
-            // H1: 목록 밖 파일·.git·우리 것 아닌 옆 폴더 → 막힘
             var memo = Path.Combine(install, "내 메모.txt");
             File.WriteAllText(memo, "사용자");
             var b1 = Updater.Blockers(install, "prepare");
@@ -133,8 +141,17 @@ static class UpdaterTests
             Directory.CreateDirectory(Path.Combine(install, "gcc", ".git"));
             check(Updater.Blockers(install, "prepare").Any(x => x.Contains(".git")), ".git → 막힘");
             Directory.Delete(Path.Combine(install, "gcc"), true);
+            // 탐색기 파일은 깊이·대소문자 없이 무시
+            File.WriteAllText(Path.Combine(install, "DESKTOP.INI"), "[.ShellClassInfo]");
+            File.SetAttributes(Path.Combine(install, "DESKTOP.INI"), FileAttributes.Hidden | FileAttributes.System);
+            Directory.CreateDirectory(Path.Combine(install, "sub"));
+            File.WriteAllText(Path.Combine(install, "sub", "thumbs.db"), "x");
+            check(Updater.Check(install) is { Ours: true, Complete: true }, "desktop.ini·Thumbs.db 무시");
+            File.SetAttributes(Path.Combine(install, "DESKTOP.INI"), FileAttributes.Normal);
+            File.Delete(Path.Combine(install, "DESKTOP.INI"));
+            Directory.Delete(Path.Combine(install, "sub"), true);
 
-            // 로컬 zip + 로컬 매니페스트 → 가짜 서버 → .new 준비(H3)
+            // ---- 로컬 zip + 로컬 매니페스트 → 가짜 서버 → .new 준비 ----
             var zip = Zip(root, "v0.2.0", "new", Path.Combine("gcc", "bin", "gcc.exe"));
             var manifest = Path.Combine(root, Updater.ManifestName);
             File.WriteAllText(manifest, $$"""{ "version": "0.2.0", "file": "{{Path.GetFileName(zip)}}", "sha256": "{{Updater.HashFile(zip)}}", "size": {{new FileInfo(zip).Length}} }""");
@@ -144,16 +161,15 @@ static class UpdaterTests
             {
                 var nw = Updater.PrepareAsync(rel, install, upd, null, default, http).GetAwaiter().GetResult();
                 check(nw == Updater.NewDir(install) && Updater.IsReady(nw, rel.Sha256) && Updater.Pending(install, new Version(0, 1, 0)) == new Version(0, 2, 0),
-                    ".new 준비: 완성 표지·받은 판");
+                    ".new 준비: 완성 표지·받은 버전");
                 check(!Directory.EnumerateDirectories(upd, "stage-*").Any() && !File.Exists(Path.Combine(upd, rel.File!))
                     && !Directory.EnumerateDirectories(root, "*.tmp-*").Any(), "준비 뒤 zip·스테이징·임시 폴더 없음");
                 int hits = server.Hits;
                 Updater.PrepareAsync(rel, install, upd, null, default, http).GetAwaiter().GetResult();
                 check(server.Hits == hits, "같은 sha 로 완성된 .new → 다시 받지 않음");
             }
-            check(Updater.Blockers(install, "apply").Count == 0, "적용 막힘 없음");
 
-            // H3: 덜 풀린 묶음(files.txt 에 있는데 zip 에 없음) → 거부, 임시 폴더 없음
+            // 덜 풀린 묶음(files.txt 에 있는데 zip 에 없음) → 거부, 임시 폴더 없음
             var broken = Zip(root, "v0.3.0", "x", "y.dll", drop: "y.dll");
             var relB = new ReleaseInfo(new Version(0, 3, 0), Path.GetFileName(broken), Updater.HashFile(broken), new FileInfo(broken).Length, "p", "", null);
             var install3 = Path.Combine(root, "다른 설치");
@@ -166,98 +182,149 @@ static class UpdaterTests
             check(!Directory.Exists(Updater.NewDir(install3)) && !Directory.EnumerateDirectories(upd, "stage-*").Any()
                 && !Directory.EnumerateDirectories(root, "*.tmp-*").Any(), "거부 뒤 .new·스테이징·임시 폴더 없음");
 
-            // (1) 성공 교체: 앱(가짜 PID)이 끝나길 기다렸다가 이름 바꾸기 둘
-            var app = Sleeper(2);
-            procs.Add(app);
+            // 정리: 살아 있는 pid 의 tmp·차례를 남이 잡았으면 건너뜀, 주인이 끝난 tmp 는 지움
+            var liveTmp = Updater.NewDir(install3) + ".tmp-" + Environment.ProcessId;
+            var deadTmp = Updater.NewDir(install3) + ".tmp-999999";
+            var liveStage = Path.Combine(upd, $"stage-0.3.0.tmp-{Environment.ProcessId}");
+            Pack(liveTmp, "v0.3.0", "x", "y.dll");
+            Pack(deadTmp, "v0.3.0", "x", "y.dll");
+            Directory.CreateDirectory(liveStage);
+            using (Updater.TryGate(upd)) Updater.Cleanup(upd, install3, new Version(0, 1, 0));
+            check(Directory.Exists(deadTmp), "정리: 다른 창이 차례를 잡으면 건너뜀");
+            Updater.Cleanup(upd, install3, new Version(0, 1, 0));
+            check(Directory.Exists(liveTmp) && Directory.Exists(liveStage) && !Directory.Exists(deadTmp), "정리: 살아 있는 pid 의 tmp 남김, 끝난 것 지움");
+            Directory.Delete(liveTmp, true);
+            Directory.Delete(liveStage, true);
+
+            // (1) 성공 교체: 앱(가짜 PID)이 끝나길 기다렸다가 이름 바꾸기 둘. 잠금은 도우미 PID 로 판정
+            var app = Track(Sleeper(2));
             var sw = Stopwatch.StartNew();
-            var r1 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), app.Id, start: false, upd, wait: 30, tries: 3), upd);
+            var r1 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), app.Id, start: false, upd, wait: 30, tries: 3), upd, check);
             check(r1 == "ok", $"교체 결과 ok ({r1})");
             check(sw.Elapsed.TotalSeconds >= 1, "교체: PID 끝날 때까지 기다림");
             check(Read(install, Updater.ExeName) == "new" && File.Exists(Path.Combine(install, "gcc", "bin", "gcc.exe")) && !File.Exists(Path.Combine(install, "gone.dll"))
-                && Updater.Check(install).Complete, "교체: 새 판, 온전");
+                && Updater.Check(install).Complete, "교체: 새 버전, 온전");
             check(Read(Updater.OldDir(install), Updater.ExeName) == "old" && !Directory.Exists(Updater.NewDir(install)) && !File.Exists(Updater.LockPath(upd)),
-                "교체: 직전 판 .old, .new 없음, 잠금 없음");
-            check(Updater.OldVersion(install) == "0.1.0" && Updater.Diagnose(install) == null, ".old 판 읽음, 고칠 것 없음");
+                "교체: 직전 버전 .old, .new 없음, 잠금 없음");
+            check(Updater.OldVersion(install) == "0.1.0" && Updater.Diagnose(install) == null, "직전 버전 읽음, 고칠 것 없음");
 
-            // (2) 실행 중: 설치 폴더에서 연 tedit(일하는 폴더 = 설치) → 앱이 찾고, 도우미는 아무것도 바꾸지 않음(.new·.old 그대로)
+            // (2a) 설치 폴더를 일하는 폴더로 쓰는 tedit → 폴더 이름 바꾸기가 막힘: 아무것도 바꾸지 않음
             PackNew(install, "v0.3.0", "newer");
             var tedit = Path.Combine(install, Updater.CliName);
             var teditBytes = File.ReadAllBytes(tedit);
             File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), tedit, overwrite: true);
-            var busy = Process.Start(new ProcessStartInfo(tedit, "-n 60 127.0.0.1")
-            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, WorkingDirectory = install })!;
-            procs.Add(busy);
-            check(Updater.RunningIn(install, Environment.ProcessId).Contains(Updater.CliName), "실행 중 tedit.exe 찾음");
-            var r2 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 2), upd);
-            check(r2 == "fail-busy", $"실행 중 결과 fail-busy ({r2})");
+            var busy = Track(Process.Start(new ProcessStartInfo(tedit, "-n 60 127.0.0.1")
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, WorkingDirectory = install })!);
+            check(Updater.RunningIn(install, Environment.ProcessId).Contains(Updater.CliName), "(2a) 실행 중 tedit.exe 찾음");
+            var r2 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 2), upd, check);
+            check(r2 == "fail-busy", $"(2a) 일하는 폴더 핸들 → fail-busy ({r2})");
             check(Read(install, Updater.ExeName) == "new" && Read(Updater.OldDir(install), Updater.ExeName) == "old" && Updater.IsReady(Updater.NewDir(install))
-                && !Directory.Exists(install + ".old~"), "실행 중: 설치·.old·.new 그대로");
+                && Trash(install).Length == 0, "(2a) 설치·.old·.new 그대로, trash 없음");
             busy.Kill();
             busy.WaitForExit();
             File.WriteAllBytes(tedit, teditBytes);
-            check(Updater.RunningIn(install, Environment.ProcessId).Count == 0, "끝난 뒤 실행 중 없음");
 
-            // (3) 두 번째 적용: 이전 .old(0.1.0)는 우리 것이라 지우고, 0.2.0 이 .old
-            var r3 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd);
-            check(r3 == "ok" && Read(install, Updater.ExeName) == "newer" && Read(Updater.OldDir(install), Updater.ExeName) == "new" && !Directory.Exists(install + ".old~"),
-                $"두 번째 적용: .old = 직전 판 ({r3})");
-
-            // (4) H1: 우리 것 아닌 .old(표지 없음) → 막힘, 지우지 않음
+            // (2b) 검토 R2: .old 에서 옛 버전 exe 만 도는 중(일하는 폴더는 밖) → 앱이 찾아 막는다.
+            //      도우미를 그대로 돌려도 지우지 않는다: .old 는 trash 로 통째 옮겨지고, 도는 동안은 trash 도 남긴다
             var old = Updater.OldDir(install);
-            Directory.Move(old, old + "-keep");
+            var oldExe = Path.Combine(old, Updater.ExeName);
+            File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), oldExe, overwrite: true);
+            Relist(old);
+            var oldRun = Track(Process.Start(new ProcessStartInfo(oldExe, "-n 60 127.0.0.1")
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, WorkingDirectory = Path.GetTempPath() })!);
+            check(Updater.RunningIn(install, Environment.ProcessId).Contains(Updater.ExeName), "(2b) .old 에서 도는 옛 버전 찾음 → 앱이 막음");
+            var r2b = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            var t2b = Trash(install);
+            check(r2b == "ok" && t2b.Length == 1 && File.Exists(Path.Combine(t2b[0], Updater.ExeName)) && File.Exists(Path.Combine(t2b[0], "hostfxr.dll"))
+                && File.Exists(Path.Combine(t2b[0], Updater.TrashName)), $"(2b) 도우미는 .old 를 통째 trash 로(지우지 않음) ({r2b})");
+            check(Updater.EmptyTrash(install).Count == 0 && Directory.Exists(t2b[0]), "(2b) 도는 동안 trash 남김");
+            oldRun.Kill();
+            oldRun.WaitForExit();
+            for (int i = 0; i < 30 && Trash(install).Length > 0; i++) { Updater.EmptyTrash(install); if (Trash(install).Length > 0) Thread.Sleep(100); } // 이미지 해제가 조금 늦다: 앱은 다음 시작 때 다시
+            check(Trash(install).Length == 0, "(2b) 끝난 뒤 검사 통과 trash 지움");
+            check(Updater.Blockers(install, "prepare").Count == 0 && Read(install, Updater.ExeName) == "newer" && Read(old, Updater.ExeName) == "new",
+                "(2b) 다음 업데이트가 막히지 않음");
+
+            // (3) 검토 R3: .old 에 사용자 파일 → 앱이 막고, 도우미를 그대로 돌려도 지우지 않음(trash 에 보존·안 지우고 이름을 알림)
+            File.WriteAllText(Path.Combine(old, "user.txt"), "u");
+            PackNew(install, "v0.4.0", "four");
+            check(Updater.Blockers(install, "apply").Any(x => x.Contains("우리 것 아님")), "(3) .old 에 사용자 파일 → 앱이 막음");
+            var r3 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            var t3 = Trash(install);
+            check(r3 == "ok" && t3.Length == 1 && File.ReadAllText(Path.Combine(t3[0], "user.txt")) == "u", $"(3) 도우미 직접 실행 → user.txt 는 trash 에 보존 ({r3})");
+            var left3 = Updater.EmptyTrash(install);
+            check(left3.Count == 1 && left3[0] == Path.GetFileName(t3[0]) && File.Exists(Path.Combine(t3[0], "user.txt")), "(3) 검사 실패 trash 는 남기고 이름만 알림");
+            Directory.Move(t3[0], Path.Combine(root, "keep3"));
+
+            // (4) 검토 R1: 설치 불완전 + 설치 안에 사용자 파일 + 온전한 .old → Diagnose 는 rollback 을 내도 막힘 검사가 막는다.
+            //     도우미를 그대로 돌려도 내 메모는 trash 에 보존된다(지우지 않음)
+            File.Delete(Path.Combine(install, "hostfxr.dll"));
+            File.WriteAllText(memo, "사용자");
+            var fix = Updater.Diagnose(install);
+            check(fix is { Mode: "rollback" } && Updater.Blockers(install, "rollback").Any(x => x.Contains("내 메모.txt")), $"(4) rollback 제안이어도 사용자 파일이면 막힘 ({fix})");
+            var r4 = RunHelper(Updater.HelperStart("rollback", install, null, 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            var t4 = Trash(install);
+            check(r4 == "ok-rollback" && t4.Length == 1 && File.ReadAllText(Path.Combine(t4[0], "내 메모.txt")) == "사용자" && Read(install, Updater.ExeName) == "newer",
+                $"(4) 도우미 직접 실행 → 내 메모는 trash 에 보존 ({r4})");
+            check(Updater.EmptyTrash(install).Count == 1 && File.Exists(Path.Combine(t4[0], "내 메모.txt")), "(4) 사용자 파일 든 trash 는 지우지 않음");
+            Directory.Move(t4[0], Path.Combine(root, "keep4"));
+
+            // (5) 우리 것 아닌 .old(표지 없음) → 앱도 도우미도 막음, 파일 보존
             Directory.CreateDirectory(old);
             File.WriteAllText(Path.Combine(old, "남의 파일.txt"), "보존");
-            PackNew(install, "v0.4.0", "newest");
-            check(Updater.Blockers(install, "apply").Any(x => x.Contains("우리 것 아님")), "우리 것 아닌 .old → 앱이 막음");
-            var r4 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd);
-            check(r4 == "fail-notours" && File.ReadAllText(Path.Combine(old, "남의 파일.txt")) == "보존" && Read(install, Updater.ExeName) == "newer",
-                $"우리 것 아닌 .old → 도우미도 막음, 파일 보존 ({r4})");
+            PackNew(install, "v0.5.0", "five");
+            check(Updater.Blockers(install, "apply").Any(x => x.Contains("우리 것 아님")), "(5) 표지 없는 .old → 앱이 막음");
+            var r5 = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            check(r5 == "fail-notours" && File.ReadAllText(Path.Combine(old, "남의 파일.txt")) == "보존" && Read(install, Updater.ExeName) == "newer",
+                $"(5) 도우미도 막음, 파일 보존 ({r5})");
             Directory.Delete(old, true);
-            Directory.Move(old + "-keep", old);
             check(Updater.Discard(install) && !Directory.Exists(Updater.NewDir(install)), "[버리기] .new 지움");
 
-            // (5) 되돌리기: .old → 설치
+            // (6) 되돌리기: 설치 → trash, .old → 설치
+            var r6a = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            PackNew(install, "v0.6.0", "six");
+            var r6b = RunHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            check(r6a == "fail-src" && r6b == "ok" && Read(install, Updater.ExeName) == "six" && Read(old, Updater.ExeName) == "newer", $"받은 버전 없음 → fail-src, 다시 적용 ok ({r6a}, {r6b})");
             check(Updater.Blockers(install, "rollback").Count == 0, "되돌리기 막힘 없음");
-            var r5 = RunHelper(Updater.HelperStart("rollback", install, null, 999_999, start: false, upd, wait: 30, tries: 3), upd);
-            check(r5 == "ok-rollback" && Read(install, Updater.ExeName) == "new" && !Directory.Exists(old) && !Directory.Exists(install + ".rollback"),
-                $"되돌리기: 직전 판, .old·.rollback 없음 ({r5})");
-            check(RunHelper(Updater.HelperStart("rollback", install, null, 999_999, start: false, upd, wait: 30, tries: 3), upd) == "fail-noold", "되돌릴 .old 없음");
+            var r6 = RunHelper(Updater.HelperStart("rollback", install, null, 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            check(r6 == "ok-rollback" && Read(install, Updater.ExeName) == "newer" && !Directory.Exists(old), $"되돌리기: 직전 버전 ({r6})");
+            Updater.EmptyTrash(install);
+            check(Trash(install).Length == 0, "되돌리기 뒤 trash 검사·지움");
+            check(RunHelper(Updater.HelperStart("rollback", install, null, 999_999, start: false, upd, wait: 30, tries: 3), upd, check) == "fail-noold", "직전 버전 없음");
 
-            // (6) H2: 교체 중 끊김(설치 → .old 뒤 멈춤) → .old 에서 연 앱이 복구 제안 → recover
-            PackNew(install, "v0.5.0", "five");
+            // (7) 교체 중 끊김(설치 → .old 뒤 멈춤) → .old 에서 연 앱이 복구 제안 → 같은 막힘 검사 → recover
+            PackNew(install, "v0.7.0", "seven");
             Directory.Move(install, old);
-            var fix = Updater.Diagnose(old);
-            check(fix is { Mode: "recover" } && fix.Source == Updater.NewDir(install) && fix.Target == install, $"끊긴 교체 → 복구 제안(.new → 설치) ({fix})");
-            var r6 = RunHelper(Updater.HelperStart("recover", fix!.Target, fix.Source, 999_999, start: false, upd, wait: 30, tries: 3), upd);
-            check(r6 == "ok-recover" && Read(install, Updater.ExeName) == "five" && Updater.Check(install).Complete, $"복구: 새 판으로 마무리 ({r6})");
+            var fix7 = Updater.Diagnose(old);
+            check(fix7 is { Mode: "recover" } && fix7.Source == Updater.NewDir(install) && fix7.Target == install
+                && Updater.RecoverBlockers(fix7.Source, fix7.Target).Count == 0, $"끊긴 교체 → 복구 제안(.new → 설치) ({fix7})");
+            var r7 = RunHelper(Updater.HelperStart("recover", fix7!.Target, fix7.Source, 999_999, start: false, upd, wait: 30, tries: 3), upd, check);
+            check(r7 == "ok-recover" && Read(install, Updater.ExeName) == "seven" && Updater.Check(install).Complete, $"복구: 새 버전으로 마무리 ({r7})");
+            check(Updater.RecoverBlockers(old, install).Any(x => x.Contains("설치 폴더 있음")), "설치 폴더가 있으면 recover 막힘");
 
-            // (7) H2: 설치 불완전(목록의 파일이 없음) + 온전한 .old → 되돌리기 제안
-            File.Delete(Path.Combine(install, "hostfxr.dll"));
-            var fix2 = Updater.Diagnose(install);
-            check(fix2 is { Mode: "rollback" } && fix2.Source == old, $"설치 불완전 → .old 되돌리기 제안 ({fix2})");
-
-            // (8) 잠금: 도우미가 기다리는 중 끊김 → 잠금이 남음(10분 동안 도는 중으로 봄), 오래되면 지우고 결과 없음 알림
-            var waiter = Sleeper(30);
-            procs.Add(waiter);
-            using (var h = Process.Start(Updater.HelperStart("apply", install, Updater.NewDir(install), waiter.Id, start: false, upd, wait: 60, tries: 3))!)
+            // (8) 잠금: 도우미 PID·시작 시각. 기다리는 중엔 도는 중, 강제 종료하면 바로 아님(10분 기다리지 않음) → 결과 없음 알림
+            var waiter = Track(Sleeper(30));
+            using (var h = Updater.StartHelper(Updater.HelperStart("apply", install, Updater.NewDir(install), waiter.Id, start: false, upd, wait: 60, tries: 3), upd))
             {
-                for (int i = 0; i < 50 && !File.Exists(Updater.LockPath(upd)); i++) Thread.Sleep(100);
+                Thread.Sleep(300);
+                check(Updater.LockFresh(upd) && Updater.TakeResult(upd) == null, "도우미가 기다리는 중 → 잠금 살아 있음, 결과 아직 모름");
                 h.Kill(entireProcessTree: true);
                 h.WaitForExit();
             }
-            check(Updater.LockFresh(upd) && Updater.TakeResult(upd) == null, "끊긴 도우미 → 잠금 남음, 결과 아직 모름");
-            File.SetLastWriteTimeUtc(Updater.LockPath(upd), DateTime.UtcNow.AddMinutes(-11));
+            check(!Updater.LockFresh(upd), "도우미 강제 종료 → 잠금 바로 죽음");
             Updater.DropStaleLock(upd);
-            check(!File.Exists(Updater.LockPath(upd)) && Updater.TakeResult(upd) == "none", "오래된 잠금 → 지움, 결과 없음(none)");
+            check(!File.Exists(Updater.LockPath(upd)) && Updater.TakeResult(upd) == "none", "죽은 잠금 지움, 결과 없음(none)");
         }
         finally
         {
-            foreach (var p in procs) { try { if (!p.HasExited) p.Kill(); } catch (InvalidOperationException) { } p.Dispose(); }
+            foreach (var p in procs) { try { if (!p.HasExited) p.Kill(); p.WaitForExit(); } catch (InvalidOperationException) { } p.Dispose(); }
             try { Directory.Delete(root, true); } catch (IOException) { }
         }
     }
 
-    /// <summary>가짜 묶음: 가짜 exe·DLL 글 + VERSION + files.txt(크기 TAB 상대 경로). extra = 그 판에만 있는 파일.</summary>
+    static string[] Trash(string install) => Directory.GetDirectories(Path.GetDirectoryName(install)!, Path.GetFileName(install) + ".trash-*");
+
+    /// <summary>가짜 묶음: 가짜 exe·DLL 글 + VERSION + files.txt(크기 TAB 상대 경로). extra = 그 버전에만 있는 파일.</summary>
     static void Pack(string dir, string version, string mark, string extra)
     {
         Directory.CreateDirectory(dir);
@@ -268,9 +335,15 @@ static class UpdaterTests
         var e = Path.Combine(dir, extra);
         Directory.CreateDirectory(Path.GetDirectoryName(e)!);
         File.WriteAllText(e, mark);
+        Relist(dir);
+    }
+
+    /// <summary>files.txt 를 지금 파일로 다시 쓴다.</summary>
+    static void Relist(string dir)
+    {
         var full = Path.GetFullPath(dir).TrimEnd('\\') + "\\";
         File.WriteAllLines(Path.Combine(dir, Updater.ListName),
-            Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Where(f => Path.GetFileName(f) != Updater.ListName)
+            Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Where(f => Path.GetFileName(f) is not (Updater.ListName or Updater.ReadyName))
                 .Select(f => $"{new FileInfo(f).Length}\t{f[full.Length..]}"));
     }
 
@@ -299,10 +372,12 @@ static class UpdaterTests
         Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PING.EXE"), $"-n {seconds + 1} 127.0.0.1")
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
 
-    static string? RunHelper(ProcessStartInfo si, string dir)
+    /// <summary>앱처럼 띄운다(잠금·launched 표지). 끝나면 잠금이 지워졌는지도 본다.</summary>
+    static string? RunHelper(ProcessStartInfo si, string dir, Action<bool, string> check)
     {
-        using var p = Process.Start(si)!;
+        using var p = Updater.StartHelper(si, dir);
         if (!p.WaitForExit(120_000)) { p.Kill(true); return "timeout"; }
+        check(!Updater.LockFresh(dir), "도우미가 끝나면 잠금 아님");
         return Updater.TakeResult(dir);
     }
 
