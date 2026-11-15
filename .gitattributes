@@ -1,2 +1,3 @@
 # 시험 자료는 줄 끝·바이트를 그대로 둔다(왕복 시험)
 tests/fixtures/** -text
+tools/gcc-licenses/** -text
