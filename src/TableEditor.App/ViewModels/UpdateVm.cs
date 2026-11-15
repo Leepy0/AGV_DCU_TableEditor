@@ -99,7 +99,7 @@ public sealed class UpdateVm : Observable
             s.UpdateAuto = value;
             s.Save();
             Raise();
-            if (value && CanNetwork) hourly.Start(); else hourly.Stop();
+            if (value && CanNetwork && Updater.CanSelfUpdate) hourly.Start(); else hourly.Stop();
         }
     }
 

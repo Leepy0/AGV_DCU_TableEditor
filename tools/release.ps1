@@ -217,8 +217,8 @@ if ($hash -notmatch '^[0-9a-f]{64}$') { throw 'sha256 형식 틀림' }
 # 매니페스트(프로그램이 releases/latest/download/TableEditor.json 으로 확인한다. 사내망은 api.github.com 이 막힌다)
 if (-not $Notes) {
     $prev = cmd /c 'git describe --tags --abbrev=0 2>nul'
-    $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..HEAD" } else { 'HEAD' }
-    $Notes = (git log --format=%s $range | Where-Object { $_ }) -join "`n"
+    $range = if ($LASTEXITCODE -eq 0 -and $prev) { @("$prev..HEAD") } else { @('-n', '20', 'HEAD') }   # 태그가 없으면(받지 않은 클론) 최근 20개
+    $Notes = (git log --format=%s @range | Where-Object { $_ }) -join "`n"
 }
 $manifest = Join-Path $outFull 'TableEditor.json'
 $notesFile = Join-Path $outFull 'notes.txt'
