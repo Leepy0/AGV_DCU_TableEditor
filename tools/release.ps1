@@ -1,15 +1,17 @@
 ﻿<#
 배포 묶음을 만든다(GitHub Release 는 만들지 않는다).
-  tools\release.ps1 -Version v0.1.0 [-Gcc <mingw64 폴더>] [-Out publish] [-AppRepo <앱 저장소>] [-Site <사이트 폴더 이름>]
-차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·zip·해시
+  tools\release.ps1 -Version v0.2.0 [-Gcc <mingw64 폴더>] [-Out publish] [-AppRepo <앱 저장소>] [-Site <사이트 폴더 이름>] [-Notes <변경 내용>]
+차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·zip·해시·매니페스트
 -AppRepo 가 없으면 5 의 (나)(다)는 건너뛴다. -Site 는 -AppRepo 와 같이 준다.
+-Notes 가 없으면 지난 태그 뒤 커밋 제목. 끝에 올리기 명령(gh release create …)을 찍기만 한다.
 #>
 param(
     [Parameter(Mandatory)][ValidatePattern('^v\d+\.\d+\.\d+.*$')][string]$Version,
     [string]$Gcc,
     [string]$Out = 'publish',
     [string]$AppRepo,
-    [string]$Site
+    [string]$Site,
+    [string]$Notes
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -70,8 +72,12 @@ Write-Host '경고 0, 시험 통과'
 Step 2 '게시(한 폴더)'
 if (Test-Path $pack) { Remove-Item $pack -Recurse -Force }
 if (Test-Path $zip) { Remove-Item $zip -Force }
+$commit = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse 실패' }
 foreach ($p in 'TableEditor.App', 'TableEditor.Cli') {
-    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', "-p:Version=$num", '-p:DebugType=none', '-p:DebugSymbols=false', '-o', $pack, '-nologo')
+    # BuildChannel=release: 이 묶음만 스스로 업데이트한다(dotnet build 는 local). SourceRevisionId = 정보 화면의 커밋
+    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', "-p:Version=$num", '-p:BuildChannel=release',
+        "-p:SourceRevisionId=$commit", '-p:DebugType=none', '-p:DebugSymbols=false', '-o', $pack, '-nologo')
 }
 Get-ChildItem $pack -Recurse -Filter *.pdb | Remove-Item -Force
 foreach ($f in 'TableEditor.exe', 'tedit.exe') { if (-not (Test-Path (Join-Path $pack $f))) { throw "$f 없음" } }
@@ -206,8 +212,33 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($pack, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 [IO.File]::WriteAllText("$zip.sha256", "$hash  $(Split-Path -Leaf $zip)`n", (New-Object Text.UTF8Encoding $false))
+if ($hash -notmatch '^[0-9a-f]{64}$') { throw 'sha256 형식 틀림' }
+
+# 매니페스트(프로그램이 releases/latest/download/TableEditor.json 으로 확인한다. 사내망은 api.github.com 이 막힌다)
+if (-not $Notes) {
+    $prev = cmd /c 'git describe --tags --abbrev=0 2>nul'
+    $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..HEAD" } else { 'HEAD' }
+    $Notes = (git log --format=%s $range | Where-Object { $_ }) -join "`n"
+}
+$manifest = Join-Path $outFull 'TableEditor.json'
+$notesFile = Join-Path $outFull 'notes.txt'
+$m = [ordered]@{
+    version   = $num
+    file      = Split-Path -Leaf $zip
+    sha256    = $hash
+    size      = (Get-Item $zip).Length
+    published = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    page      = "https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/$Version"
+    notes     = $Notes
+}
+[IO.File]::WriteAllText($manifest, ($m | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($notesFile, $Notes, (New-Object Text.UTF8Encoding $false))
 Write-Host "묶음   $(Size $pack)  ($pack)"
 Write-Host "gcc    $(Size $gdst)"
 Write-Host ("zip    {0:N1} MB  ({1})" -f ((Get-Item $zip).Length / 1MB), $zip)
 Write-Host "sha256 $hash"
+Write-Host "매니페스트 $manifest"
 Write-Host ("걸린 시간 {0:N0}초" -f $sw.Elapsed.TotalSeconds)
+# 올리기는 손으로(이 스크립트는 릴리스·태그를 만들지 않는다). zip 과 TableEditor.json 을 같은 릴리스에 올린다
+Write-Host "`n올리기:"
+Write-Host "  gh release create $Version `"$zip`" `"$zip.sha256`" `"$manifest`" --title $Version --notes-file `"$notesFile`" --latest"
