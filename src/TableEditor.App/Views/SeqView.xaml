@@ -132,9 +132,10 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- 위 줄: 고른 표 이름 + 스텝 수 -->
+        <!-- 위 줄: 거르기(호기·프로파일, 태그 화면과 같은 막대) + 고른 표 이름 + 스텝 수 -->
         <DockPanel Grid.ColumnSpan="2" Height="{StaticResource BarHeight}" Margin="{StaticResource Pad.Bar}" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" Text="표" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R8}"/>
+            <v:FilterBar DockPanel.Dock="Left" DataContext="{Binding Filter}" Label="호기"/>
+            <TextBlock DockPanel.Dock="Left" Text="표" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.Group}"/>
             <TextBlock DockPanel.Dock="Left" Text="{Binding TableTitle}" Style="{StaticResource T.Mono}" FontSize="{StaticResource Fs.Tag}" FontWeight="{StaticResource Semi}"/>
             <TextBlock DockPanel.Dock="Right" Text="{Binding StepCount}" Style="{StaticResource T.Faint}"/>
         </DockPanel>

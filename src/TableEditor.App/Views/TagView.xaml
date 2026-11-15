@@ -184,16 +184,7 @@
 
         <!-- 거르기 -->
         <DockPanel Height="{StaticResource BarHeight}" Margin="{StaticResource Pad.Bar}" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" Text="태그" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R8}"/>
-            <Grid DockPanel.Dock="Left" Width="{StaticResource TagBoxWidth}" VerticalAlignment="Center" Margin="{StaticResource Gap.R8}">
-                <TextBox x:Name="TagBox" Style="{StaticResource EditBox}" FontFamily="{StaticResource Mono}"
-                         Text="{Binding TagFilter, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="태그 거르기"/>
-                <TextBlock Text="번호" Style="{StaticResource T.Empty}" HorizontalAlignment="Left" Margin="{StaticResource Gap.L12}" IsHitTestVisible="False"
-                           Visibility="{Binding TagFilter, Converter={StaticResource Shown}, ConverterParameter=not}"/>
-            </Grid>
-            <TextBlock DockPanel.Dock="Left" Text="프로파일" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.Group}"/>
-            <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource ProfileBoxWidth}" VerticalAlignment="Center"
-                      ItemsSource="{Binding Profiles}" SelectedItem="{Binding ProfileFilter}" AutomationProperties.Name="프로파일 거르기"/>
+            <v:FilterBar DockPanel.Dock="Left" DataContext="{Binding Filter}" Label="태그"/>
             <Border DockPanel.Dock="Left" Height="{StaticResource ControlHeight}" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.1}"
                     CornerRadius="{StaticResource R.4}" Margin="{StaticResource Gap.Seg}" VerticalAlignment="Center" ClipToBounds="True">
                 <StackPanel Orientation="Horizontal">

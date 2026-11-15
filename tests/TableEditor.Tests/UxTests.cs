@@ -13,6 +13,7 @@ static class UxTests
         check = c;
         var site = Site.Open(Path.Combine(root, "tests", "fixtures", "T900_DEMO"));
         Forms(site);
+        Filter(site);
     }
 
     static Statement Tag(Site s, string start) =>
@@ -68,5 +69,27 @@ static class UxTests
         var fl = new TagRule(Tag(s, "TAG( 40, PF_CART")).Actions[0];
         check(Switch(s, fl, "cm") == "AGV_STOP( 0 )", "센서 FL → cm 은 FL 안 옮김 " + Switch(s, fl, "cm"));
         check(Switch(s, new TagRule(Tag(s, "TAG ( 8,")).Actions[0], "바로") == "AGV_STOP", "TAPE → 바로");
+    }
+
+    /// <summary>거르기: 태그 화면(태그 번호)과 시퀀스 화면(호기)이 같은 <see cref="RowFilter.Match"/> 를 쓴다.</summary>
+    static void Filter(Site s)
+    {
+        check(s.ProfilesAt(5).SequenceEqual(["PF_BELT"]) && s.ProfilesAt(25).SequenceEqual(["PF_CART"]) && s.ProfilesAt(50).Count == 0, "호기 → 프로파일");
+
+        // 시퀀스 대응표를 호기·프로파일로(나무와 같은 규칙: 전체 줄은 모든 호기)
+        List<string> Seqs(string text, string profile) => s.SeqMap.Where(m =>
+        {
+            var key = m.AnyProfile ? RowFilter.All : m.Profile;
+            return RowFilter.Match(text, profile, key, m.AnyProfile, n => m.AnyProfile || s.ProfilesAt(n).Contains(key));
+        }).Select(m => m.Table).ToList();
+        check(Seqs("", RowFilter.All).Count == s.SeqMap.Count, "거르기 없음 = 모두");
+        check(Seqs("12", RowFilter.All).SequenceEqual(["lift_load", "lift_unload", "shuttle"]), "호기 12 " + string.Join(",", Seqs("12", RowFilter.All)));
+        check(Seqs("", "PF_BOX").SequenceEqual(["box_turn_unload", "shuttle"]), "PF_BOX " + string.Join(",", Seqs("", "PF_BOX")));
+        check(Seqs("12", "PF_BOX").SequenceEqual(["shuttle"]), "호기 12 + PF_BOX = 전체 줄만");
+        check(Seqs("abc", RowFilter.All).Count == 0, "숫자 아님 = 없음");
+
+        // 태그 화면 꼴: 원문 줄(프로파일 없음)은 프로파일을 고르면 빠진다
+        check(RowFilter.Match("", "PF_BELT", null, false, _ => true) == false && RowFilter.Match("", RowFilter.All, null, false, _ => true), "원문 줄");
+        check(RowFilter.Match(" 40 ", "PF_LIFT", "ANY_PROFILE", true, n => n == 40), "태그 40 + 전체 줄");
     }
 }

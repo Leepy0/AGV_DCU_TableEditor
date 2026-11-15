@@ -8,7 +8,10 @@ using TableEditor.Engine.Text;
 
 namespace TableEditor.App.ViewModels;
 
-/// <summary>나무 한 줄. Level 0 = 프로파일(또는 연결 없음), 1 = 시퀀스 ID, 2 = 표. Table = 표 줄이면 그 이름.</summary>
+/// <summary>
+/// 나무 한 줄. Level 0 = 프로파일(또는 연결 없음), 1 = 시퀀스 ID, 2 = 표. Table = 표 줄이면 그 이름.
+/// Group = 든 프로파일 묶음(전체, 프로파일 이름, 연결 없음이면 null), Id = 든 시퀀스 ID. IsGroupStart = 둘째 묶음부터의 프로파일 머리(구분선).
+/// </summary>
 public sealed class TreeItemVm(int level, string text, string? table, string? note, bool err) : Observable
 {
     public int Level { get; } = level;
@@ -18,6 +21,11 @@ public sealed class TreeItemVm(int level, string text, string? table, string? no
     public bool IsTable => Table != null;
     public override string ToString() => Text;
     public bool HasError { get; } = err;
+    public string? Group { get; init; }
+    public string? Id { get; init; }
+
+    bool groupStart;
+    public bool IsGroupStart { get => groupStart; set => Set(ref groupStart, value); }
 }
 
 /// <summary>스텝 한 줄: 줄 번호, 들여쓰기(라벨 아래 한 단), 라벨 이름표, 분기 묶음 선, 블록.</summary>
@@ -47,7 +55,11 @@ public sealed class StepRowVm : Observable
 /// </summary>
 public sealed class SeqVm : BlockHost
 {
-    public SeqVm(MainVm main) : base(main) { }
+    public SeqVm(MainVm main) : base(main) => Filter.Changed += Refilter;
+
+    /// <summary>거르기 막대: 호기 + 프로파일(태그 화면과 같은 것).</summary>
+    public FilterVm Filter { get; } = new();
+    IReadOnlyList<TreeItemVm> allTree = [];
 
     protected override Piece? CodePiece => SelectedStep?.Piece;
 
@@ -77,11 +89,11 @@ public sealed class SeqVm : BlockHost
         var maps = s.SeqMap.Concat(s.ActMap).ToList();
         foreach (var pg in maps.GroupBy(m => m.AnyProfile ? TagVm.AllProfiles : m.Profile))
         {
-            tree.Add(new TreeItemVm(0, pg.Key, null, null, false));
+            tree.Add(new TreeItemVm(0, pg.Key, null, null, false) { Group = pg.Key });
             foreach (var ig in pg.GroupBy(m => BlockBuilder.Collapse(m.Id)))
             {
-                tree.Add(new TreeItemVm(1, ig.Key, null, null, false));
-                foreach (var m in ig) tree.Add(new TreeItemVm(2, m.Table, m.Table, Count(s, m.Table), bad.Contains(m.Table)));
+                tree.Add(new TreeItemVm(1, ig.Key, null, null, false) { Group = pg.Key, Id = ig.Key });
+                foreach (var m in ig) tree.Add(new TreeItemVm(2, m.Table, m.Table, Count(s, m.Table), bad.Contains(m.Table)) { Group = pg.Key, Id = ig.Key });
             }
         }
         var linked = maps.Select(m => m.Table).ToHashSet();
@@ -91,13 +103,19 @@ public sealed class SeqVm : BlockHost
             tree.Add(new TreeItemVm(0, "연결 없음", null, null, false));
             foreach (var t in loose) tree.Add(new TreeItemVm(1, t.Name, t.Name, t.Steps.Count.ToString(), bad.Contains(t.Name)));
         }
-        Tree = tree;
-        Raise(nameof(Tree));
-        Raise(nameof(IsEmpty));
+        allTree = tree;
+        Filter.Profiles = [TagVm.AllProfiles, .. s.Profiles.Select(p => p.Name).Union(maps.Where(m => !m.AnyProfile).Select(m => m.Profile)).Distinct()];
+        ShowTree();
 
         string? table = touched is { Count: > 0 } && touched[0] is Statement ts && s.ZoneOf(ts) is { Open: "SEQ_BEGIN" or "ACT_BEGIN" } tz ? tz.Name : prevTable;
         if (table != null && !s.Seqs.Any(t => t.Name == table)) table = null; // 지운 표·다른 표의 편집
-        table ??= tree.FirstOrDefault(t => t.IsTable)?.Table;
+        if (table != null && !Tree.Any(t => t.Table == table))
+        {
+            // 거르기에 가려진 표: 방금 고친 표면 거르기를 풀고, 아니면 보이는 첫 표로
+            if (touched is { Count: > 0 }) { Filter.Clear(); ShowTree(); }
+            else table = null;
+        }
+        table ??= Tree.FirstOrDefault(t => t.IsTable)?.Table;
         selectedTable = null;
         ShowTable(table);
         var pick = touched is { Count: > 0 } ? Steps.FirstOrDefault(r => touched.Any(t => ReferenceEquals(t, r.Piece))) : null;
@@ -105,6 +123,40 @@ public sealed class SeqVm : BlockHost
         pick ??= Steps.FirstOrDefault(r => r.Ordinal == prevStep && prevStep > 0);
         SelectStep(pick, scroll: touched is { Count: > 0 });
         if (same && pick != null) Restore([pick.Block], 0, prevField);
+    }
+
+    // ---- 거르기 ----
+
+    /// <summary>프로파일 묶음째 거른다. 전체 묶음은 모든 호기·프로파일에 맞고, 연결 없음은 거를 때 빠진다.</summary>
+    bool Keep(TreeItemVm head) =>
+        Filter.Match(head.Group, head.Group == TagVm.AllProfiles, n => head.Group == TagVm.AllProfiles || Site.ProfilesAt(n).Contains(head.Group!));
+
+    /// <summary>보이는 나무를 다시 만든다(표 고르기는 그대로).</summary>
+    void ShowTree()
+    {
+        var list = new List<TreeItemVm>();
+        for (int i = 0; i < allTree.Count;)
+        {
+            int j = i + 1;
+            while (j < allTree.Count && allTree[j].Level > 0) j++;
+            if (Keep(allTree[i])) list.AddRange(allTree.Skip(i).Take(j - i));
+            i = j;
+        }
+        foreach (var t in list) t.IsGroupStart = t.Level == 0 && !ReferenceEquals(t, list[0]);
+        Tree = list;
+        Raise(nameof(Tree));
+        Raise(nameof(IsEmpty));
+    }
+
+    /// <summary>거르기가 바뀜: 고른 표가 가려지면 보이는 첫 표로.</summary>
+    void Refilter()
+    {
+        ShowTree();
+        if (Tree.FirstOrDefault(t => ReferenceEquals(t, node)) is { } keep) { node = keep; Raise(nameof(Node)); return; }
+        var first = Tree.FirstOrDefault(t => t.Table == selectedTable) ?? Tree.FirstOrDefault(t => t.IsTable);
+        if (first?.Table != selectedTable) { ShowTable(first?.Table); SelectStep(Steps.FirstOrDefault(), true); }
+        node = first;
+        Raise(nameof(Node));
     }
 
     static string Count(Site s, string table) => s.Seqs.FirstOrDefault(t => t.Name == table)?.Steps.Count.ToString() ?? "—";

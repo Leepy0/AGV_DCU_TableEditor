@@ -120,6 +120,18 @@ public sealed partial class Site
     /// <summary>이 프로파일 이름의 프로파일 표 줄.</summary>
     public IEnumerable<ProfileRow> RowsOf(string profile) => ProfileRows.Where(r => r.Profile == profile);
 
+    /// <summary>호기 id 가 받을 수 있는 프로파일(위에서 아래로 첫 줄이 맞는다. 타입 0 줄 뒤는 닿지 않는다).</summary>
+    public IReadOnlyList<string> ProfilesAt(long id)
+    {
+        var list = new List<string>();
+        foreach (var r in ProfileRows.Where(r => r.First <= id && id <= r.Last))
+        {
+            if (!list.Contains(r.Profile)) list.Add(r.Profile);
+            if (r.Type == 0) break;
+        }
+        return list;
+    }
+
     static IEnumerable<ZoneBlock> BlocksOf(SourceFile f)
     {
         var ps = f.Pieces;

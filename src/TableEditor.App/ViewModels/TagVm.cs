@@ -21,7 +21,7 @@ public sealed record ActionChoice(string Palette, string Text, GrammarEntry Entr
 /// </summary>
 public sealed class TagVm : BlockHost
 {
-    public const string AllProfiles = "전체";
+    public const string AllProfiles = RowFilter.All;
 
     readonly MainVm main;
     Site site { get => Site; set => Site = value; }
@@ -30,6 +30,7 @@ public sealed class TagVm : BlockHost
     public TagVm(MainVm main) : base(main)
     {
         this.main = main;
+        Filter.Changed += () => { Refilter(); RebuildLook(); };
         Add = new Command(() => _ = main.AddRowsAsync(), () => main.CanEdit);
         Duplicate = new Command(DuplicateRows, () => main.CanEdit && SelectedRows.Any(r => r.Rule != null));
         Delete = new Command(DeleteRows, () => main.CanEdit && SelectedRows.Count > 0);
@@ -67,7 +68,7 @@ public sealed class TagVm : BlockHost
         var used = all.Where(r => r.Rule is { AnyProfile: false }).Select(r => r.Rule!.Profile);
         Profiles = [AllProfiles, .. s.Profiles.Select(p => p.Name).Union(used).Distinct()];
         Raise(nameof(Profiles));
-        if (!Profiles.Contains(profileFilter)) { profileFilter = AllProfiles; Raise(nameof(ProfileFilter)); }
+        Filter.Profiles = Profiles;
         Refilter(keepSelection: false);
 
         // 고르기 되살리기
@@ -102,11 +103,8 @@ public sealed class TagVm : BlockHost
 
     // ---- 거르기 ----
 
-    string tagFilter = "";
-    public string TagFilter { get => tagFilter; set { if (Set(ref tagFilter, value)) { Refilter(); RebuildLook(); } } }
-
-    string profileFilter = AllProfiles;
-    public string ProfileFilter { get => profileFilter; set { if (Set(ref profileFilter, value ?? AllProfiles)) Refilter(); } }
+    /// <summary>거르기 막대: 태그 번호 + 프로파일(시퀀스 화면과 같은 것).</summary>
+    public FilterVm Filter { get; } = new();
 
     IReadOnlyList<TagRowVm> rows = [];
     /// <summary>보이는 줄. 거를 때마다 목록을 통째 바꾼다(가상화 목록에 줄 단위로 넣지 않는다).</summary>
@@ -114,24 +112,15 @@ public sealed class TagVm : BlockHost
 
     public string CountText => $"{Rows.Count(r => r.Rule != null)} / {Total}줄";
 
-    long? FilterTag => long.TryParse(TagFilter.Trim(), out var n) ? n : null;
-
     void ClearFilter()
     {
-        tagFilter = "";
-        profileFilter = AllProfiles;
-        Raise(nameof(TagFilter));
-        Raise(nameof(ProfileFilter));
+        Filter.Clear();
         Refilter(keepSelection: false);
     }
 
     void Refilter(bool keepSelection = true)
     {
-        var tag = FilterTag;
-        bool tagSet = TagFilter.Trim().Length > 0;
-        var list = all.Where(r =>
-            (!tagSet || tag is long n && r.Covers(n))
-            && (ProfileFilter == AllProfiles || r.Rule != null && (r.IsAny || r.Rule.Profile == ProfileFilter))).ToList();
+        var list = all.Where(r => Filter.Match(r.Rule?.Profile, r.IsAny, r.Covers)).ToList();
         string? prev = null;
         foreach (var r in list)
         {
@@ -376,7 +365,7 @@ public sealed class TagVm : BlockHost
     public IReadOnlyList<LookRow> LookRows { get => lookRows; private set => Set(ref lookRows, value); }
 
     /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그.</summary>
-    public long? LookTag => FilterTag ?? Selected?.First;
+    public long? LookTag => Filter.Number ?? Selected?.First;
 
     public string LookTitle => LookTag is long t ? $"태그 {t}" : "태그 —";
 
