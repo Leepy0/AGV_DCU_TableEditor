@@ -57,7 +57,8 @@ public static class SeqEdit
     }
 
     /// <summary>
-    /// 표 하나를 통째로 지운다(<c>SEQ_BEGIN</c> … <c>SEQ_END</c>)와 그 표를 가리키는 대응표 줄. 태그·스텝 참조 확인은 부른 쪽(<see cref="TableUses"/>).
+    /// 표 하나를 통째로 지운다: 바로 위에 빈 줄 없이 붙은 머리 주석 + <c>SEQ_BEGIN</c> … <c>SEQ_END</c> + 그 표를 가리키는 대응표 줄.
+    /// 그 위가 빈 줄(또는 파일 처음)이면 뒤 빈 줄 한 줄도 지운다(빈 줄이 겹치지 않게, 표 추가가 넣은 빈 줄). 태그·스텝 참조 확인은 부른 쪽(<see cref="TableUses"/>).
     /// </summary>
     public static EditResult DeleteTable(Site site, string table)
     {
@@ -65,13 +66,18 @@ public static class SeqEdit
         if (zone == null) return EditResult.Fail($"없는 표 · {table}");
         if (zone.End == null) return EditResult.Fail($"끝 표지 없음 · {table}");
         var sp = new Splice(site);
+        var ps = zone.File.Pieces;
+        int b = IndexOf(ps, zone.Begin), e = IndexOf(ps, zone.End);
+        if (b > 0 && ps[b - 1].Kind == PieceKind.Comment) sp.Delete(ps[--b]);
         sp.Delete(zone.Begin);
         foreach (var p in zone.Body) sp.Delete(p);
         sp.Delete(zone.End);
-        // 앞이 빈 줄이면 뒤 빈 줄 하나도 지운다(표 추가가 넣은 빈 줄, 빈 줄 둘이 겹치지 않게)
-        var ps = zone.File.Pieces;
-        int b = IndexOf(ps, zone.Begin), e = IndexOf(ps, zone.End);
-        if (b > 0 && ps[b - 1].Kind == PieceKind.Blank && e + 1 < ps.Count && ps[e + 1].Kind == PieceKind.Blank) sp.Delete(ps[e + 1]);
+        if ((b == 0 || ps[b - 1].Kind == PieceKind.Blank) && e + 1 < ps.Count && ps[e + 1].Kind == PieceKind.Blank)
+        {
+            var t = ps[e + 1].Text; // 이어진 빈 줄은 한 조각: 첫 줄만 뗀다
+            int nl = t.IndexOf('\n');
+            sp.Replace(ps[e + 1], nl < 0 ? "" : t[(nl + 1)..], mark: false);
+        }
         foreach (var m in site.SeqMap.Concat(site.ActMap).Where(m => m.Table.Trim() == table)) sp.Delete(m.St);
         return sp.Commit();
     }

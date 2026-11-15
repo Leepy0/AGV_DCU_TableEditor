@@ -504,6 +504,17 @@ internal sealed partial class Reader
         return new NameNode(name);
     }
 
+    /// <summary>인자 글 하나를 식 하나로 읽는다. 앞뒤 공백 말고 남김없이 다 읽어야 그 나무, 아니면 null(쉼표·짝 안 맞는 괄호·주석 등).</summary>
+    public static Node? ParseArg(string text)
+    {
+        var r = new Reader(text, null!);
+        int p = 0;
+        r.SkipWs(ref p, true);
+        var n = r.ParseExpr(ref p, true);
+        r.SkipWs(ref p, true);
+        return p == text.Length ? n : null;
+    }
+
     NumberNode? ParseNumber(ref int p)
     {
         int start = p;
@@ -521,7 +532,9 @@ internal sealed partial class Reader
         else
         {
             while (p < s.Length && char.IsAsciiDigit(s[p])) p++;
-            if (!long.TryParse(s.AsSpan(digits, p - digits), out value)) return null;
+            // 앞자리 0 = 8진(C 와 같이). 8·9 가 든 글(C 컴파일 실패)은 10진 값으로 읽고 검사 N-7 이 오류로 낸다
+            if (CNum.Value(s[digits..p]) is long oct) value = oct;
+            else if (!long.TryParse(s.AsSpan(digits, p - digits), out value)) return null;
         }
         while (p < s.Length && s[p] is 'u' or 'U' or 'l' or 'L') p++;
         if (p < s.Length && IsIdentChar(s[p])) return null;

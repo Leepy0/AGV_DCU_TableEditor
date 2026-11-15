@@ -92,16 +92,19 @@ public sealed class FieldVm : Observable
     long? Value()
     {
         var t = text.Trim();
-        if (long.TryParse(t, out var v)) return v;
-        return names.Find(t)?.Value;
+        return CNum.Value(t) ?? names.Find(t)?.Value;
     }
 
-    /// <summary>빨간 테: 숫자 칸이 숫자가 아니거나 범위 밖.</summary>
+    /// <summary>
+    /// 빨간 테: 칸 글이 인자 하나로 못 쓰는 글(<see cref="SiteEdit.BadArg"/>: 빈 글, 쉼표·괄호로 칸을 넘음, 앞자리 0)이거나,
+    /// 숫자 칸이 숫자가 아니거나 범위 밖.
+    /// </summary>
     public bool Invalid
     {
         get
         {
-            if (Editor != FieldEditor.Number) return Editor == FieldEditor.Text && text.Trim().Length == 0;
+            if (IsBox && SiteEdit.BadArg(text) != null) return true;
+            if (Editor != FieldEditor.Number) return false;
             if (Value() is not long v) return true;
             var s = Info.Spec;
             return s.Max > s.Min && (v < s.Min || v > s.Max) || s.Unit == "도" && v % 5 != 0 && owner.IsTagArea;

@@ -133,7 +133,7 @@ static class EditTests
         Blocked(SiteEdit.SetArg(s, r21.St, turn.Args[1], " "), "빈 글자", "빈 인자");
         Blocked(SiteEdit.SetArg(s, r21.St, turn.Args[1], "90 /* x */"), "주석", "인자 안 주석");
         Blocked(SiteEdit.SetArg(s, r21.St, rg.FirstArg, "1"), "인자 없음", "다른 문장의 인자");
-        Blocked(SiteEdit.SetArg(s, r21.St, turn.Args[1], "90 ?"), "문장으로 읽히지 않음", "읽히지 않는 글자");
+        Blocked(SiteEdit.SetArg(s, r21.St, turn.Args[1], "90 ?"), "식 하나 아님", "읽히지 않는 글자");
     }
 
     static void Comments()

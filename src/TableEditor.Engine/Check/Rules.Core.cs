@@ -122,6 +122,25 @@ public static partial class Checker
     private static partial Regex ProfileNameRx();
 
     /// <summary>N-5: 이름 꼴이 틀리거나 코어 이름과 겹친다. 고정 배열 이름.</summary>
+    /// <summary>N-7: 앞자리 0 이 붙은 숫자(<c>030</c>). C 는 8진으로 읽는다: 값이 10진과 달라 경고, 8·9 가 들면 컴파일 실패라 오류.</summary>
+    static IEnumerable<Finding> N7(Facts f)
+    {
+        static IEnumerable<NumberNode> Nums(Node n) => n switch
+        {
+            NumberNode x => [x],
+            CallNode c => c.Args.SelectMany(a => Nums(a.Node)),
+            BinaryNode b => Nums(b.Left).Concat(Nums(b.Right)),
+            _ => [],
+        };
+        foreach (var file in f.Site.Files)
+            foreach (var st in file.Statements.Where(s => s.Shape == StatementShape.Macro))
+                foreach (var a in st.Args)
+                    foreach (var n in Nums(a.Node).Where(n => CNum.LeadingZero(n.Literal)))
+                        yield return CNum.Value(n.Literal) is long v
+                            ? f.Warn("N-7", st, $"앞자리 0 · {n.Literal} = 8진 {v}", a)
+                            : f.Error("N-7", st, $"앞자리 0 · {n.Literal} 8진 아님", a);
+    }
+
     static IEnumerable<Finding> N5(Facts f)
     {
         foreach (var d in f.Names.All.Where(d => !d.Core && !d.Weak && d.Def != null))

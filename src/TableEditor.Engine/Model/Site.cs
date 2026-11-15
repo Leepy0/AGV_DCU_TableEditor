@@ -253,13 +253,8 @@ public sealed partial class Site
             }
     }
 
-    /// <summary>C 정수 글자(10진, 0x 16진, 접미사 u·l).</summary>
-    static long? CNumber(string s)
-    {
-        s = s.TrimEnd('u', 'U', 'l', 'L');
-        bool hex = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
-        return long.TryParse(hex ? s[2..] : s, hex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.AllowLeadingSign, null, out var v) ? v : null;
-    }
+    /// <summary>C 정수 글자(<see cref="CNum.Value"/>: 10진, 0x 16진, 앞자리 0 = 8진, 접미사 u·l).</summary>
+    static long? CNumber(string s) => CNum.Value(s);
 
     /// <summary>개수 표지 이름 꼴: <c>…_COUNT</c>, <c>…_COUNT_</c>.</summary>
     internal static bool IsCountName(string name) =>

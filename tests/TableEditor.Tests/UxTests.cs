@@ -16,6 +16,7 @@ static class UxTests
         Filter(site);
         Switches(root);
         Seq(root);
+        Guards(root);
     }
 
     /// <summary>fixture 를 임시 앱 폴더(app/site/T900_DEMO)로 바이트째 복사한다(저장 시험).</summary>
@@ -175,12 +176,74 @@ static class UxTests
         check(SaveFiles.Save(d.Site!).Status == SaveStatus.Saved, "저장");
         var text = System.Text.Encoding.UTF8.GetString(before);
         int a0 = text.IndexOf("SEQ_BEGIN( shuttle )", StringComparison.Ordinal);
+        a0 = text.LastIndexOf('\n', a0 - 2) + 1; // 붙은 머리 주석 줄부터
+        check(text[a0..].StartsWith("/* ---- ", StringComparison.Ordinal), "머리 주석 줄");
         int a1 = text.IndexOf("SEQ_END", a0, StringComparison.Ordinal);
         a1 = text.IndexOf('\n', a1) + 1;
+        check(text[a1..].StartsWith("\r\n", StringComparison.Ordinal), "뒤 빈 줄");
+        a1 += 2; // 위가 빈 줄이라 뒤 빈 줄 한 줄도
         var map = "    SEQ_MAP( 0,         SEQ_DEMO_SHUTTLE,   shuttle )\r\n";
         var want = text[..a0] + text[a1..];
         check(want.Contains(map), "대응표 줄 글자");
         want = want.Replace(map, "");
-        check(File.ReadAllBytes(path).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(want)), "저장 바이트 = 그 표·그 대응표 줄만 빠짐(주석·빈 줄 그대로)");
+        check(File.ReadAllBytes(path).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(want)), "저장 바이트 = 머리 주석·표·뒤 빈 줄 하나·대응표 줄만 빠짐");
+
+        // 이어진 빈 줄은 한 줄만, 붙은 머리 주석은 같이(검토 E5b)
+        var two = "SEQ_LABELS( A )\n\nSEQ_BEGIN( t1 )\n    END_STOP\nSEQ_END\n\n\n\n/* 다음 */\nSEQ_BEGIN( t2 )\n    END_STOP\nSEQ_END\n";
+        var ts = Site.FromFiles([SourceFile.Parse("seq_table.c", System.Text.Encoding.UTF8.GetBytes(two))]);
+        var r1 = SeqEdit.DeleteTable(ts, "t1");
+        check(r1.Ok && r1.Site!.File("seq_table.c")!.ToText() == "SEQ_LABELS( A )\n\n\n\n/* 다음 */\nSEQ_BEGIN( t2 )\n    END_STOP\nSEQ_END\n",
+            "뒤 빈 줄 셋 가운데 하나만: " + r1.Site?.File("seq_table.c")!.ToText().Replace("\n", "⏎"));
+        var r2 = SeqEdit.DeleteTable(ts, "t2");
+        check(r2.Ok && r2.Site!.File("seq_table.c")!.ToText() == "SEQ_LABELS( A )\n\nSEQ_BEGIN( t1 )\n    END_STOP\nSEQ_END\n\n\n\n",
+            "붙은 머리 주석 같이: " + r2.Site?.File("seq_table.c")!.ToText().Replace("\n", "⏎"));
+    }
+
+    /// <summary>칸 글 막기(검토 1·3): 쉼표·괄호로 칸을 넘는 글, 앞자리 0. 막히면 원문 바이트 그대로. 8진 읽기·N-7.</summary>
+    static void Guards(string root)
+    {
+        var s = Site.Open(Path.Combine(root, "tests", "fixtures", "T900_DEMO"));
+        var tagBytes = s.File("tag_table.c")!.ToBytes();
+        var seqBytes = s.File("seq_table.c")!.ToBytes();
+        int errs = Checker.Run(s).Count(f => f.Severity == Severity.Error);
+
+        // 1: 태그 53 ACS_SEND 번호 칸에 괄호를 닫는 글, TAG_IF 52 조건 칸에 쉼표
+        var r53 = s.TagRules.First(r => r.St.Text.Contains("TAG_IF( 53, PF_LIFT,     IF_ID( 10, 12 )"));
+        var num = ((CallNode)r53.Actions[0].Node).Args[1];
+        var e = SiteEdit.SetArg(s, r53.St, num, "115 ), AGV_STOP( 30");
+        check(!e.Ok && e.Error == "식 하나 아님", "괄호 닫는 글 막힘 " + e.Error);
+        var r52 = s.TagRules.First(r => r.St.Text.Contains("TAG_IF( 52"));
+        e = SiteEdit.SetArg(s, r52.St, r52.Cond!, "IF_LOW_BATTERY, AGV_STOP");
+        check(!e.Ok, "조건 칸 쉼표 막힘");
+        foreach (var bad in new[] { "1, 2", "(3", "3)", "AGV_STOP( 30", "a ? b", "" })
+            check(SiteEdit.BadArg(bad) != null, "막힘: " + bad);
+        foreach (var good in new[] { "30", "0", "0x1E", "STATION(0) + 1", "IN( ON(DEMO_SEN_1), OFF(DEMO_SEN_2) )", "-5" })
+            check(SiteEdit.BadArg(good) == null, "됨: " + good);
+        int blocked = 0;
+        foreach (var st in s.Seqs.SelectMany(t => t.Steps).Where(x => x.Args.Count > 0))
+            for (int i = 0; i < st.Args.Count; i++)
+                if (!SiteEdit.SetArg(s, st, st.Args[i], st.Args[i].Text + ", 0").Ok) blocked++;
+        check(blocked == s.Seqs.SelectMany(t => t.Steps).Sum(x => x.Args.Count), "시퀀스 칸 모두 ', 0' 막힘");
+        check(s.File("tag_table.c")!.ToBytes().AsSpan().SequenceEqual(tagBytes) && s.File("seq_table.c")!.ToBytes().AsSpan().SequenceEqual(seqBytes)
+            && Checker.Run(s).Count(f => f.Severity == Severity.Error) == errs, "막힌 뒤 원문 바이트 그대로");
+
+        // 3: 앞자리 0
+        var r6 = s.TagRules.First(r => r.St.Text.Contains("TAG ( 6,"));
+        var stop = ((CallNode)r6.Actions[0].Node).Args[0];
+        e = SiteEdit.SetArg(s, r6.St, stop, "030");
+        check(!e.Ok && e.Error!.StartsWith("앞자리 0", StringComparison.Ordinal), "030 막힘 " + e.Error);
+        check(SiteEdit.BadArg("-010") != null && SiteEdit.BadArg("08") != null, "-010·08 막힘");
+        check(CNum.Value("030") == 24 && CNum.Value("0x1E") == 30 && CNum.Value("0") == 0 && CNum.Value("08") == null && CNum.Value("-010") == -8 && CNum.Value("17u") == 17, "C 정수 값");
+        var text = System.Text.Encoding.UTF8.GetString(tagBytes).Replace("AGV_STOP( 30 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 030 ), AGV_AUTOSTART( 5 )");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var f = SourceFile.Parse("tag_table.c", bytes);
+        check(f.ToBytes().AsSpan().SequenceEqual(bytes), "030 왕복 바이트");
+        var s8 = Site.FromFiles(s.Files.Select(x => x.Name == "tag_table.c" ? f : x));
+        var st8 = s8.TagRules.First(r => r.St.Text.Contains("TAG ( 6,"));
+        check(s8.Names.Value(((CallNode)st8.Actions[0].Node).Args[0].Node) == 24, "030 = 24(8진)");
+        check(Checker.Run(s8).Any(x => x.Rule == "N-7" && x.Severity == Severity.Warning), "N-7 경고");
+        var e8 = SiteEdit.SetArg(s8, st8.St, ((CallNode)st8.Actions[1].Node).Args[0], "7");
+        check(e8.Ok && e8.Site!.File("tag_table.c")!.ToBytes().AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(text.Replace("AGV_STOP( 030 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 030 ), AGV_AUTOSTART( 7 )"))),
+            "옆 칸 고쳐도 030 글자 그대로(바이트)");
     }
 }

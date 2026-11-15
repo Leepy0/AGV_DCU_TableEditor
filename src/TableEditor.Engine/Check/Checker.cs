@@ -13,7 +13,7 @@ public static partial class Checker
     public static readonly IReadOnlyList<(string Rule, Func<Facts, IEnumerable<Finding>> Run)> Rules =
     [
         ("V-1", V1), ("V-2", V2), ("V-3", V3), ("R-1", R1), ("R-2", R2),
-        ("N-1", N1), ("N-2", N2), ("N-3", N3), ("N-4", N4), ("N-5", N5),
+        ("N-1", N1), ("N-2", N2), ("N-3", N3), ("N-4", N4), ("N-5", N5), ("N-7", N7),
         ("P-1", P1), ("P-2", P2), ("P-3", P3), ("P-4", P4), ("P-5", P5), ("P-6", P6),
         ("I-1", I1), ("I-2", I2), ("I-3", I3), ("I-4", I4), ("I-5", I5), ("I-6", I6),
         ("T-1", T1), ("T-2", T2), ("T-3", T3), ("T-4", T4), ("T-5", T5), ("T-6", T6), ("T-7", T7), ("T-8", T8),
