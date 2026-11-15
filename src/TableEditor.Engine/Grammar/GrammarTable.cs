@@ -58,7 +58,19 @@ public sealed record ArgSpec(ArgKind Kind, long Min = 0, long Max = 0, string Un
     /// <summary>칸 라벨(화면 낱말). 문법 줄의 꼴 글자에서 나온다. 없으면 빈 글자.</summary>
     public string Label { get; init; } = "";
 
+    /// <summary>켬/끔 칸: 숫자 1·0 을 화면에서 ON·OFF 로 보이고 고른다(원문은 1·0 그대로). 다른 값은 숫자로 둔다.</summary>
+    public bool Switch { get; init; }
+
     public ArgSpec Opt() => this with { Least = 0 };
+    public ArgSpec Sw() => this with { Switch = true };
+
+    public const string On = "ON", Off = "OFF";
+
+    /// <summary>켬/끔 칸 인자의 화면 글: 1 → ON, 0 → OFF. 켬/끔 칸이 아니거나 다른 값(식·이름·2 이상)이면 null.</summary>
+    public string? SwitchText(Text.Node n) => Switch && n is Text.NumberNode { Value: 0 or 1 } x ? (x.Value == 1 ? On : Off) : null;
+
+    /// <summary>화면 ON·OFF → 원문 1·0.</summary>
+    public static string SwitchRaw(string shown) => shown == On ? "1" : "0";
     public ArgSpec Many(int least, int most) => this with { Least = least, Most = most };
 }
 
@@ -124,7 +136,7 @@ public static class GrammarTable
     }
 
     /// <summary>태그 동작 팔레트(사양 9.2절 태그).</summary>
-    public static readonly IReadOnlyList<string> TagPalette = ["정지", "시퀀스", "속도·방향", "회전", "분기", "보고", "장애물", "기타"];
+    public static readonly IReadOnlyList<string> TagPalette = ["정지", "시퀀스", "속도·방향", "회전", "분기", "보고", "장애물 감지", "기타"];
 
     /// <summary>시퀀스 스텝 팔레트(사양 9.2절 시퀀스).</summary>
     public static readonly IReadOnlyList<string> StepPalette = ["출력", "벨트", "대기", "분기", "보고", "주행", "끝"];
@@ -139,7 +151,7 @@ public static class GrammarTable
             "AGV_TURN" => "회전",
             "AGV_BRANCH" => "분기",
             "ACS_SEND" or "ACS" or "STATION_RESET" => "보고",
-            "OBS_ON" or "OBS_OFF" or "OBS_OFF_AUTO" => "장애물",
+            "OBS_ON" or "OBS_OFF" or "OBS_OFF_AUTO" => "장애물 감지",
             _ => "기타",
         },
         Place.Step => name switch
@@ -309,15 +321,15 @@ public static class GrammarTable
         E("AGV_SPEED_MMIN", S, St, "AGV_SPEED_MMIN( 속도 )", "속도", "주행", N(4, 255, "m/min")).NoAct(),
         E("AGV_FORBACK", S, St, "AGV_FORBACK( 방향 )", "전후진", "주행", W(ForBack)).NoAct(),
         E("AGV_TURN", S, St, "AGV_TURN( 방향, 각도, 회전 뒤, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "주행",
-            W(Rot), N(1, 359, "도"), N(0, 15), N(0, 15), N(0, 31, "m/min").Opt(), W(TurnOptSeq).Opt(), W(TurnOptSeq).Opt()).NoAct(),
+            W(Rot), N(1, 359, "도"), N(0, 15), N(0, 15).Sw(), N(0, 31, "m/min").Opt(), W(TurnOptSeq).Opt(), W(TurnOptSeq).Opt()).NoAct(),
         E("AGV_MOVE", S, St, "AGV_MOVE( cm )", "이동", "주행", N(1, 3276, "cm")).NoAct(),
         E("AGV_MOVE", S, St, "AGV_MOVE( 한계 cm, 옵션 )", "이동", "주행", N(1, 3276, "cm"), W(MoveOpt)).NoAct(),
         E("ERROR_HOLD", S, St, "ERROR_HOLD( 코드, 조건, 라벨 )", "오류 유지", "주행", U16, Cond, Lb).NoAct(),
         E("END_RESTART", S, St, "END_RESTART", "끝 재출발", "주행").NoAct(),
         // 공통(10)
-        E("OBS_ON", S, St, "OBS_ON", "장애물 켬", "공통"),
-        E("OBS_OFF", S, St, "OBS_OFF", "장애물 끔", "공통"),
-        E("OBS_OFF_AUTO", S, St, "OBS_OFF_AUTO", "장애물 자동 끔", "공통"),
+        E("OBS_ON", S, St, "OBS_ON", "장애물 감지 켬", "공통"),
+        E("OBS_OFF", S, St, "OBS_OFF", "장애물 감지 끔", "공통"),
+        E("OBS_OFF_AUTO", S, St, "OBS_OFF_AUTO", "장애물 감지 자동 끔", "공통"),
         E("SET_STATE", S, St, "SET_STATE( 상태, 값 )", "상태 설정", "공통", A(ArgKind.State), U16),
         E("WAIT_STATE", S, St, "WAIT_STATE( 상태, 값 )", "상태 대기", "공통", A(ArgKind.State), U16),
         E("ACT_START", S, St, "ACT_START( ACT ID )", "ACT 시작", "공통", A(ArgKind.ActId)),
@@ -381,13 +393,13 @@ public static class GrammarTable
         E("AGV_SPEED_MMIN", TA, Pt, "AGV_SPEED_MMIN( 속도 )", "속도", "동작", N(4, 255, "m/min")).Cells(1),
         E("AGV_FORBACK", TA, Pt, "AGV_FORBACK( 방향 )", "전후진", "동작", W(ForBack)).Cells(1),
         E("AGV_TURN", TA, Pt, "AGV_TURN( 방향, 각도, 회전 뒤, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "동작",
-            W(Rot), N(5, 315, "도"), N(0, 15), N(0, 15), N(0, 31, "m/min").Opt(), W(TurnOptTag).Opt(), W(TurnOptTag).Opt()).Cells(2),
+            W(Rot), N(5, 315, "도"), N(0, 15), N(0, 15).Sw(), N(0, 31, "m/min").Opt(), W(TurnOptTag).Opt(), W(TurnOptTag).Opt()).Cells(2),
         E("ACS_SEND", TA, Pt, "ACS_SEND( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2),
         E("ACS", TA, Pt, "ACS( 종류, STATION0 )", "보고", "동작", W(Reports), W("STATION0")).Cells(1),
         E("STATION_RESET", TA, Pt, "STATION_RESET", "스테이션 지움", "동작").Cells(1),
-        E("OBS_ON", TA, Pt, "OBS_ON", "장애물 켬", "동작").Cells(1),
-        E("OBS_OFF", TA, Pt, "OBS_OFF", "장애물 끔", "동작").Cells(1),
-        E("OBS_OFF_AUTO", TA, Pt, "OBS_OFF_AUTO", "장애물 자동 끔", "동작").Cells(1),
+        E("OBS_ON", TA, Pt, "OBS_ON", "장애물 감지 켬", "동작").Cells(1),
+        E("OBS_OFF", TA, Pt, "OBS_OFF", "장애물 감지 끔", "동작").Cells(1),
+        E("OBS_OFF_AUTO", TA, Pt, "OBS_OFF_AUTO", "장애물 감지 자동 끔", "동작").Cells(1),
         E("ACT_START", TA, Pt, "ACT_START( ACT ID )", "ACT 시작", "동작", new ArgSpec(ArgKind.ActId, 0, 255)).Cells(1),
         E("CALL", TA, Pt, "CALL( 번호 )", "함수", "동작", new ArgSpec(ArgKind.CallNo, 0, 255)).Cells(1),
 

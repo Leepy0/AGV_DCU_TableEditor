@@ -63,7 +63,8 @@ public static class Choices
         return e.Spacing == Spacing.Tight ? $"{e.Name}({string.Join(", ", args)})" : $"{e.Name}( {string.Join(", ", args)} )";
     }
 
-    static string DefaultArg(ArgSpec a, NameDict names)
+    /// <summary>칸 하나의 기본 글자(새 동작, 꼴 바꾸기의 빈 칸).</summary>
+    public static string DefaultArg(ArgSpec a, NameDict names)
     {
         switch (a.Kind)
         {
@@ -73,26 +74,30 @@ public static class Choices
             case ArgKind.AcsNumber:
                 return "0";
             case ArgKind.FromSensor:
-                var input = For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
-                return $"FROM_SENSOR( {input}, 100 )";
+                return $"FROM_SENSOR( {FirstInput(names)}, 100 )";
+            case ArgKind.InCond or ArgKind.OutCond:
+                return "NO_IN";
+            case ArgKind.XCond:
+                return "X_ALWAYS";
+            case ArgKind.Until:
+                return "UNTIL( NO_IN )";
+            case ArgKind.Any2:
+                return $"ANY2_ON({FirstInput(names)})";
+            case ArgKind.AcsSource:
+                return "STATION0";
+            case ArgKind.StationExpr:
+                return "STATION(0)";
             default:
                 return For(a, names).FirstOrDefault()?.Name ?? "0";
         }
     }
 
-    /// <summary>
-    /// 추가 메뉴 낱말: 머리 이름. 같은 이름에 꼴이 여럿이면 꼴을 가르는 것을 붙인다(고정 낱말 하나, 단위, 센서).
-    /// </summary>
+    static string FirstInput(NameDict names) => For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
+
+    /// <summary>추가 메뉴 낱말: 머리 이름. 같은 이름에 꼴이 여럿이면 꼴을 가르는 낱말을 붙인다(<see cref="ActionForms.Word"/>).</summary>
     public static string MenuText(GrammarEntry e)
     {
-        if (GrammarTable.Find(e.Name, e.Place).Count(r => r.TagCells > 0 || e.Place != Place.TagAction) < 2) return e.Head;
-        var bits = e.Args.Select(a => a.Kind switch
-        {
-            ArgKind.Word when a.Words is { Count: 1 } w => w[0],
-            ArgKind.FromSensor => "센서",
-            ArgKind.Number or ArgKind.StopDist when a.Unit.Length > 0 => a.Unit,
-            _ => null,
-        }).OfType<string>().Distinct();
-        return string.Join(" ", bits.Prepend(e.Head));
+        var word = ActionForms.Of(e).Count < 2 ? "" : ActionForms.Word(e);
+        return word.Length == 0 ? e.Head : $"{e.Head} {word}";
     }
 }

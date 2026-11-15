@@ -6,7 +6,10 @@ using TableEditor.App.ViewModels;
 
 namespace TableEditor.App.Views;
 
-/// <summary>블록 컨트롤(하나뿐). DataContext = <see cref="BlockVm"/>. 같은 줄 안에서 끌어 순서를 바꾼다.</summary>
+/// <summary>
+/// 블록 컨트롤(하나뿐). DataContext = <see cref="BlockVm"/>. 같은 줄 안에서 끌어 순서를 바꾼다.
+/// 태그 줄에서 두 번 누르면: 시퀀스 이름 위면 시퀀스 화면으로, 아니면 표 안 칸 편집.
+/// </summary>
 public partial class BlockView : UserControl
 {
     Point start;
@@ -16,10 +19,25 @@ public partial class BlockView : UserControl
     {
         InitializeComponent();
         AllowDrop = true;
-        PreviewMouseLeftButtonDown += (_, e) => { start = e.GetPosition(this); down = true; };
+        PreviewMouseLeftButtonDown += (_, e) => { start = e.GetPosition(this); down = true; if (e.ClickCount == 2) OnDouble(e); };
         PreviewMouseLeftButtonUp += (_, _) => down = false;
         MouseMove += OnMove;
         Drop += OnDrop;
+    }
+
+    void OnDouble(MouseButtonEventArgs e)
+    {
+        if (DataContext is not BlockVm { Row: TagRowVm row }) return;
+        if ((e.OriginalSource as FrameworkElement)?.DataContext is Part { Seq: { } seq })
+        {
+            e.Handled = true;
+            down = false;
+            row.Owner.OpenSeq(row, seq);
+            return;
+        }
+        e.Handled = true;
+        down = false;
+        row.Owner.BeginCellEdit((BlockVm)DataContext);
     }
 
     void OnMove(object sender, MouseEventArgs e)

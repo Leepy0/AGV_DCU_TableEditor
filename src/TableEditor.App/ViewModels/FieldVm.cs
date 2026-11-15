@@ -46,7 +46,7 @@ public sealed class FieldVm : Observable
         Index = index;
         Locked = locked;
         Editor = Choices.EditorOf(info.Spec);
-        text = BlockBuilder.Collapse(info.Arg.Text);
+        text = Original;
         CommitCmd = new Command(Commit);
         RevertCmd = new Command(Revert);
         if (IsList)
@@ -59,6 +59,9 @@ public sealed class FieldVm : Observable
             picked = list.First(c => c.Name == text);
         }
     }
+
+    /// <summary>처음 글: 꼴 칸이면 꼴 낱말, 아니면 인자 글자.</summary>
+    string Original => Info.Value ?? BlockBuilder.Collapse(Info.Arg.Text);
 
     string text;
     /// <summary>칸 글(상자). 바꾸는 동안은 검사만 하고, <see cref="Commit"/> 때 명령이 된다.</summary>
@@ -89,16 +92,19 @@ public sealed class FieldVm : Observable
     long? Value()
     {
         var t = text.Trim();
-        if (long.TryParse(t, out var v)) return v;
-        return names.Find(t)?.Value;
+        return CNum.Value(t) ?? names.Find(t)?.Value;
     }
 
-    /// <summary>빨간 테: 숫자 칸이 숫자가 아니거나 범위 밖.</summary>
+    /// <summary>
+    /// 빨간 테: 칸 글이 인자 하나로 못 쓰는 글(<see cref="SiteEdit.BadArg"/>: 빈 글, 쉼표·괄호로 칸을 넘음, 앞자리 0)이거나,
+    /// 숫자 칸이 숫자가 아니거나 범위 밖.
+    /// </summary>
     public bool Invalid
     {
         get
         {
-            if (Editor != FieldEditor.Number) return Editor == FieldEditor.Text && text.Trim().Length == 0;
+            if (IsBox && SiteEdit.BadArg(text) != null) return true;
+            if (Editor != FieldEditor.Number) return false;
             if (Value() is not long v) return true;
             var s = Info.Spec;
             return s.Max > s.Min && (v < s.Min || v > s.Max) || s.Unit == "도" && v % 5 != 0 && owner.IsTagArea;
@@ -122,10 +128,14 @@ public sealed class FieldVm : Observable
     {
         if (Locked || Invalid) return;
         var t = text.Trim();
-        if (t == BlockBuilder.Collapse(Info.Arg.Text)) return;
+        if (t == Original) return;
         owner.SetField(this, t);
     }
 
-    /// <summary>Esc: 원래 글로.</summary>
-    public void Revert() => Text = BlockBuilder.Collapse(Info.Arg.Text);
+    /// <summary>Esc·확인 팝업 취소: 원래 글로(드롭다운이면 원래 항목으로).</summary>
+    public void Revert()
+    {
+        Text = Original;
+        if (IsList && Items?.Cast<Choice>().FirstOrDefault(c => c.Name == Original) is { } c) { picked = c; Raise(nameof(Picked)); }
+    }
 }

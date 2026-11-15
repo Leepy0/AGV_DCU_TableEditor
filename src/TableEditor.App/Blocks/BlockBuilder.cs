@@ -32,8 +32,31 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return new BlockVm
         {
             Head = entry.Head, Cat = entry.Palette, Parts = PartsOf(entry, args, true),
-            Fields = FieldsOf(entry, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
+            Fields = ActionFields(entry, a, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
         };
+    }
+
+    /// <summary>꼴 칸 낱말(꼴 낱말이 빈 꼴).</summary>
+    public const string Bare = "바로";
+
+    /// <summary>
+    /// 동작 칸들. 꼴이 여럿이면(<see cref="ActionForms"/>) 맨 앞에 위치 칸(바로·cm·TAPE·TAPE_GD·센서)을 두고, 꼴이 정한 낱말 하나뿐인 칸은 뺀다.
+    /// 위치 칸을 바꾸면 그 꼴로 인자 전체를 다시 쓴다(같은 인자 바꾸기 명령).
+    /// </summary>
+    List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
+    {
+        var fields = FieldsOf(entry, args);
+        var forms = ActionForms.Of(entry);
+        if (forms.Count < 2) return fields;
+        string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
+        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = "위치" };
+        var form = new FieldInfo("위치", a, spec)
+        {
+            Value = WordOf(entry),
+            Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)),
+            Drops = w => ActionForms.Dropped(forms.First(e => WordOf(e) == w), entry, args),
+        };
+        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }
 
     /// <summary>문장 하나 = 블록 하나(시퀀스 스텝, 수동 입력 줄). 문법 표의 그 자리 줄로 칸을 만든다. 모르면 원문 블록.</summary>
@@ -185,10 +208,16 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
                 continue;
             }
             var text = Collapse(a.Text);
+            if (spec.SwitchText(a.Node) is { } sw)
+            {
+                parts.Add(new(numbers > 1 && spec.Kind == ArgKind.Number ? Short(specs, i) : null, sw, null) { On = sw == ArgSpec.On });
+                continue;
+            }
             if (spec.Unit == "도") parts.Add(new(null, text + "°", null));
             else if (spec.Unit == "틱") parts.Add(new(null, text, Seconds(names, a.Node)));
             else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(specs, i), text, null));
             else if (SuffixUnits.Contains(spec.Unit) && a.Node is NumberNode) parts.Add(new(null, text, spec.Unit));
+            else if (spec.Kind == ArgKind.SeqShort && a.Node is NameNode) parts.Add(new(null, text, null) { Seq = text });
             else parts.Add(new(null, text, null));
         }
         return parts;
@@ -204,10 +233,15 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             var (name, inner) = Split(args[i].Node);
             if (args[i].Node is CallNode && name != null && InnerFor(specs[i].Kind, name, inner) is { } ie && ie.Args.Count > 0)
                 list.AddRange(FieldsOf(ie, inner));
-            else list.Add(new(specs[i].Label, args[i], specs[i]));
+            else list.Add(SwitchField(specs[i], args[i]) ?? new(specs[i].Label, args[i], specs[i]));
         }
         return list;
     }
+
+    /// <summary>켬/끔 칸(값 1·0): ON·OFF 드롭다운. 고르면 원문에 1·0 을 쓴다. 다른 값이면 null(숫자 칸 그대로).</summary>
+    static FieldInfo? SwitchField(ArgSpec spec, Arg a) => spec.SwitchText(a.Node) is { } sw
+        ? new(spec.Label, a, new ArgSpec(ArgKind.Word, Words: [ArgSpec.On, ArgSpec.Off]) { Label = spec.Label }) { Value = sw, Write = ArgSpec.SwitchRaw }
+        : null;
 
     /// <summary>틱 → 초 글자(300 → 3.00).</summary>
     public static string? Seconds(NameDict names, Node n) => names.Value(n) is long v ? (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) : null;

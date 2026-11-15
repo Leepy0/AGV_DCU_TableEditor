@@ -359,3 +359,105 @@ public sealed class RawVm(string text) : DialogVm
     public string Text { get => t; set => Set(ref t, value); }
     public ICommand Ok => new Command(() => Close("ok"));
 }
+
+// ---- 시퀀스 스텝·표 ----
+
+/// <summary>명령 드롭다운 항목: 추가 메뉴 낱말 + 문법 줄.</summary>
+public sealed record StepChoice(string Text, GrammarEntry Entry)
+{
+    public override string ToString() => Text;
+}
+
+/// <summary>
+/// 스텝 [추가]·[명령 바꾸기] 팝업: 분류 → 명령(문법 표의 시퀀스 스텝 줄만, ACT 표면 ACT 금지 줄 뺌) → C 글자 미리 보기.
+/// </summary>
+public sealed class StepVm : DialogVm
+{
+    readonly IReadOnlyList<StepChoice> all;
+    readonly Func<GrammarEntry, string> preview;
+
+    readonly Func<GrammarEntry, IReadOnlyList<string>> drops;
+
+    /// <summary>drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
+    public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview,
+        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)
+    {
+        Title = title;
+        OkText = okText;
+        this.preview = preview;
+        this.drops = drops ?? (_ => []);
+        Comment = string.IsNullOrWhiteSpace(comment) ? null : comment;
+        all = SeqEdit.StepRows(act).Select(e => new StepChoice(Choices.MenuText(e), e)).ToList();
+        Categories = [.. GrammarTable.StepPalette.Append(Other).Where(c => all.Any(x => Cat(x.Entry) == c))];
+        category = current != null && Categories.Contains(Cat(current)) ? Cat(current) : Categories[0];
+        Commands = Of(category);
+        command = Commands.FirstOrDefault(c => c.Entry == current) ?? Commands[0];
+        Ok = new Command(() => Close("ok"));
+    }
+
+    const string Other = "기타";
+    static string Cat(GrammarEntry e) => e.Palette.Length > 0 ? e.Palette : Other;
+    IReadOnlyList<StepChoice> Of(string cat) => all.Where(x => Cat(x.Entry) == cat).ToList();
+
+    public override string Title { get; }
+    public string OkText { get; }
+    public IReadOnlyList<string> Categories { get; }
+    public ICommand Ok { get; }
+
+    string category;
+    public string Category
+    {
+        get => category;
+        set
+        {
+            if (value == null || !Set(ref category, value)) return;
+            Commands = Of(value);
+            Raise(nameof(Commands));
+            Command = Commands[0];
+        }
+    }
+
+    public IReadOnlyList<StepChoice> Commands { get; private set; }
+
+    StepChoice command;
+    public StepChoice Command { get => command; set { if (value != null && Set(ref command, value)) { Raise(nameof(Preview)); Raise(nameof(Drops)); Raise(nameof(HasDrops)); } } }
+
+    public string Preview => preview(Command.Entry);
+
+    /// <summary>버릴 인자(쉼표로). 없으면 빈 글자.</summary>
+    public string Drops => string.Join(", ", drops(Command.Entry));
+    public bool HasDrops => Drops.Length > 0;
+
+    /// <summary>바꿀 줄의 꼬리 주석(그대로 남는다).</summary>
+    public string? Comment { get; }
+    public bool HasComment => Comment != null;
+}
+
+/// <summary>[표 추가] 팝업: 이름 + 대응표 줄(프로파일, 시퀀스 ID).</summary>
+public sealed class SeqTableVm : DialogVm
+{
+    public SeqTableVm(Site site)
+    {
+        Profiles = [TagVm.AllProfiles, .. site.Profiles.Select(p => p.Name)];
+        Ids = site.Names.All.Where(d => d.Kind == NameKind.SeqId && !d.Weak).Select(d => d.Name).Distinct().ToList();
+        id = Ids.FirstOrDefault() ?? "";
+        Ok = new Command(() => { if (Name.Trim().Length > 0 && Id.Length > 0) Close("ok"); });
+    }
+
+    public override string Title => "표 추가";
+    public IReadOnlyList<string> Profiles { get; }
+    public IReadOnlyList<string> Ids { get; }
+    public ICommand Ok { get; }
+
+    string name = "";
+    public string Name { get => name; set => Set(ref name, value ?? ""); }
+
+    string profile = TagVm.AllProfiles;
+    public string Profile { get => profile; set { if (value != null) Set(ref profile, value); } }
+
+    string id;
+    public string Id { get => id; set { if (value != null) Set(ref id, value); } }
+
+    /// <summary>대응표에 쓸 프로파일 글(전체 = 0).</summary>
+    public string ProfileArg => Profile == TagVm.AllProfiles ? "0" : Profile;
+}

@@ -21,7 +21,7 @@ public sealed record ActionChoice(string Palette, string Text, GrammarEntry Entr
 /// </summary>
 public sealed class TagVm : BlockHost
 {
-    public const string AllProfiles = "전체";
+    public const string AllProfiles = RowFilter.All;
 
     readonly MainVm main;
     Site site { get => Site; set => Site = value; }
@@ -30,6 +30,7 @@ public sealed class TagVm : BlockHost
     public TagVm(MainVm main) : base(main)
     {
         this.main = main;
+        Filter.Changed += () => { Refilter(); RebuildLook(); };
         Add = new Command(() => _ = main.AddRowsAsync(), () => main.CanEdit);
         Duplicate = new Command(DuplicateRows, () => main.CanEdit && SelectedRows.Any(r => r.Rule != null));
         Delete = new Command(DeleteRows, () => main.CanEdit && SelectedRows.Count > 0);
@@ -62,12 +63,12 @@ public sealed class TagVm : BlockHost
             foreach (var blk in r.Blocks)
             {
                 var (row, block) = (r, blk);
-                blk.Pick = new Command(() => { SelectOnly(row); Picked = block; BlockPickedByUser = true; });
+                blk.Pick = new Command(() => { if (!ReferenceEquals(Picked, block)) CellEditing = false; SelectOnly(row); Picked = block; BlockPickedByUser = true; });
             }
         var used = all.Where(r => r.Rule is { AnyProfile: false }).Select(r => r.Rule!.Profile);
         Profiles = [AllProfiles, .. s.Profiles.Select(p => p.Name).Union(used).Distinct()];
         Raise(nameof(Profiles));
-        if (!Profiles.Contains(profileFilter)) { profileFilter = AllProfiles; Raise(nameof(ProfileFilter)); }
+        Filter.Profiles = Profiles;
         Refilter(keepSelection: false);
 
         // 고르기 되살리기
@@ -92,6 +93,11 @@ public sealed class TagVm : BlockHost
         SetSelection(pick, primary, scroll: touched is { Count: > 0 });
         if (primary != null && (sameRow || pick.Count == 1)) Restore(primary.Blocks, prevBlock, prevField);
         RebuildLook();
+        if (CellEditing)
+        {
+            if (Picked is { Raw: false, Fields.Count: > 0 }) CellRefocus?.Invoke(Math.Max(0, HotFieldIndex));
+            else CellEditing = false;
+        }
     }
 
     public IReadOnlyList<string> Profiles { get; private set; } = [AllProfiles];
@@ -102,11 +108,8 @@ public sealed class TagVm : BlockHost
 
     // ---- 거르기 ----
 
-    string tagFilter = "";
-    public string TagFilter { get => tagFilter; set { if (Set(ref tagFilter, value)) { Refilter(); RebuildLook(); } } }
-
-    string profileFilter = AllProfiles;
-    public string ProfileFilter { get => profileFilter; set { if (Set(ref profileFilter, value ?? AllProfiles)) Refilter(); } }
+    /// <summary>거르기 막대: 태그 번호 + 프로파일(시퀀스 화면과 같은 것).</summary>
+    public FilterVm Filter { get; } = new();
 
     IReadOnlyList<TagRowVm> rows = [];
     /// <summary>보이는 줄. 거를 때마다 목록을 통째 바꾼다(가상화 목록에 줄 단위로 넣지 않는다).</summary>
@@ -114,24 +117,15 @@ public sealed class TagVm : BlockHost
 
     public string CountText => $"{Rows.Count(r => r.Rule != null)} / {Total}줄";
 
-    long? FilterTag => long.TryParse(TagFilter.Trim(), out var n) ? n : null;
-
     void ClearFilter()
     {
-        tagFilter = "";
-        profileFilter = AllProfiles;
-        Raise(nameof(TagFilter));
-        Raise(nameof(ProfileFilter));
+        Filter.Clear();
         Refilter(keepSelection: false);
     }
 
     void Refilter(bool keepSelection = true)
     {
-        var tag = FilterTag;
-        bool tagSet = TagFilter.Trim().Length > 0;
-        var list = all.Where(r =>
-            (!tagSet || tag is long n && r.Covers(n))
-            && (ProfileFilter == AllProfiles || r.Rule != null && (r.IsAny || r.Rule.Profile == ProfileFilter))).ToList();
+        var list = all.Where(r => Filter.Match(r.Rule?.Profile, r.IsAny, r.Covers)).ToList();
         string? prev = null;
         foreach (var r in list)
         {
@@ -165,6 +159,7 @@ public sealed class TagVm : BlockHost
     public void FromView(IReadOnlyList<TagRowVm> list, TagRowVm? primary)
     {
         fromView = true;
+        if (primary != null && !ReferenceEquals(primary, selected)) CellEditing = false; // 목록을 바꿔 끼울 때의 빈 고르기는 사용자 고르기가 아니다
         try { Apply(list, primary); BlockPickedByUser = false; }
         finally { fromView = false; }
     }
@@ -232,6 +227,30 @@ public sealed class TagVm : BlockHost
     public string DetailTitle => Selected == null ? "" : Selected.Rule == null ? "원문" : $"{Selected.OrdinalText}줄 · 태그 {Selected.TagText} · ";
 
     public string DetailHead => Picked == null || Picked.Raw ? "" : Picked.Head;
+
+    // ---- 표 안 칸 편집 ----
+
+    bool cellEditing;
+    /// <summary>
+    /// 고른 블록의 칸을 줄 안에서 고친다(F2·Enter·블록 두 번 누르기). 칸은 아래 선택 줄 칸과 같은 <see cref="FieldVm"/> 라서
+    /// 같은 인자 바꾸기 명령 → <see cref="MainVm.Apply"/>(검사·되돌리기·저장 차례 그대로). 틀린 값은 칸에 빨갛게 남고 확정하지 않는다.
+    /// </summary>
+    public bool CellEditing { get => cellEditing; private set => Set(ref cellEditing, value); }
+
+    /// <summary>칸 편집 중 다시 그렸다(확정 뒤): 화면이 그 칸 순번에 포커스를 다시 준다.</summary>
+    public event Action<int>? CellRefocus;
+
+    public void BeginCellEdit(BlockVm? b = null)
+    {
+        b ??= Picked ?? Selected?.Blocks.FirstOrDefault();
+        if (!main.CanEdit || b is not { Raw: false, Fields.Count: > 0, Row: TagRowVm row }) return;
+        if (!ReferenceEquals(Selected, row)) SelectOnly(row);
+        Picked = b;
+        CellEditing = true;
+        CellRefocus?.Invoke(0);
+    }
+
+    public void EndCellEdit() => CellEditing = false;
 
     // ---- 명령 ----
 
@@ -322,6 +341,13 @@ public sealed class TagVm : BlockHost
         else DeleteRows();
     }
 
+    /// <summary>동작의 시퀀스 이름을 두 번 누름: 시퀀스 화면의 그 시퀀스(줄의 프로파일 대응표 먼저).</summary>
+    public void OpenSeq(TagRowVm row, string seq)
+    {
+        if (row.Rule == null) return;
+        if (!main.GoSeq(row.IsAny ? null : row.Rule.Profile, "SEQ_" + seq)) main.Notify("없는 시퀀스 " + seq);
+    }
+
     // ---- 줄 ----
 
     void DeleteRows()
@@ -376,7 +402,7 @@ public sealed class TagVm : BlockHost
     public IReadOnlyList<LookRow> LookRows { get => lookRows; private set => Set(ref lookRows, value); }
 
     /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그.</summary>
-    public long? LookTag => FilterTag ?? Selected?.First;
+    public long? LookTag => Filter.Number ?? Selected?.First;
 
     public string LookTitle => LookTag is long t ? $"태그 {t}" : "태그 —";
 

@@ -10,14 +10,66 @@ public static class SiteEdit
 {
     // ---- 문장 한 개 ----
 
-    /// <summary>인자 하나(안쪽 묶음의 인자도 된다)의 글자를 바꾼다.</summary>
+    /// <summary>
+    /// 인자 칸 하나에 쓸 수 있는 글인가: 빈 글·줄바꿈·주석이 없고, 식 하나로 남김없이 읽히며(쉼표·짝 안 맞는 괄호로 칸을 넘지 않는다),
+    /// 앞자리 0 이 붙은 10진 꼴 숫자(C 는 8진)가 없다. 막히면 까닭. 칸 편집기가 확정 전에 칸을 빨갛게 하는 데도 쓴다.
+    /// </summary>
+    public static string? BadArg(string text)
+    {
+        if (Form.BadText(text) is { } why) return why;
+        if (Reader.ParseArg(text) is not { } node) return "식 하나 아님";
+        return Numbers(node).FirstOrDefault(n => CNum.LeadingZero(n.Literal)) is { } z ? $"앞자리 0 · {z.Literal}" : null;
+    }
+
+    static IEnumerable<NumberNode> Numbers(Node n) => n switch
+    {
+        NumberNode x => [x],
+        CallNode c => c.Args.SelectMany(a => Numbers(a.Node)),
+        BinaryNode b => Numbers(b.Left).Concat(Numbers(b.Right)),
+        _ => [],
+    };
+
+    /// <summary>
+    /// 인자 하나(안쪽 묶음의 인자도 된다)의 글자를 바꾼다. 글은 <see cref="BadArg"/> 를 지나야 하고,
+    /// 바꾼 뒤 문장의 이름·인자 수·그 칸까지의 묶음 모양이 그대로여야 한다(아니면 아무것도 안 한다).
+    /// </summary>
     public static EditResult SetArg(Site site, Statement st, Arg arg, string text)
     {
         if (!Form.Owns(st, arg)) return EditResult.Fail("인자 없음 · 이 문장의 것이 아니다");
-        if (Form.BadText(text) is { } why) return EditResult.Fail(why);
+        if (BadArg(text) is { } why) return EditResult.Fail(why);
+        var path = PathTo(st.Args, arg) ?? [];
         var sp = new Splice(site);
         sp.Replace(st, Form.Spans(st.Text, [(arg.Offset, arg.Text.Length, text.Trim())]));
-        return sp.Commit();
+        var r = sp.Commit();
+        if (!r.Ok) return r;
+        if (r.Touched.FirstOrDefault() is not Statement after || after.Name != st.Name || !SameShape(st.Args, after.Args, path, text.Trim()))
+            return EditResult.Fail("칸 모양이 바뀜");
+        return r;
+    }
+
+    /// <summary>문장 인자 나무에서 그 인자까지의 자리 순번들.</summary>
+    static List<int>? PathTo(IReadOnlyList<Arg> args, Arg target)
+    {
+        for (int i = 0; i < args.Count; i++)
+        {
+            if (ReferenceEquals(args[i], target)) return [i];
+            if (args[i].Node is CallNode c && PathTo(c.Args, target) is { } rest) return [i, .. rest];
+        }
+        return null;
+    }
+
+    /// <summary>길을 따라 각 층의 인자 수가 같고 끝 칸 글이 넣은 글인가.</summary>
+    static bool SameShape(IReadOnlyList<Arg> before, IReadOnlyList<Arg> after, List<int> path, string text)
+    {
+        for (int d = 0; d < path.Count; d++)
+        {
+            if (before.Count != after.Count) return false;
+            var (b, a) = (before[path[d]], after[path[d]]);
+            if (d == path.Count - 1) return a.Text.Trim() == text;
+            if (b.Node is not CallNode bc || a.Node is not CallNode ac || bc.Name != ac.Name) return false;
+            (before, after) = (bc.Args, ac.Args);
+        }
+        return path.Count == 0;
     }
 
     /// <summary>꼬리 주석 글을 바꾼다. 없으면 더한다(문장 뒤 공백 4 + <c>/* 글 */</c>). null·빈 글자 = 지운다.</summary>
@@ -57,7 +109,7 @@ public static class SiteEdit
     /// <summary>인자를 index 자리에 넣는다(끝이면 index = 인자 수). 태그 동작은 <see cref="TagRule.ActionStart"/> 기준.</summary>
     public static EditResult InsertArg(Site site, Statement st, int index, string text)
     {
-        if (Form.BadText(text) is { } why) return EditResult.Fail(why);
+        if (BadArg(text) is { } why) return EditResult.Fail(why);
         if (!st.HasParens || st.Args.Count == 0 || index < 0 || index > st.Args.Count) return EditResult.Fail("자리 틀림");
         var list = ArgList(st);
         if (index == list.Count)
@@ -112,6 +164,18 @@ public static class SiteEdit
     {
         var sp = new Splice(site);
         InsertInto(sp, zone, index, items);
+        return sp.Commit();
+    }
+
+    /// <summary>구역 안 조각 after(문장·원문) 바로 뒤에 문장들을 넣는다(원문 블록을 고른 채 추가하면 그 블록 뒤).</summary>
+    public static EditResult InsertAfter(Site site, ZoneBlock zone, Piece after, IReadOnlyList<NewStatement> items)
+    {
+        if (!site.Zones.Contains(zone)) return EditResult.Fail("구역 없음");
+        int body = BodyIndex(zone, after);
+        if (body < 0) return EditResult.Fail("자리 틀림");
+        if (items.Count == 0) return EditResult.Fail("넣을 줄 없음");
+        var sp = new Splice(site);
+        InsertAt(sp, zone, body + 1, items);
         return sp.Commit();
     }
 

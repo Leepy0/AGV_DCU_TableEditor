@@ -3,19 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:b="clr-namespace:TableEditor.App.Blocks"
              xmlns:chk="clr-namespace:TableEditor.Engine.Check;assembly=TableEditor.Engine">
-    <!-- 블록 하나: 왼쪽 띠 = 분류 색, 머리 = 한글 이름, 값 = 인자 글자. 문법 표의 칸만 보고 그린다(매크로별 화면 없음) -->
-    <UserControl.Resources>
-        <Style x:Key="ValueText" TargetType="TextBlock">
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding DataContext.Raw, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
-                    <Setter Property="FontFamily" Value="{StaticResource Mono}"/>
-                    <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
-                    <Setter Property="Foreground" Value="{StaticResource Text2}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-    </UserControl.Resources>
+    <!-- 블록 하나 = 테 있는 칩 하나: 왼쪽 띠 = 분류 색, 머리 = 한글 이름(굵게), 인자 = 옅은 칸마다 하나(Shared.xaml ArgPill·ArgValue).
+         문법 표의 칸만 보고 그린다(매크로별 화면 없음). 태그 동작·시퀀스 스텝·수동 출력이 같이 쓴다 -->
     <Grid x:Name="Root" Cursor="Hand">
         <Grid.InputBindings>
             <MouseBinding Gesture="LeftClick" Command="{Binding Pick}"/>
@@ -66,11 +55,13 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="b:Part">
-                        <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.R7}">
-                            <TextBlock Text="{Binding Label}" Style="{StaticResource BlockSmall}" Visibility="{Binding Label, Converter={StaticResource Shown}}"/>
-                            <TextBlock Text="{Binding Value}" Style="{StaticResource ValueText}"/>
-                            <TextBlock Text="{Binding Small}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" Visibility="{Binding Small, Converter={StaticResource Shown}}"/>
-                        </StackPanel>
+                        <Border Style="{StaticResource ArgPill}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Label}" Style="{StaticResource BlockSmall}" Visibility="{Binding Label, Converter={StaticResource Shown}}"/>
+                                <TextBlock Text="{Binding Value}" Style="{StaticResource ArgValue}"/>
+                                <TextBlock Text="{Binding Small}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" Visibility="{Binding Small, Converter={StaticResource Shown}}"/>
+                            </StackPanel>
+                        </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

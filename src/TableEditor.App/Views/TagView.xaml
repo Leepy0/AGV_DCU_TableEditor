@@ -7,6 +7,14 @@
              xmlns:chk="clr-namespace:TableEditor.Engine.Check;assembly=TableEditor.Engine"
              x:Name="Me">
     <UserControl.Resources>
+        <!-- 표 안 칸 편집: 라벨 + 칸 편집기(선택 줄 칸과 같은 FieldEdit) -->
+        <DataTemplate x:Key="CellFieldT" DataType="vm:FieldVm">
+            <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.R12}">
+                <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R6}"/>
+                <v:FieldEdit VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
+
         <!-- 줄 표 한 줄 -->
         <DataTemplate x:Key="RowT" DataType="vm:TagRowVm">
             <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent" AllowDrop="True" Drop="OnRowDrop">
@@ -61,6 +69,16 @@
                         <Button x:Name="PlusBtn" Content="+" Style="{StaticResource Plus}" Click="OnPlus" Visibility="Collapsed" ToolTip="동작 추가"
                                 AutomationProperties.Name="동작 추가"/>
                     </DockPanel>
+                    <!-- 표 안 칸 편집(고른 블록): 머리 + 칸들. 넘치면 포커스 칸으로 가로 스크롤 -->
+                    <ScrollViewer x:Name="CellEd" Grid.Column="5" Visibility="Collapsed" Focusable="False" HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="OnCellWheel" PreviewKeyDown="OnCellKey">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DataContext.DetailHead, ElementName=Me}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center"
+                                       Margin="{StaticResource Gap.R12}"/>
+                            <ItemsControl ItemsSource="{Binding DataContext.Fields, ElementName=Me}" ItemTemplate="{StaticResource CellFieldT}"
+                                          ItemsPanel="{StaticResource Across}" Focusable="False" KeyboardNavigation.TabNavigation="Continue"/>
+                        </StackPanel>
+                    </ScrollViewer>
                     <TextBlock x:Name="Cells" Grid.Column="6" Text="{Binding CellsText}" Style="{StaticResource T.Faint}" FontFamily="{StaticResource Mono}"
                                HorizontalAlignment="Right" Margin="{StaticResource TextRight12}"/>
                     <Grid x:Name="Note" Grid.Column="7">
@@ -130,6 +148,16 @@
                     <Setter TargetName="Tag" Property="Opacity" Value="1"/>
                     <Setter TargetName="Acts" Property="Opacity" Value="1"/>
                 </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsCurrent}" Value="True"/>
+                        <Condition Binding="{Binding IsRaw}" Value="False"/>
+                        <Condition Binding="{Binding DataContext.CellEditing, ElementName=Me}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="Acts" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="PlusBtn" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="CellEd" Property="Visibility" Value="Visible"/>
+                </MultiDataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
@@ -137,7 +165,7 @@
         <DataTemplate x:Key="LookT" DataType="vm:LookRow">
             <Grid Height="{StaticResource RowHeight}">
                 <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
-                <Border x:Name="Group" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}" Visibility="Collapsed"/>
+                <Border x:Name="Group" Style="{StaticResource ProfileRule}"/>
                 <Grid Margin="{StaticResource Look.Pad}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="{StaticResource Look.Profile}"/>
@@ -145,8 +173,7 @@
                         <ColumnDefinition Width="{StaticResource Look.No}"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="Pf" Text="{Binding Profile}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" Visibility="Hidden"
-                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="Pf" Text="{Binding Profile}" Style="{StaticResource ProfileHead}" Visibility="Hidden"/>
                     <Grid Grid.Column="1" ClipToBounds="True">
                         <TextBlock x:Name="NoCond" Text="—" Style="{StaticResource T.Faint}" Visibility="{Binding Chips.Count, Converter={StaticResource Shown}, ConverterParameter=not}"/>
                         <ItemsControl ItemsSource="{Binding Chips}" ItemTemplate="{StaticResource ChipT}" ItemsPanel="{StaticResource Across}"
@@ -184,16 +211,7 @@
 
         <!-- 거르기 -->
         <DockPanel Height="{StaticResource BarHeight}" Margin="{StaticResource Pad.Bar}" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" Text="태그" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R8}"/>
-            <Grid DockPanel.Dock="Left" Width="{StaticResource TagBoxWidth}" VerticalAlignment="Center" Margin="{StaticResource Gap.R8}">
-                <TextBox x:Name="TagBox" Style="{StaticResource EditBox}" FontFamily="{StaticResource Mono}"
-                         Text="{Binding TagFilter, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="태그 거르기"/>
-                <TextBlock Text="번호" Style="{StaticResource T.Empty}" HorizontalAlignment="Left" Margin="{StaticResource Gap.L12}" IsHitTestVisible="False"
-                           Visibility="{Binding TagFilter, Converter={StaticResource Shown}, ConverterParameter=not}"/>
-            </Grid>
-            <TextBlock DockPanel.Dock="Left" Text="프로파일" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.Group}"/>
-            <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource ProfileBoxWidth}" VerticalAlignment="Center"
-                      ItemsSource="{Binding Profiles}" SelectedItem="{Binding ProfileFilter}" AutomationProperties.Name="프로파일 거르기"/>
+            <v:FilterBar DockPanel.Dock="Left" DataContext="{Binding Filter}" Label="태그"/>
             <Border DockPanel.Dock="Left" Height="{StaticResource ControlHeight}" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.1}"
                     CornerRadius="{StaticResource R.4}" Margin="{StaticResource Gap.Seg}" VerticalAlignment="Center" ClipToBounds="True">
                 <StackPanel Orientation="Horizontal">

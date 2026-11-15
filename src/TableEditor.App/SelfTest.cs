@@ -310,6 +310,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await vm.TryOpen(() => vm.OpenSiteAsync(site));
         await Idle();
         await Tables();
+        await Ux();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
@@ -402,7 +403,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].Small == "1.00", $"시간 칸·초 ({S.Fields.Count}, {S.Fields.FirstOrDefault()?.Small})");
         var label = S.Steps.First(r => r.Block.Head == "가기");
         S.SelectStep(label, false);
-        Check(S.Fields.All(f => f.Locked), "라벨 칸 읽기 전용");
+        Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].IsList, "라벨 칸 드롭다운(시퀀스 칸 모두 고침)");
         S.SelectStep(S.Steps.First(r => r.Block.Head == "지연"), false);
         S.Fields[0].Text = "250";
         S.Fields[0].Commit();

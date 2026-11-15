@@ -120,6 +120,18 @@ public sealed partial class Site
     /// <summary>이 프로파일 이름의 프로파일 표 줄.</summary>
     public IEnumerable<ProfileRow> RowsOf(string profile) => ProfileRows.Where(r => r.Profile == profile);
 
+    /// <summary>호기 id 가 받을 수 있는 프로파일(위에서 아래로 첫 줄이 맞는다. 타입 0 줄 뒤는 닿지 않는다).</summary>
+    public IReadOnlyList<string> ProfilesAt(long id)
+    {
+        var list = new List<string>();
+        foreach (var r in ProfileRows.Where(r => r.First <= id && id <= r.Last))
+        {
+            if (!list.Contains(r.Profile)) list.Add(r.Profile);
+            if (r.Type == 0) break;
+        }
+        return list;
+    }
+
     static IEnumerable<ZoneBlock> BlocksOf(SourceFile f)
     {
         var ps = f.Pieces;
@@ -241,13 +253,8 @@ public sealed partial class Site
             }
     }
 
-    /// <summary>C 정수 글자(10진, 0x 16진, 접미사 u·l).</summary>
-    static long? CNumber(string s)
-    {
-        s = s.TrimEnd('u', 'U', 'l', 'L');
-        bool hex = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
-        return long.TryParse(hex ? s[2..] : s, hex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.AllowLeadingSign, null, out var v) ? v : null;
-    }
+    /// <summary>C 정수 글자(<see cref="CNum.Value"/>: 10진, 0x 16진, 앞자리 0 = 8진, 접미사 u·l).</summary>
+    static long? CNumber(string s) => CNum.Value(s);
 
     /// <summary>개수 표지 이름 꼴: <c>…_COUNT</c>, <c>…_COUNT_</c>.</summary>
     internal static bool IsCountName(string name) =>

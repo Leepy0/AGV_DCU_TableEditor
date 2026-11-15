@@ -68,12 +68,36 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
         foreach (var x in Fields) x.IsHot = ReferenceEquals(x, f);
     }
 
-    /// <summary>칸 값 바꾸기 → 인자 바꾸기 명령. 같은 칸을 강조로 남긴다.</summary>
+    /// <summary>
+    /// 칸 값 바꾸기 → 인자 바꾸기 명령(꼴 칸은 <see cref="FieldInfo.Write"/> 로 인자 전체 글). 같은 칸을 강조로 남긴다.
+    /// 꼴을 바꿔 버려지는 인자가 있으면(<see cref="FieldInfo.Drops"/>) 확인 팝업(기본 취소) 뒤에만.
+    /// </summary>
     public virtual void SetField(FieldVm f, string text)
     {
-        if (CodePiece is not Statement st) return;
+        if (!Live(f, out var st)) return;
+        if (f.Info.Drops?.Invoke(text) is { Count: > 0 } drops) { _ = ConfirmDropAsync(f, text, drops); return; }
+        Write(f, st, text);
+    }
+
+    /// <summary>다시 그리는 중·뒤에 사라진 칸(지난 편집기가 포커스를 잃으며 확정)은 무시한다: 그 문장·인자는 지금 사이트의 것이 아니다.</summary>
+    bool Live(FieldVm f, out Statement st)
+    {
+        var cur = CodePiece as Statement;
+        st = cur!;
+        return cur != null && Fields.Contains(f) && Site.Files.Any(x => x.Pieces.Any(p => ReferenceEquals(p, cur)));
+    }
+
+    void Write(FieldVm f, Statement st, string text)
+    {
         int fieldIndex = f.Index;
-        if (Main.Apply(SiteEdit.SetArg(Site, st, f.Info.Arg, text)) && fieldIndex < Fields.Count) Hot(Fields[fieldIndex]);
+        if (Main.Apply(SiteEdit.SetArg(Site, st, f.Info.Arg, f.Info.Write?.Invoke(text) ?? text)) && fieldIndex < Fields.Count) Hot(Fields[fieldIndex]);
+    }
+
+    async Task ConfirmDropAsync(FieldVm f, string text, IReadOnlyList<string> drops)
+    {
+        var ask = new AskVm("값 버림", ["버릴 인자", .. drops], [new AskButton("cancel", "취소", Default: true), new AskButton("ok", "바꾸기", Primary: true)]);
+        if (await Main.Show(ask) == "ok" && Live(f, out var st)) Write(f, st, text);
+        else f.Revert();
     }
 
     /// <summary>되살리기: 블록 순번·칸 순번(다시 그린 뒤).</summary>
