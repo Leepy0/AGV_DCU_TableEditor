@@ -5,8 +5,8 @@ using TableEditor.App.ViewModels;
 namespace TableEditor.App;
 
 /// <summary>
-/// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
-/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png.
+/// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집, 프로파일 구분. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
+/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png.
 /// </summary>
 public sealed partial class SelfTest
 {
@@ -111,6 +111,7 @@ public sealed partial class SelfTest
         await Idle();
         var expect = start.Replace("AGV_STOP( 30 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 30 ), AGV_AUTOSTART( 7 )");
         Check(expect != start && TagText == expect && vm.ChangeCount == 1 && vm.ErrorCount == 0, "그 인자 글자만 바뀜");
+        Check(vm.Notice == null, $"알림 없음 ({vm.Notice})");
         Check(Tag.CellEditing && CellEditors() == 1 && Tag.Fields[0].IsHot && Tag.Fields[0].Text == "7", $"편집 이어짐·같은 칸 ({Tag.CellEditing}, {CellEditors()}, {Tag.Fields.FirstOrDefault()?.IsHot}, {Tag.Fields.FirstOrDefault()?.Text})");
         await Shot("tag_cell.png");
         Tag.EndCellEdit();
@@ -128,6 +129,22 @@ public sealed partial class SelfTest
         Check(Tag.CellEditing, "다시 들어감");
         Tag.FromView([Row(1)], Row(1));
         Check(!Tag.CellEditing, "다른 줄 고르면 끝");
+
+        Step("프로파일 구분: 태그 보기 40, 시퀀스 나무, 수동 카드(같은 ProfileHead·ProfileRule)");
+        Tag.Filter.Text = "40";
+        Tag.IsLook = true;
+        await Idle();
+        int pfs = Tag.Profiles.Count - 1;
+        Check(Tag.LookRows.Count(r => r.IsGroupStart) == pfs, $"보기 묶음 머리 {Tag.LookRows.Count(r => r.IsGroupStart)} = 프로파일 {pfs}");
+        await Shot("profile_look.png");
+        Tag.IsLook = false;
+        Tag.Filter.Text = "";
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        S.SelectTable("cart_load");
+        await Idle();
+        Check(S.Tree.Where(t => t.Level == 0).Skip(1).All(t => t.IsGroupStart), "나무 둘째 묶음부터 선");
+        await Shot("profile_seq.png");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
     }
 
     /// <summary>머리 줄에 보이는 표 안 칸 편집기 수.</summary>

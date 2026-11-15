@@ -8,19 +8,24 @@
     <UserControl.Resources>
         <DataTemplate x:Key="NodeT" DataType="vm:TreeItemVm">
             <Grid x:Name="Row" Height="{StaticResource TreeRowHeight}" Background="Transparent">
+                <Border x:Name="Rule" Style="{StaticResource ProfileRule}"/>
                 <Border x:Name="Side" Width="{StaticResource Bar.W}" HorizontalAlignment="Left"/>
                 <DockPanel x:Name="Body" Margin="{StaticResource Tree.L0}">
                     <Image x:Name="Ico" DockPanel.Dock="Right" Style="{StaticResource Icon}" Source="{StaticResource IconErr}" Visibility="Collapsed" Margin="{StaticResource Gap.L4}"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Note}" Style="{StaticResource RowNo}" Margin="{StaticResource Gap.L4}"/>
-                    <TextBlock x:Name="T" Text="{Binding Text}" ToolTip="{Binding Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                               FontSize="{StaticResource Fs.Small}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text2}"/>
+                    <TextBlock x:Name="T" Text="{Binding Text}" ToolTip="{Binding Text}" Style="{StaticResource ProfileHead}"/>
                 </DockPanel>
             </Grid>
             <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsGroupStart}" Value="True">
+                    <Setter TargetName="Rule" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding Level}" Value="1">
                     <Setter TargetName="Body" Property="Margin" Value="{StaticResource Tree.L1}"/>
                     <Setter TargetName="T" Property="FontFamily" Value="{StaticResource Mono}"/>
                     <Setter TargetName="T" Property="FontWeight" Value="Normal"/>
+                    <Setter TargetName="T" Property="FontSize" Value="{StaticResource Fs.Small}"/>
+                    <Setter TargetName="T" Property="Foreground" Value="{StaticResource Text2}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsTable}" Value="True">
                     <Setter TargetName="T" Property="FontFamily" Value="{StaticResource Mono}"/>

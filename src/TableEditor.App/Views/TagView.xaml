@@ -165,7 +165,7 @@
         <DataTemplate x:Key="LookT" DataType="vm:LookRow">
             <Grid Height="{StaticResource RowHeight}">
                 <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
-                <Border x:Name="Group" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}" Visibility="Collapsed"/>
+                <Border x:Name="Group" Style="{StaticResource ProfileRule}"/>
                 <Grid Margin="{StaticResource Look.Pad}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="{StaticResource Look.Profile}"/>
@@ -173,8 +173,7 @@
                         <ColumnDefinition Width="{StaticResource Look.No}"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="Pf" Text="{Binding Profile}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" Visibility="Hidden"
-                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="Pf" Text="{Binding Profile}" Style="{StaticResource ProfileHead}" Visibility="Hidden"/>
                     <Grid Grid.Column="1" ClipToBounds="True">
                         <TextBlock x:Name="NoCond" Text="—" Style="{StaticResource T.Faint}" Visibility="{Binding Chips.Count, Converter={StaticResource Shown}, ConverterParameter=not}"/>
                         <ItemsControl ItemsSource="{Binding Chips}" ItemTemplate="{StaticResource ChipT}" ItemsPanel="{StaticResource Across}"

@@ -26,6 +26,20 @@
         </Border>
     </DataTemplate>
 
+    <!-- 프로파일 묶음: 머리 줄의 프로파일 이름(굵게) + 묶음 사이 구분선(진한 선). 태그 보기·시퀀스 나무·수동 카드가 같이 쓴다 -->
+    <Style x:Key="ProfileHead" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource Fs.Body}"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style x:Key="ProfileRule" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{StaticResource LineEdge}"/>
+        <Setter Property="BorderThickness" Value="{StaticResource Bd.Top}"/>
+        <Setter Property="Visibility" Value="Collapsed"/>
+    </Style>
+
     <ItemsPanelTemplate x:Key="Across"><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
 
     <DataTemplate x:Key="BlockT" DataType="b:BlockVm">

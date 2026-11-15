@@ -113,7 +113,7 @@
                                 <Rectangle Width="{StaticResource Grip.W}" Height="{StaticResource Grip.H}" Fill="{StaticResource GripDots}"
                                            HorizontalAlignment="Left" Margin="{StaticResource Grip.Margin}"/>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="{Binding Profile}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center" Margin="{StaticResource Gap.Group}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Profile}" Style="{StaticResource ProfileHead}" Margin="{StaticResource Gap.Group}"/>
                             <ComboBox Grid.Column="2" Style="{StaticResource CellDrop}" Margin="{StaticResource Gap.R12}" MinWidth="{StaticResource FieldMinWidth}"
                                       ItemsSource="{Binding Source={x:Static vm:ManualVm.Modes}}" SelectedItem="{Binding ModeDraft}" AutomationProperties.Name="모드"/>
                             <TextBlock Grid.Column="3" Text="{Binding CountText}" Style="{StaticResource T.Faint}"/>
