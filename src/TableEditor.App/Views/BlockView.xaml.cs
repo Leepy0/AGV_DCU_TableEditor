@@ -8,7 +8,7 @@ namespace TableEditor.App.Views;
 
 /// <summary>
 /// 블록 컨트롤(하나뿐). DataContext = <see cref="BlockVm"/>. 같은 줄 안에서 끌어 순서를 바꾼다.
-/// 태그 줄에서 두 번 누르면: 시퀀스 이름 위면 시퀀스 화면으로.
+/// 태그 줄에서 두 번 누르면: 시퀀스 이름 위면 시퀀스 화면으로, 아니면 표 안 칸 편집.
 /// </summary>
 public partial class BlockView : UserControl
 {
@@ -33,7 +33,11 @@ public partial class BlockView : UserControl
             e.Handled = true;
             down = false;
             row.Owner.OpenSeq(row, seq);
+            return;
         }
+        e.Handled = true;
+        down = false;
+        row.Owner.BeginCellEdit((BlockVm)DataContext);
     }
 
     void OnMove(object sender, MouseEventArgs e)

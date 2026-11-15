@@ -63,7 +63,7 @@ public sealed class TagVm : BlockHost
             foreach (var blk in r.Blocks)
             {
                 var (row, block) = (r, blk);
-                blk.Pick = new Command(() => { SelectOnly(row); Picked = block; BlockPickedByUser = true; });
+                blk.Pick = new Command(() => { if (!ReferenceEquals(Picked, block)) CellEditing = false; SelectOnly(row); Picked = block; BlockPickedByUser = true; });
             }
         var used = all.Where(r => r.Rule is { AnyProfile: false }).Select(r => r.Rule!.Profile);
         Profiles = [AllProfiles, .. s.Profiles.Select(p => p.Name).Union(used).Distinct()];
@@ -93,6 +93,11 @@ public sealed class TagVm : BlockHost
         SetSelection(pick, primary, scroll: touched is { Count: > 0 });
         if (primary != null && (sameRow || pick.Count == 1)) Restore(primary.Blocks, prevBlock, prevField);
         RebuildLook();
+        if (CellEditing)
+        {
+            if (Picked is { Raw: false, Fields.Count: > 0 }) CellRefocus?.Invoke(Math.Max(0, HotFieldIndex));
+            else CellEditing = false;
+        }
     }
 
     public IReadOnlyList<string> Profiles { get; private set; } = [AllProfiles];
@@ -154,6 +159,7 @@ public sealed class TagVm : BlockHost
     public void FromView(IReadOnlyList<TagRowVm> list, TagRowVm? primary)
     {
         fromView = true;
+        if (primary != null && !ReferenceEquals(primary, selected)) CellEditing = false; // 목록을 바꿔 끼울 때의 빈 고르기는 사용자 고르기가 아니다
         try { Apply(list, primary); BlockPickedByUser = false; }
         finally { fromView = false; }
     }
@@ -221,6 +227,30 @@ public sealed class TagVm : BlockHost
     public string DetailTitle => Selected == null ? "" : Selected.Rule == null ? "원문" : $"{Selected.OrdinalText}줄 · 태그 {Selected.TagText} · ";
 
     public string DetailHead => Picked == null || Picked.Raw ? "" : Picked.Head;
+
+    // ---- 표 안 칸 편집 ----
+
+    bool cellEditing;
+    /// <summary>
+    /// 고른 블록의 칸을 줄 안에서 고친다(F2·Enter·블록 두 번 누르기). 칸은 아래 선택 줄 칸과 같은 <see cref="FieldVm"/> 라서
+    /// 같은 인자 바꾸기 명령 → <see cref="MainVm.Apply"/>(검사·되돌리기·저장 차례 그대로). 틀린 값은 칸에 빨갛게 남고 확정하지 않는다.
+    /// </summary>
+    public bool CellEditing { get => cellEditing; private set => Set(ref cellEditing, value); }
+
+    /// <summary>칸 편집 중 다시 그렸다(확정 뒤): 화면이 그 칸 순번에 포커스를 다시 준다.</summary>
+    public event Action<int>? CellRefocus;
+
+    public void BeginCellEdit(BlockVm? b = null)
+    {
+        b ??= Picked ?? Selected?.Blocks.FirstOrDefault();
+        if (!main.CanEdit || b is not { Raw: false, Fields.Count: > 0, Row: TagRowVm row }) return;
+        if (!ReferenceEquals(Selected, row)) SelectOnly(row);
+        Picked = b;
+        CellEditing = true;
+        CellRefocus?.Invoke(0);
+    }
+
+    public void EndCellEdit() => CellEditing = false;
 
     // ---- 명령 ----
 

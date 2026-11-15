@@ -7,6 +7,14 @@
              xmlns:chk="clr-namespace:TableEditor.Engine.Check;assembly=TableEditor.Engine"
              x:Name="Me">
     <UserControl.Resources>
+        <!-- 표 안 칸 편집: 라벨 + 칸 편집기(선택 줄 칸과 같은 FieldEdit) -->
+        <DataTemplate x:Key="CellFieldT" DataType="vm:FieldVm">
+            <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.R12}">
+                <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R6}"/>
+                <v:FieldEdit VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
+
         <!-- 줄 표 한 줄 -->
         <DataTemplate x:Key="RowT" DataType="vm:TagRowVm">
             <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent" AllowDrop="True" Drop="OnRowDrop">
@@ -61,6 +69,16 @@
                         <Button x:Name="PlusBtn" Content="+" Style="{StaticResource Plus}" Click="OnPlus" Visibility="Collapsed" ToolTip="동작 추가"
                                 AutomationProperties.Name="동작 추가"/>
                     </DockPanel>
+                    <!-- 표 안 칸 편집(고른 블록): 머리 + 칸들. 넘치면 포커스 칸으로 가로 스크롤 -->
+                    <ScrollViewer x:Name="CellEd" Grid.Column="5" Visibility="Collapsed" Focusable="False" HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="OnCellWheel" PreviewKeyDown="OnCellKey">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DataContext.DetailHead, ElementName=Me}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center"
+                                       Margin="{StaticResource Gap.R12}"/>
+                            <ItemsControl ItemsSource="{Binding DataContext.Fields, ElementName=Me}" ItemTemplate="{StaticResource CellFieldT}"
+                                          ItemsPanel="{StaticResource Across}" Focusable="False" KeyboardNavigation.TabNavigation="Continue"/>
+                        </StackPanel>
+                    </ScrollViewer>
                     <TextBlock x:Name="Cells" Grid.Column="6" Text="{Binding CellsText}" Style="{StaticResource T.Faint}" FontFamily="{StaticResource Mono}"
                                HorizontalAlignment="Right" Margin="{StaticResource TextRight12}"/>
                     <Grid x:Name="Note" Grid.Column="7">
@@ -129,6 +147,16 @@
                     <Setter TargetName="NoteEdit" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="Tag" Property="Opacity" Value="1"/>
                     <Setter TargetName="Acts" Property="Opacity" Value="1"/>
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsCurrent}" Value="True"/>
+                        <Condition Binding="{Binding IsRaw}" Value="False"/>
+                        <Condition Binding="{Binding DataContext.CellEditing, ElementName=Me}" Value="True"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="Acts" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="PlusBtn" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="CellEd" Property="Visibility" Value="Visible"/>
                 </MultiDataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>

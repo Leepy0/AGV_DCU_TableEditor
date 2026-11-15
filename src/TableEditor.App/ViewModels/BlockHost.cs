@@ -71,7 +71,8 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
     /// <summary>칸 값 바꾸기 → 인자 바꾸기 명령. 같은 칸을 강조로 남긴다.</summary>
     public virtual void SetField(FieldVm f, string text)
     {
-        if (CodePiece is not Statement st) return;
+        // 다시 그려 사라진 칸(지난 편집기가 포커스를 잃으며 확정)은 무시한다: 그 인자는 지금 문장의 것이 아니다
+        if (CodePiece is not Statement st || !Fields.Contains(f)) return;
         int fieldIndex = f.Index;
         if (Main.Apply(SiteEdit.SetArg(Site, st, f.Info.Arg, text)) && fieldIndex < Fields.Count) Hot(Fields[fieldIndex]);
     }

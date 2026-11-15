@@ -5,8 +5,8 @@ using TableEditor.App.ViewModels;
 namespace TableEditor.App;
 
 /// <summary>
-/// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
-/// 캡처: seq_search.png.
+/// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
+/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png.
 /// </summary>
 public sealed partial class SelfTest
 {
@@ -92,5 +92,61 @@ public sealed partial class SelfTest
         Tag.OpenSeq(Row(40, "PF_BELT"), "NOPE");
         Check(vm.IsTagTab && vm.Notice?.Contains("NOPE") == true, $"없는 시퀀스는 그대로 ({vm.Notice})");
         vm.ClearNotice();
+
+        Step("표 안 칸 편집: 태그 6 자동 출발 5 → 300(틀림) → 7, 되돌리기·저장 원문 비교");
+        start = TagText;
+        var r6 = Row(6);
+        Tag.BeginCellEdit(r6.Blocks[1]);
+        await Idle();
+        var edits = CellEditors();
+        Check(Tag.CellEditing && Tag.Picked?.Head.StartsWith("자동 출발") == true && edits == 1, $"줄 안 편집기 {edits} ({Tag.Picked?.Head})");
+        var sec = Tag.Fields[0];
+        sec.Text = "300";
+        sec.Commit();
+        await Idle();
+        Check(sec.Invalid && vm.ChangeCount == 0 && TagText == start && Tag.CellEditing, "틀린 값: 칸만 빨갛게, 원문 그대로");
+        await Shot("tag_cell_error.png");
+        sec.Text = "7";
+        sec.Commit();
+        await Idle();
+        var expect = start.Replace("AGV_STOP( 30 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 30 ), AGV_AUTOSTART( 7 )");
+        Check(expect != start && TagText == expect && vm.ChangeCount == 1 && vm.ErrorCount == 0, "그 인자 글자만 바뀜");
+        Check(Tag.CellEditing && CellEditors() == 1 && Tag.Fields[0].IsHot && Tag.Fields[0].Text == "7", $"편집 이어짐·같은 칸 ({Tag.CellEditing}, {CellEditors()}, {Tag.Fields.FirstOrDefault()?.IsHot}, {Tag.Fields.FirstOrDefault()?.Text})");
+        await Shot("tag_cell.png");
+        Tag.EndCellEdit();
+        await Idle();
+        Check(CellEditors() == 0, "끝내면 블록으로");
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(TagText == start && vm.ChangeCount == 0, "되돌리기");
+        vm.Redo.Execute(null);
+        await Idle();
+        bool saved = await vm.SaveAsync();
+        await Idle();
+        Check(saved && DiskText == expect, "저장: 디스크 = 그 인자만 바꾼 원문(바이트)");
+        Tag.BeginCellEdit(Row(6).Blocks[0]);
+        Check(Tag.CellEditing, "다시 들어감");
+        Tag.FromView([Row(1)], Row(1));
+        Check(!Tag.CellEditing, "다른 줄 고르면 끝");
+    }
+
+    /// <summary>머리 줄에 보이는 표 안 칸 편집기 수.</summary>
+    int CellEditors()
+    {
+        var list = w.FindName("TagPane") as Views.TagView;
+        if (list?.FindName("Rows") is not System.Windows.Controls.ListBox rows || Tag.Selected == null) return -1;
+        rows.UpdateLayout();
+        if (rows.ItemContainerGenerator.ContainerFromItem(Tag.Selected) is not System.Windows.DependencyObject item) return -1;
+        return Below<System.Windows.Controls.ScrollViewer>(item).Where(x => x.Name == "CellEd" && x.IsVisible).SelectMany(Below<Views.FieldEdit>).Count();
+    }
+
+    static IEnumerable<T> Below<T>(System.Windows.DependencyObject o) where T : System.Windows.DependencyObject
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(o); i++)
+        {
+            var c = System.Windows.Media.VisualTreeHelper.GetChild(o, i);
+            if (c is T t) yield return t;
+            foreach (var x in Below<T>(c)) yield return x;
+        }
     }
 }
