@@ -50,12 +50,21 @@ public sealed class StepRowVm : Observable
 }
 
 /// <summary>
-/// 시퀀스 화면(사양 9.2절, 1차): 나무(프로파일 → 시퀀스 ID → 표) + 스텝 블록 세로 목록. 숫자·시간 칸만 고친다(선택 줄 칸).
-/// 이름·낱말·라벨 칸은 읽기 전용, 파라미터는 FND 이름, 시간은 틱 옆에 초.
+/// 시퀀스 화면(사양 9.2절): 나무(프로파일 → 시퀀스 ID → 표) + 스텝 블록 세로 목록. 선택 줄 칸으로 인자를 고치고(새 이름 칸만 읽기 전용),
+/// 스텝 추가·명령 바꾸기·지우기·끌어 옮기기, 표 추가·지우기. 명령은 모두 <see cref="MainVm.Apply"/>(검사·되돌리기·저장 차례 그대로).
+/// 파라미터는 FND 이름, 시간은 틱 옆에 초.
 /// </summary>
 public sealed class SeqVm : BlockHost
 {
-    public SeqVm(MainVm main) : base(main) => Filter.Changed += Refilter;
+    public SeqVm(MainVm main) : base(main)
+    {
+        Filter.Changed += Refilter;
+        AddStep = new Command(() => _ = AddStepAsync(), () => Main.CanEdit && Zone != null);
+        ChangeStep = new Command(() => _ = ChangeStepAsync(), () => Main.CanEdit && SelectedStep?.Piece is Statement);
+        DeleteStep = new Command(() => _ = DeleteStepAsync(), () => Main.CanEdit && SelectedStep != null);
+        AddTable = new Command(() => _ = AddTableAsync(), () => Main.CanEdit);
+        DeleteTable = new Command(() => _ = DeleteTableAsync(), () => Main.CanEdit && Zone != null);
+    }
 
     /// <summary>거르기 막대: 호기 + 프로파일(태그 화면과 같은 것).</summary>
     public FilterVm Filter { get; } = new();
@@ -63,8 +72,8 @@ public sealed class SeqVm : BlockHost
 
     protected override Piece? CodePiece => SelectedStep?.Piece;
 
-    /// <summary>숫자 칸 중 숫자 글자만 고친다. 이름·낱말·라벨·식은 읽기 전용.</summary>
-    protected override bool Locks(FieldInfo f) => Choices.EditorOf(f.Spec) != FieldEditor.Number || f.Arg.Node is not NumberNode;
+    /// <summary>새로 정하는 이름 칸만 읽기 전용(이름 바꾸기는 묶음 명령의 몫).</summary>
+    protected override bool Locks(FieldInfo f) => f.Spec.Kind == ArgKind.Ident;
 
     public IReadOnlyList<TreeItemVm> Tree { get; private set; } = [];
     public IReadOnlyList<StepRowVm> Steps { get; private set; } = [];
@@ -301,6 +310,98 @@ public sealed class SeqVm : BlockHost
         Raise(nameof(Node));
         SelectStep(Steps.FirstOrDefault(), true);
         return true;
+    }
+
+    // ---- 구조 편집 ----
+
+    public ICommand AddStep { get; }
+    public ICommand ChangeStep { get; }
+    public ICommand DeleteStep { get; }
+    public ICommand AddTable { get; }
+    public ICommand DeleteTable { get; }
+
+    /// <summary>고른 표의 구역.</summary>
+    ZoneBlock? Zone => selectedTable == null ? null : Site?.Zones.FirstOrDefault(z => z.Open is "SEQ_BEGIN" or "ACT_BEGIN" && z.Name == selectedTable);
+
+    string Fill(ArgSpec a) => Choices.DefaultArg(a, Site.Names);
+
+    static readonly IReadOnlyList<AskButton> OkOnly = [new AskButton("ok", "확인", Primary: true, Default: true)];
+
+    /// <summary>[추가]: 고른 스텝 뒤(없으면 끝)에 새 스텝 하나(꼭 있는 칸만 기본값).</summary>
+    public async Task AddStepAsync()
+    {
+        if (Zone is not { } z) return;
+        var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names));
+        if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
+        var e = d.Command.Entry;
+        int index = SelectedStep is { Ordinal: > 0 } s ? s.Ordinal : zone.Statements.Count;
+        Main.Apply(SiteEdit.Insert(Site, zone, index, [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())]));
+    }
+
+    /// <summary>[명령 바꾸기]: 같은 종류 칸의 인자는 옮겨 그 줄을 다시 쓴다(<see cref="SeqEdit.Change"/>).</summary>
+    public async Task ChangeStepAsync()
+    {
+        if (SelectedStep?.Piece is not Statement st || Zone is not { } z) return;
+        var from = SeqEdit.EntryOf(st);
+        string Preview(GrammarEntry to) => from == null ? Choices.DefaultText(to, Site.Names) : ActionForms.Convert(to, from, st.Args, Fill);
+        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview);
+        if (await Main.Show(d) != "ok" || d.Command.Entry == from) return;
+        Main.Apply(SeqEdit.Change(Site, st, d.Command.Entry, Fill));
+    }
+
+    /// <summary>[삭제]·Del: 고른 스텝. 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.</summary>
+    public async Task DeleteStepAsync()
+    {
+        if (SelectedStep is not { } row || Zone is not { } z) return;
+        if (row.Piece is Statement st && SeqEdit.LabelUses(z, st) is { Count: > 0 } uses)
+        {
+            await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(u => $"{z.Ordinal(u)}줄 {BlockBuilder.Collapse(u.Text)}")], OkOnly));
+            return;
+        }
+        var next = Steps.SkipWhile(r => !ReferenceEquals(r, row)).Skip(1).FirstOrDefault(r => r.Ordinal > 0);
+        int nextOrd = next?.Ordinal ?? 0;
+        if (Main.Apply(SiteEdit.Delete(Site, [row.Piece])) && nextOrd > 0)
+            SelectStep(Steps.FirstOrDefault(r => r.Ordinal == nextOrd - (row.Ordinal > 0 ? 1 : 0)), true);
+    }
+
+    /// <summary>스텝 끌어 옮기기: target 앞으로(null 이면 끝으로).</summary>
+    public void MoveStep(StepRowVm from, StepRowVm? target)
+    {
+        if (Zone is not { } z || ReferenceEquals(from, target) || from.Piece is not Statement) return;
+        int index = target is { Ordinal: > 0 } t ? t.Ordinal - 1 : z.Statements.Count;
+        Main.Apply(SiteEdit.Move(Site, [from.Piece], z, index));
+    }
+
+    /// <summary>[표 추가]: 새 표(<c>END_STOP</c> 한 줄) + 대응표 줄(<see cref="BundleEdit.AddSeqTable"/>).</summary>
+    public async Task AddTableAsync()
+    {
+        var d = new SeqTableVm(Site);
+        if (await Main.Show(d) != "ok") return;
+        var name = d.Name.Trim();
+        if (!Main.Apply(BundleEdit.AddSeqTable(Site, name, d.ProfileArg, d.Id))) return;
+        Filter.Clear();
+        ShowTree();
+        SelectTable(name);
+    }
+
+    /// <summary>
+    /// [표 삭제]: 그 표를 시작하는 태그 동작·스텝이 있으면 팝업으로 막는다. 없으면 확인 팝업(기본 취소) 뒤 표와 그 대응표 줄을 지운다.
+    /// </summary>
+    public async Task DeleteTableAsync()
+    {
+        if (Zone is not { } z) return;
+        var uses = SeqEdit.TableUses(Site, z.Name);
+        int maps = uses.Count(u => u.Name is "SEQ_MAP" or "ACT_MAP");
+        var others = uses.Where(u => u.Name is not ("SEQ_MAP" or "ACT_MAP")).ToList();
+        if (others.Count > 0)
+        {
+            await Main.Show(new AskVm("지울 수 없음", [$"표 {z.Name} · 시작하는 줄 {others.Count}", .. others.Select(u => BlockBuilder.Collapse(u.Text))], OkOnly));
+            return;
+        }
+        var ask = new AskVm("표 삭제", [$"표 {z.Name} · 스텝 {z.Statements.Count}", $"대응표 {maps}줄"],
+            [new AskButton("cancel", "취소", Default: true), new AskButton("delete", "삭제", Primary: true)]);
+        if (await Main.Show(ask) != "delete") return;
+        if (Main.Apply(SeqEdit.DeleteTable(Site, z.Name)) && Tree.FirstOrDefault(t => t.IsTable)?.Table is { } first) SelectTable(first);
     }
 
     /// <summary>검사 줄에서: 그 조각이 든 표·스텝.</summary>

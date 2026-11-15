@@ -15,6 +15,17 @@ static class UxTests
         Forms(site);
         Filter(site);
         Switches(root);
+        Seq(root);
+    }
+
+    /// <summary>fixture 를 임시 앱 폴더(app/site/T900_DEMO)로 바이트째 복사한다(저장 시험).</summary>
+    static string Copy(string root, string name)
+    {
+        var top = Path.Combine(Path.GetTempPath(), "tedit_ux_tests", name);
+        if (Directory.Exists(top)) Directory.Delete(top, true);
+        var dir = Directory.CreateDirectory(Path.Combine(top, "app", "site", "T900_DEMO")).FullName;
+        foreach (var f in Directory.GetFiles(Path.Combine(root, "tests", "fixtures", "T900_DEMO"))) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
+        return dir;
     }
 
     static Statement Tag(Site s, string start) =>
@@ -101,10 +112,7 @@ static class UxTests
             .Select(x => $"{x.r.Name}/{x.r.Place}/{x.i}").ToList();
         check(marked.SequenceEqual(["AGV_TURN/Step/3", "AGV_TURN/TagAction/3"]), "켬/끔 칸 = AGV_TURN 자동 출발 둘: " + string.Join(",", marked));
 
-        var top = Path.Combine(Path.GetTempPath(), "tedit_ux_tests", "switch");
-        if (Directory.Exists(top)) Directory.Delete(top, true);
-        var dir = Directory.CreateDirectory(Path.Combine(top, "app", "site", "T900_DEMO")).FullName;
-        foreach (var f in Directory.GetFiles(Path.Combine(root, "tests", "fixtures", "T900_DEMO"))) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
+        var dir = Copy(root, "switch");
         var before = File.ReadAllBytes(Path.Combine(dir, "tag_table.c"));
         var s = Site.Open(dir);
         var st = Tag(s, "TAG ( 21,");
@@ -121,5 +129,58 @@ static class UxTests
         var text = System.Text.Encoding.UTF8.GetString(before);
         var want = System.Text.Encoding.UTF8.GetBytes(text.Replace("AGV_TURN( CW,  90,  0, 1, 0 )", "AGV_TURN( CW,  90,  0, 0, 0 )"));
         check(File.ReadAllBytes(Path.Combine(dir, "tag_table.c")).AsSpan().SequenceEqual(want), "저장 바이트 = 그 칸만 1 → 0");
+    }
+
+    /// <summary>시퀀스 구조 편집: 넣기·명령 바꾸기·옮기기·지우기 뒤 원문 그대로, 라벨·표 참조, 표 지우기 저장 바이트 비교.</summary>
+    static void Seq(string root)
+    {
+        var dir = Copy(root, "seq");
+        var path = Path.Combine(dir, "seq_table.c");
+        var before = File.ReadAllBytes(path);
+        var s = Site.Open(dir);
+        ZoneBlock Z(Site x, string n) => x.Zones.Single(z => z.Open == "SEQ_BEGIN" && z.Name == n);
+        string Fill(ArgSpec a) => a.Kind == ArgKind.InCond ? "NO_IN" : a.Kind == ArgKind.Word ? a.Words![0] : "0";
+
+        check(SeqEdit.StepRows(act: false).All(r => r.Place == Place.Step && r.Role == Role.Statement), "스텝 줄만");
+        check(SeqEdit.StepRows(act: true).All(r => !r.ActForbidden) && SeqEdit.StepRows(false).Any(r => r.ActForbidden), "ACT 표면 ACT 금지 줄 뺌");
+        check(!SeqEdit.StepRows(false).Any(r => r.Args.Any(a => a.Words?.Contains("TAPE") == true && r.Name == "AGV_TURN")), "회전 TAPE(태그 전용) 없음");
+
+        var e = SiteEdit.Insert(s, Z(s, "belt_unload"), 1, [new NewStatement("DELAY", ["100"])]);
+        check(e.Ok, "넣기");
+        var st = (Statement)e.Touched[0];
+        var e2 = SeqEdit.Change(e.Site!, st, GrammarTable.Find("WAIT_STABLE", Place.Step).Single(), Fill);
+        check(e2.Ok && ((Statement)e2.Touched[0]).Text.Trim() == "WAIT_STABLE( NO_IN, 100 )", "명령 바꾸기: 시간 옮김 " + (e2.Ok ? e2.Touched[0].Text.Trim() : e2.Error));
+        var s3 = e2.Site!;
+        var e3 = SiteEdit.Move(s3, [e2.Touched[0]], Z(s3, "belt_unload"), Z(s3, "belt_unload").Statements.Count);
+        check(e3.Ok && Z(e3.Site!, "belt_unload").Statements[^1].Name == "WAIT_STABLE", "끝으로 옮김");
+        var e4 = SiteEdit.Delete(e3.Site!, [e3.Touched[0]]);
+        check(e4.Ok && e4.Site!.File("seq_table.c")!.ToBytes().AsSpan().SequenceEqual(before), "지우면 바이트 그대로");
+
+        var run = Z(s, "belt_unload").Statements.Single(x => x.Name == "L" && x.Args[0].Text.Trim() == "RUN");
+        check(SeqEdit.LabelUses(Z(s, "belt_unload"), run).Count == 1, "라벨 RUN 쓰는 줄 1");
+        check(SeqEdit.TableUses(s, "belt_load").Any(u => u.Name.StartsWith("TAG", StringComparison.Ordinal)), "belt_load: 태그 SEQ_START( LOAD )");
+        var uses = SeqEdit.TableUses(s, "shuttle");
+        check(uses.Count == 1 && uses[0].Name == "SEQ_MAP", "shuttle: 대응표 1줄만 " + uses.Count);
+        check(SeqEdit.TableUses(s, "belt2_run_5s").Any(u => u.Name == "ACT_START" || u.Name == "WAIT_ACT"), "ACT 표: 스텝 ACT_START·WAIT_ACT");
+
+        var nt = BundleEdit.AddSeqTable(s, "demo_new", "PF_BOX", "SEQ_LOAD");
+        var ntErr = nt.Ok ? Checker.Run(nt.Site!).Where(f => f.Severity == Severity.Error).Select(f => f.Text).ToList() : [nt.Error!];
+        check(ntErr.Count == 0, "표 추가 오류 0: " + string.Join(", ", ntErr));
+        check(SeqEdit.TableUses(nt.Site!, "demo_new") is { Count: 1 } nu && nu[0].Name == "SEQ_MAP", "PF_BOX SEQ_LOAD 표: 다른 프로파일 태그는 참조 아님");
+        var nd = SeqEdit.DeleteTable(nt.Site!, "demo_new");
+        check(nd.Ok && nd.Site!.File("seq_table.c")!.ToBytes().AsSpan().SequenceEqual(before), "추가한 표 지우면 바이트 그대로(빈 줄 포함)");
+
+        var d = SeqEdit.DeleteTable(s, "shuttle");
+        check(d.Ok && Checker.Run(d.Site!).All(f => f.Severity != Severity.Error), "shuttle 지움·오류 0");
+        check(SaveFiles.Save(d.Site!).Status == SaveStatus.Saved, "저장");
+        var text = System.Text.Encoding.UTF8.GetString(before);
+        int a0 = text.IndexOf("SEQ_BEGIN( shuttle )", StringComparison.Ordinal);
+        int a1 = text.IndexOf("SEQ_END", a0, StringComparison.Ordinal);
+        a1 = text.IndexOf('\n', a1) + 1;
+        var map = "    SEQ_MAP( 0,         SEQ_DEMO_SHUTTLE,   shuttle )\r\n";
+        var want = text[..a0] + text[a1..];
+        check(want.Contains(map), "대응표 줄 글자");
+        want = want.Replace(map, "");
+        check(File.ReadAllBytes(path).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(want)), "저장 바이트 = 그 표·그 대응표 줄만 빠짐(주석·빈 줄 그대로)");
     }
 }

@@ -74,12 +74,25 @@ public static class Choices
             case ArgKind.AcsNumber:
                 return "0";
             case ArgKind.FromSensor:
-                var input = For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
-                return $"FROM_SENSOR( {input}, 100 )";
+                return $"FROM_SENSOR( {FirstInput(names)}, 100 )";
+            case ArgKind.InCond or ArgKind.OutCond:
+                return "NO_IN";
+            case ArgKind.XCond:
+                return "X_ALWAYS";
+            case ArgKind.Until:
+                return "UNTIL( NO_IN )";
+            case ArgKind.Any2:
+                return $"ANY2_ON({FirstInput(names)})";
+            case ArgKind.AcsSource:
+                return "STATION0";
+            case ArgKind.StationExpr:
+                return "STATION(0)";
             default:
                 return For(a, names).FirstOrDefault()?.Name ?? "0";
         }
     }
+
+    static string FirstInput(NameDict names) => For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
 
     /// <summary>추가 메뉴 낱말: 머리 이름. 같은 이름에 꼴이 여럿이면 꼴을 가르는 낱말을 붙인다(<see cref="ActionForms.Word"/>).</summary>
     public static string MenuText(GrammarEntry e)

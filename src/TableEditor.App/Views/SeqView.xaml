@@ -4,7 +4,7 @@
              xmlns:v="clr-namespace:TableEditor.App.Views"
              xmlns:vm="clr-namespace:TableEditor.App.ViewModels"
              xmlns:chk="clr-namespace:TableEditor.Engine.Check;assembly=TableEditor.Engine">
-    <!-- 시퀀스(사양 9.2절, 1차): 왼쪽 나무 + 가운데 스텝 블록 목록. 숫자·시간 칸만 아래 선택 줄에서 고친다 -->
+    <!-- 시퀀스(사양 9.2절): 왼쪽 나무 + 가운데 스텝 블록 목록. 칸은 아래 선택 줄에서, 스텝 추가·바꾸기·삭제·끌기, 표 추가·삭제 -->
     <UserControl.Resources>
         <DataTemplate x:Key="NodeT" DataType="vm:TreeItemVm">
             <Grid x:Name="Row" Height="{StaticResource TreeRowHeight}" Background="Transparent">
@@ -49,7 +49,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="StepT" DataType="vm:StepRowVm">
-            <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent">
+            <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent" AllowDrop="True" Drop="OnRowDrop">
                 <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
                 <Border x:Name="Side" Width="{StaticResource Bar.W}" HorizontalAlignment="Left"/>
                 <Grid Margin="{StaticResource Pad.RowRight}">
@@ -59,6 +59,10 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="{StaticResource Col.State}"/>
                     </Grid.ColumnDefinitions>
+                    <Border x:Name="Grip" Background="Transparent" Cursor="SizeAll" PreviewMouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove" ToolTip="끌기">
+                        <Rectangle Width="{StaticResource Grip.W}" Height="{StaticResource Grip.H}" Fill="{StaticResource GripDots}"
+                                   HorizontalAlignment="Left" Margin="{StaticResource Grip.Margin}"/>
+                    </Border>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="{StaticResource TextRight8}">
                         <Ellipse Width="{StaticResource ChangeDot}" Height="{StaticResource ChangeDot}" Fill="{StaticResource Accent}" Margin="{StaticResource Gap.R4}"
                                  VerticalAlignment="Center" Visibility="{Binding IsChanged, Converter={StaticResource Shown}}"/>
@@ -142,7 +146,10 @@
             <v:FilterBar DockPanel.Dock="Left" DataContext="{Binding Filter}" Label="호기"/>
             <TextBlock DockPanel.Dock="Left" Text="표" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.Group}"/>
             <TextBlock DockPanel.Dock="Left" Text="{Binding TableTitle}" Style="{StaticResource T.Mono}" FontSize="{StaticResource Fs.Tag}" FontWeight="{StaticResource Semi}"/>
-            <TextBlock DockPanel.Dock="Right" Text="{Binding StepCount}" Style="{StaticResource T.Faint}"/>
+            <Button DockPanel.Dock="Right" Content="추가" Style="{StaticResource Btn.Outline}" Command="{Binding AddStep}"/>
+            <Button DockPanel.Dock="Right" Content="표 삭제" Style="{StaticResource Btn}" Command="{Binding DeleteTable}" Margin="{StaticResource Gap.R8}"/>
+            <Button DockPanel.Dock="Right" Content="표 추가" Style="{StaticResource Btn}" Command="{Binding AddTable}" Margin="{StaticResource Gap.R8}"/>
+            <TextBlock DockPanel.Dock="Right" Text="{Binding StepCount}" Style="{StaticResource T.Faint}" Margin="{StaticResource Gap.R12}"/>
         </DockPanel>
 
         <Grid Grid.Row="1" Height="{StaticResource HeadHeight}">
@@ -169,13 +176,18 @@
                      ItemTemplate="{StaticResource NodeT}" SelectedItem="{Binding Node}" AutomationProperties.Name="시퀀스 나무"/>
         </Border>
         <ListBox x:Name="StepList" Grid.Row="2" Grid.Column="1" Style="{StaticResource Rows}" ItemContainerStyle="{StaticResource RowItem}"
-                 ItemsSource="{Binding Steps}" ItemTemplate="{StaticResource StepT}" SelectedItem="{Binding SelectedStep}" AutomationProperties.Name="스텝"/>
+                 ItemsSource="{Binding Steps}" ItemTemplate="{StaticResource StepT}" SelectedItem="{Binding SelectedStep}" AutomationProperties.Name="스텝"
+                 AllowDrop="True" Drop="OnListDrop" PreviewKeyDown="OnStepsKey"/>
         <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="표 없음" Style="{StaticResource T.Empty}" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}}"/>
 
         <Border Grid.Row="3" Grid.ColumnSpan="2" Background="{StaticResource Well}" BorderBrush="{StaticResource Line2}" BorderThickness="{StaticResource Bd.Top}"
                 Padding="{StaticResource Pad.Detail}" Visibility="{Binding HasStep, Converter={StaticResource Shown}}">
             <StackPanel>
                 <DockPanel Height="{StaticResource SmallButtonHeight}" Margin="{StaticResource Gap.B8}">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="명령 바꾸기" Style="{StaticResource Btn.Small}" Command="{Binding ChangeStep}" Margin="{StaticResource Gap.R8}"/>
+                        <Button Content="삭제" Style="{StaticResource Btn.Small}" Command="{Binding DeleteStep}"/>
+                    </StackPanel>
                     <TextBlock Style="{StaticResource T.Label}">
                         <Run Text="{Binding DetailTitle, Mode=OneWay}"/><Run Text="{Binding DetailHead, Mode=OneWay}" FontWeight="{StaticResource Semi}" Foreground="{StaticResource Text}"/>
                     </TextBlock>

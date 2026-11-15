@@ -6,7 +6,8 @@ namespace TableEditor.App;
 
 /// <summary>
 /// 자체 시험의 화면 손질 단계: 동작 위치(TAPE) 고르기, 시퀀스 검색, 두 번 누르기 이동, 표 안 칸 편집, 프로파일 구분. 앞 단계가 저장까지 마친 뒤(변경 0)에 돈다.
-/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png, tag_chips.png.
+/// 캡처: seq_search.png, tag_cell.png, tag_cell_error.png, profile_look.png, profile_seq.png, tag_chips.png,
+/// seq_add.png, seq_label_block.png, seq_chips.png, seq_table_add.png, seq_delete_block.png.
 /// </summary>
 public sealed partial class SelfTest
 {
@@ -163,6 +164,107 @@ public sealed partial class SelfTest
         saved = await vm.SaveAsync();
         await Idle();
         Check(saved && File.ReadAllBytes(Path.Combine(site, "tag_table.c")).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(want)), "저장 바이트 = 그 칸만 1 → 0");
+
+        await SeqEditing();
+    }
+
+    /// <summary>시퀀스 구조 편집: 스텝 추가·바꾸기·끌기·지우기, 라벨·표 참조 막힘, 켬/끔, 표 추가·지우기, 저장 바이트.</summary>
+    async Task SeqEditing()
+    {
+        var S = vm.Seq;
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        S.SelectTable("belt_unload");
+        await Idle();
+        var seqOrig = Text("seq_table.c");
+        int changes = vm.ChangeCount;
+
+        Step("시퀀스 스텝: 추가(분류·명령 팝업) → 명령 바꾸기 → 끝으로 끌기 → 라벨 막힘 → 삭제 = 원문 그대로");
+        S.SelectStep(S.Steps.First(r => r.Ordinal == 1), true);
+        var (add, addDone) = await Open<StepVm>(() => S.AddStepAsync());
+        Check(add.Categories.Contains("대기") && add.Categories.Contains("출력"), $"분류 {string.Join("/", add.Categories)}");
+        Check(!add.Categories.SelectMany(c => { add.Category = c; return add.Commands; }).Any(c => c.Entry.Place != TableEditor.Engine.Grammar.Place.Step), "스텝 줄만");
+        add.Category = "대기";
+        add.Command = add.Commands.First(c => c.Entry.Name == "DELAY");
+        Check(add.Preview == "DELAY( 100 )", $"미리 보기 {add.Preview}");
+        await Shot("seq_add.png");
+        add.Ok.Execute(null);
+        await addDone;
+        await Idle();
+        Check(S.SelectedStep?.Block.Head == "지연" && S.SelectedStep.Ordinal == 2 && Diff(seqOrig, Text("seq_table.c")) == (0, 1) && vm.ErrorCount == 0,
+            $"2줄에 지연 ({S.SelectedStep?.Ordinal}, {Diff(seqOrig, Text("seq_table.c"))}, {vm.ErrorCount})");
+        var (chg, chgDone) = await Open<StepVm>(() => S.ChangeStepAsync());
+        Check(chg.Category == "대기" && chg.Command.Entry.Name == "DELAY", "지금 명령 골라 둠");
+        chg.Command = chg.Commands.First(c => c.Entry.Name == "WAIT_STABLE");
+        Check(chg.Preview == "WAIT_STABLE( NO_IN, 100 )", $"시간 옮김 {chg.Preview}");
+        chg.Ok.Execute(null);
+        await chgDone;
+        await Idle();
+        Check(S.SelectedStep?.Piece.Text.Trim() == "WAIT_STABLE( NO_IN, 100 )" && vm.ErrorCount == 0, $"바꿈 ({S.SelectedStep?.Piece.Text.Trim()})");
+        S.MoveStep(S.SelectedStep!, null);
+        await Idle();
+        Check(S.Steps.Last(r => r.Ordinal > 0).Block.Head == "안정 대기" && S.SelectedStep?.Block.Head == "안정 대기", "끝으로 끌기");
+        S.SelectStep(S.Steps.First(r => r.Label == "RUN"), true);
+        var (ask, askDone) = await Open<AskVm>(() => S.DeleteStepAsync());
+        Check(ask.Title == "지울 수 없음" && ask.Lines.Count == 2, $"라벨 RUN 막힘 ({ask.Title})");
+        await Shot("seq_label_block.png");
+        ask.Close("ok");
+        await askDone;
+        Check(vm.ChangeCount == changes + 3, $"변경 3 ({vm.ChangeCount - changes})");
+        S.SelectStep(S.Steps.Last(r => r.Ordinal > 0), true);
+        await S.DeleteStepAsync();
+        await Idle();
+        Check(Text("seq_table.c") == seqOrig && vm.ChangeCount == changes + 4, "지우니 원문 그대로");
+
+        Step("시퀀스 켬/끔: 회전 자동 출발 OFF → ON(원문 0 → 1)");
+        S.SelectTable("box_turn_unload");
+        var turn = S.Steps.First(r => r.Block.Head == "회전");
+        Check(turn.Block.Parts.Any(p => p.Value == "OFF" && p.On == false), "칩 OFF");
+        S.SelectStep(turn, true);
+        var au = S.Fields.First(f => f.Label == "자동 출발");
+        Check(au.IsList && au.Text == "OFF", "ON·OFF 드롭다운");
+        au.Picked = au.Items!.Cast<Choice>().First(c => c.Name == "ON");
+        await Idle();
+        Check(Text("seq_table.c").Contains("AGV_TURN( CW,  10, 0, 1, 0, ALIGN )") && Diff(seqOrig, Text("seq_table.c")) == (1, 1), "원문 1");
+        await Shot("seq_chips.png");
+
+        Step("시퀀스 표: 추가 → belt_load 지우기 막힘 → 새 표 지우기(확인 팝업, 기본 취소) → 다시 추가 → 저장 바이트");
+        async Task AddTable(string name)
+        {
+            var (tb, tbDone) = await Open<SeqTableVm>(() => S.AddTableAsync());
+            tb.Name = name;
+            tb.Profile = "PF_BOX";
+            tb.Id = "SEQ_LOAD";
+            if (name == "demo_new") await Shot("seq_table_add.png");
+            tb.Ok.Execute(null);
+            await tbDone;
+            await Idle();
+        }
+        await AddTable("demo_new");
+        Check(S.SelectedTable == "demo_new" && S.Steps.Count == 1 && vm.ErrorCount == 0 && vm.Site!.SeqMap.Any(m => m.Table == "demo_new"), $"새 표·대응표 ({S.SelectedTable}, {vm.ErrorCount})");
+        S.SelectTable("belt_load");
+        var (blk, blkDone) = await Open<AskVm>(() => S.DeleteTableAsync());
+        Check(blk.Title == "지울 수 없음", $"참조 막힘 ({blk.Title}: {string.Join(" / ", blk.Lines)})");
+        await Shot("seq_delete_block.png");
+        blk.Close("ok");
+        await blkDone;
+        S.SelectTable("demo_new");
+        var (cf, cfDone) = await Open<AskVm>(() => S.DeleteTableAsync());
+        Check(cf.Title == "표 삭제" && cf.Buttons.First(b => b.Default).Key == "cancel", "확인 팝업·기본 취소");
+        cf.Close("cancel");
+        await cfDone;
+        Check(vm.Site!.Seqs.Any(t => t.Name == "demo_new"), "취소면 그대로");
+        (cf, cfDone) = await Open<AskVm>(() => S.DeleteTableAsync());
+        cf.Close("delete");
+        await cfDone;
+        await Idle();
+        Check(!vm.Site!.Seqs.Any(t => t.Name == "demo_new") && !vm.Site.SeqMap.Any(m => m.Table == "demo_new") && Diff(seqOrig, Text("seq_table.c")) == (1, 1), "표·대응표 줄 지움");
+        await AddTable("demo_new2");
+        var bytes = vm.Site!.File("seq_table.c")!.ToBytes();
+        bool saved = await vm.SaveAsync();
+        await Idle();
+        var disk = File.ReadAllBytes(Path.Combine(site, "seq_table.c"));
+        Check(saved && disk.AsSpan().SequenceEqual(bytes) && Diff(seqOrig, System.Text.Encoding.UTF8.GetString(disk)) == (1, 6),
+            $"저장 바이트 = 편집본, 원문과 차이 (1, 6) {Diff(seqOrig, System.Text.Encoding.UTF8.GetString(disk))}");
     }
 
     /// <summary>머리 줄에 보이는 표 안 칸 편집기 수.</summary>

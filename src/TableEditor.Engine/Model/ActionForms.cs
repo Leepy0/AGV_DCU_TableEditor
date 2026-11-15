@@ -14,14 +14,23 @@ public static class ActionForms
     public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e) =>
         GrammarTable.Find(e.Name, e.Place).Where(r => r.TagCells > 0 || e.Place != Place.TagAction).ToList();
 
-    /// <summary>꼴을 가르는 낱말: 고정 낱말 하나(TAPE), 단위(cm), 센서. 없으면 빈 글자(바로).</summary>
-    public static string Word(GrammarEntry e) => string.Join(" ", e.Args.Select(a => a.Kind switch
+    /// <summary>
+    /// 꼴을 가르는 낱말: 같은 이름의 모든 꼴에 있는 칸은 빼고 남은 칸마다 고정 낱말 하나(TAPE), 단위(cm), 센서, 아니면 칸 라벨.
+    /// 없으면 빈 글자(바로). 예: SEQ_START = 바로·cm·TAPE·TAPE_GD, BELT_ON = 바로·정지 조건, AGV_MOVE = 바로·옵션.
+    /// </summary>
+    public static string Word(GrammarEntry e)
     {
-        ArgKind.Word when a.Words is { Count: 1 } w => w[0],
-        ArgKind.FromSensor => "센서",
-        ArgKind.Number or ArgKind.StopDist when a.Unit.Length > 0 => a.Unit,
-        _ => null,
-    }).OfType<string>().Distinct());
+        var forms = Of(e);
+        static string Key(ArgSpec a) => $"{a.Kind}|{a.Unit}|{string.Join(",", a.Words ?? [])}";
+        var shared = forms.Count < 2 ? [] : forms.Select(f => f.Args.Select(Key).ToHashSet()).Aggregate((x, y) => { x.IntersectWith(y); return x; });
+        return string.Join(" ", e.Args.Where(a => !shared.Contains(Key(a))).Select(a => a.Kind switch
+        {
+            ArgKind.Word when a.Words is { Count: 1 } w => w[0],
+            ArgKind.FromSensor => "센서",
+            ArgKind.Number or ArgKind.StopDist when a.Unit.Length > 0 => a.Unit,
+            _ => a.Label.Length > 0 ? a.Label : null,
+        }).OfType<string>().Distinct());
+    }
 
     /// <summary>
     /// from 꼴의 인자들을 to 꼴 글자로: 같은 종류 칸(숫자·거리는 단위가 같으면 같은 칸)의 인자는 그대로 옮기고, 없는 칸은 fill 로 채운다.

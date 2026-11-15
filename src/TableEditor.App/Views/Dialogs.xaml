@@ -420,6 +420,89 @@
         </Border>
     </DataTemplate>
 
+    <!-- 시퀀스 스텝 추가·명령 바꾸기: 분류 → 명령 → 미리 보기 (태그 추가 팝업과 같은 줄 꼴) -->
+    <DataTemplate DataType="{x:Type vm:StepVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Frow.Label}"/>
+                        <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="분류" Style="{StaticResource FrowLabel}"/>
+                    <ComboBox Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
+                              ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" AutomationProperties.Name="분류"/>
+                    <TextBlock Grid.Row="1" Text="명령" Style="{StaticResource FrowLabel}"/>
+                    <ComboBox Grid.Row="1" Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
+                              ItemsSource="{Binding Commands}" SelectedItem="{Binding Command}" AutomationProperties.Name="명령"/>
+                    <TextBlock Grid.Row="2" Text="미리 보기" Style="{StaticResource FrowLabel}"/>
+                    <Border Grid.Row="2" Grid.Column="2" Height="{StaticResource CodeHeight}" Background="{StaticResource Code}" CornerRadius="{StaticResource R.4}"
+                            Padding="{StaticResource Pad.Box}">
+                        <TextBlock Text="{Binding Preview}" FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </Border>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
+                        <Button Content="{Binding OkText}" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}" Tag="{StaticResource True}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- 시퀀스 표 추가: 이름 + 대응표 줄(프로파일, 시퀀스 ID) -->
+    <DataTemplate DataType="{x:Type vm:SeqTableVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Frow.Label}"/>
+                        <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="이름" Style="{StaticResource FrowLabel}"/>
+                    <TextBox Grid.Column="2" Style="{StaticResource EditBox}" FontFamily="{StaticResource Mono}" Margin="{StaticResource Gap.B16}"
+                             Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="이름" Tag="{StaticResource True}">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Enter" Command="{Binding Ok}"/>
+                        </TextBox.InputBindings>
+                    </TextBox>
+                    <TextBlock Grid.Row="1" Text="프로파일" Style="{StaticResource FrowLabel}"/>
+                    <ComboBox Grid.Row="1" Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
+                              ItemsSource="{Binding Profiles}" SelectedItem="{Binding Profile}" AutomationProperties.Name="프로파일"/>
+                    <TextBlock Grid.Row="2" Text="시퀀스 ID" Style="{StaticResource FrowLabel}"/>
+                    <ComboBox Grid.Row="2" Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}"
+                              ItemsSource="{Binding Ids}" SelectedItem="{Binding Id}" AutomationProperties.Name="시퀀스 ID"/>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
+                        <Button Content="추가" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
     <!-- 이름 하나 -->
     <DataTemplate DataType="{x:Type vm:NameVm}">
         <Border Style="{StaticResource DialogCard}">
