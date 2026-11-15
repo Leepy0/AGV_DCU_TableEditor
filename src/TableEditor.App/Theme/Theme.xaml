@@ -77,7 +77,7 @@
     <SolidColorBrush x:Key="Cat.회전" Color="#7A56C2"/>
     <SolidColorBrush x:Key="Cat.분기" Color="#2A9FC9"/>
     <SolidColorBrush x:Key="Cat.보고" Color="#3D8F4F"/>
-    <SolidColorBrush x:Key="Cat.장애물" Color="#8A6A4A"/>
+    <SolidColorBrush x:Key="Cat.장애물 감지" Color="#8A6A4A"/>
     <SolidColorBrush x:Key="Cat.기타" Color="#9A9A9A"/>
     <SolidColorBrush x:Key="Cat.출력" Color="#2F6FB5"/>
     <SolidColorBrush x:Key="Cat.벨트" Color="#0F8A8A"/>
@@ -849,7 +849,7 @@
         <sys:String>Cat.속도·방향</sys:String>
         <sys:String>Cat.회전</sys:String>
         <sys:String>Cat.보고</sys:String>
-        <sys:String>Cat.장애물</sys:String>
+        <sys:String>Cat.장애물 감지</sys:String>
         <sys:String>Cat.분기</sys:String>
         <sys:String>Cat.정지</sys:String>
         <sys:String>Cat.기타</sys:String>
