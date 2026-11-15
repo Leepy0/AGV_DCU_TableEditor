@@ -18,6 +18,7 @@ static class UxTests
         Seq(root);
         Guards(root);
         Refs(root);
+        Followups();
     }
 
     /// <summary>fixture 를 임시 앱 폴더(app/site/T900_DEMO)로 바이트째 복사한다(저장 시험).</summary>
@@ -291,5 +292,34 @@ static class UxTests
         var actVal = site.Names.Find("ACT_DEMO_BELT")!.Value!.Value;
         var e = SeqEdit.TableUses(With(("tag_table.c", tag.Replace(obs, $"TAG ( 27,  ANY_PROFILE,  ACT_START( {actVal} ) )"))), "belt2_run_5s");
         check(e.Blocking.Any(x => x.Text.Contains($"ACT_START( {actVal} )")), "(e) 숫자 ACT 번호 값으로 막음");
+    }
+
+    /// <summary>재검토: 머리 주석 여러 조각·앞 표 꼬리 주석(바이트), 분기 짝 깊이, 원문 줄 뒤에 넣기.</summary>
+    static void Followups()
+    {
+        var utf8 = new System.Text.UTF8Encoding(false);
+        Site S(string t) => Site.FromFiles([SourceFile.Parse("seq_table.c", utf8.GetBytes(t))]);
+        bool Same(EditResult r, string want) => r.Ok && r.Site!.File("seq_table.c")!.ToBytes().AsSpan().SequenceEqual(utf8.GetBytes(want));
+
+        const string head = "SEQ_LABELS( A )\n\nSEQ_BEGIN( t1 )\n    END_STOP\nSEQ_END\n/* t1 꼬리 */\nSEQ_BEGIN( t2 )\n    END_STOP\nSEQ_END\n";
+        const string tail = "\n/* 머리 1 */\n/* 머리 2 */\nSEQ_BEGIN( t3 )\n    END_STOP\nSEQ_END\n";
+        var site = S(head + tail);
+        check(Same(SeqEdit.DeleteTable(site, "t3"), head + "\n"), "(3) 이어 붙은 머리 주석 모두 지움(바이트)");
+        check(Same(SeqEdit.DeleteTable(site, "t2"), "SEQ_LABELS( A )\n\nSEQ_BEGIN( t1 )\n    END_STOP\nSEQ_END\n/* t1 꼬리 */\n" + tail),
+            "(4) 앞 표 끝에 붙은 꼬리 주석은 남김(바이트)");
+
+        var nest = S("SEQ_LABELS( A )\nSEQ_BEGIN( t )\n    SELECT_BEGIN\n    SELECT_BEGIN\n    SELECT_END\n    SELECT_END\n    END_STOP\nSEQ_END\n");
+        var z = nest.Seqs[0].Zone;
+        var st = z.Statements;
+        check(ReferenceEquals(SeqEdit.SelectPartner(z, st[0]), st[3]) && ReferenceEquals(SeqEdit.SelectPartner(z, st[1]), st[2])
+            && ReferenceEquals(SeqEdit.SelectPartner(z, st[3]), st[0]), "(2) 분기 짝 깊이");
+        var broken = S("SEQ_LABELS( A )\nSEQ_BEGIN( t )\n    SELECT_BEGIN\n    SELECT_BEGIN\n    SELECT_END\n    END_STOP\nSEQ_END\n");
+        check(SeqEdit.SelectPartner(broken.Seqs[0].Zone, broken.Seqs[0].Zone.Statements[0]) == null, "(2) 짝 없음 = null");
+
+        var raw = S("SEQ_LABELS( A )\nSEQ_BEGIN( t )\n    OUT_ON( /* x */ O1 )\n    END_STOP\nSEQ_END\n");
+        var rz = raw.Seqs[0].Zone;
+        var rawPiece = rz.Body.First(p => p.Kind == PieceKind.Raw);
+        check(Same(SiteEdit.InsertAfter(raw, rz, rawPiece, [new NewStatement("DELAY", ["100"])]),
+            "SEQ_LABELS( A )\nSEQ_BEGIN( t )\n    OUT_ON( /* x */ O1 )\n    DELAY( 100 )\n    END_STOP\nSEQ_END\n"), "(5) 원문 줄 뒤에 넣기(바이트)");
     }
 }

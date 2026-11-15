@@ -45,6 +45,20 @@ public static class SeqEdit
 
     static System.Text.RegularExpressions.Regex Token(string name) => new($@"(?<![A-Za-z0-9_]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9_])");
 
+    /// <summary>분기 시작·끝의 짝: 깊이를 세어 찾는다. 짝이 없으면(깨진 표) null = 그 줄 하나만.</summary>
+    public static Statement? SelectPartner(ZoneBlock z, Statement st)
+    {
+        var list = z.Statements.ToList();
+        int i = list.IndexOf(st), step = st.Name == "SELECT_BEGIN" ? 1 : -1, depth = 0;
+        string open = st.Name, close = st.Name == "SELECT_BEGIN" ? "SELECT_END" : "SELECT_BEGIN";
+        for (int k = i + step; k >= 0 && k < list.Count; k += step)
+        {
+            if (list[k].Name == open) depth++;
+            else if (list[k].Name == close && depth-- == 0) return list[k];
+        }
+        return null;
+    }
+
     /// <summary>표 하나를 지우면 걸리는 곳. Maps = 같이 지울 대응표 줄, Blocking = 그 표를 시작하는 태그 동작·스텝(막는다), Maybe = 글자로만 찾은 곳(알린다).</summary>
     public sealed record TableRefs(IReadOnlyList<Statement> Maps, IReadOnlyList<Statement> Blocking, IReadOnlyList<Piece> Maybe);
 
@@ -109,7 +123,11 @@ public static class SeqEdit
         var sp = new Splice(site);
         var ps = zone.File.Pieces;
         int b = IndexOf(ps, zone.Begin), e = IndexOf(ps, zone.End);
-        if (b > 0 && ps[b - 1].Kind == PieceKind.Comment) sp.Delete(ps[--b]);
+        // 머리 주석: 빈 줄 없이 이어 붙은 주석 조각 모두. 그 주석 묶음이 앞 표 끝 표지에 바로 붙었으면 앞 표의 꼬리라 남긴다
+        int top = b;
+        while (top > 0 && ps[top - 1].Kind == PieceKind.Comment) top--;
+        if (top < b && !(top > 0 && site.Zones.Any(z => ReferenceEquals(z.End, ps[top - 1]))))
+            for (; b > top; ) sp.Delete(ps[--b]);
         sp.Delete(zone.Begin);
         foreach (var p in zone.Body) sp.Delete(p);
         sp.Delete(zone.End);

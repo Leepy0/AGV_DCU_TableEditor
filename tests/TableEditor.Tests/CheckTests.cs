@@ -75,6 +75,8 @@ static class CheckTests
         yield return ("N-5", E, [new("tag_table.c", "TAG_TABLE_BEGIN( site_tags )", "TAG_TABLE_BEGIN( my_tags )")], "site_tags");
         yield return ("N-7", W, [new("tag_table.c", "AGV_STOP( 30 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 030 ), AGV_AUTOSTART( 5 )")], "앞자리 0 · 030 = 8진 24");
         yield return ("N-7", E, [new("tag_table.c", "AGV_STOP( 30 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 08 ), AGV_AUTOSTART( 5 )")], "앞자리 0 · 08 8진 아님");
+        yield return ("N-7", E, [new("io_map.h", "#define DEMO_LAMP       OUT_LAMP_Y", "#define DEMO_LAMP       OUT_LAMP_Y\n#define D_BAD 09")], "앞자리 0 · 09 8진 아님");
+        yield return ("N-7", W, [new("seq_custom.h", "ST_DEMO_READY = 0,", "ST_DEMO_READY = 010,")], "앞자리 0 · 010 = 8진 8");
         yield return ("N-5", E, [new("io_map.h", "#define DEMO_LAMP       OUT_LAMP_Y", "#define DEMO_LAMP       OUT_LAMP_Y\n#define CW 1")], "코어 이름과 겹침 CW");
         yield return ("P-1", E, [new("profiles.c", "PROFILE( PF_BOX,            0, 30, 39  )", "PROFILE( PF_BOX,            0, 39, 30  )")], "처음 > 끝");
         yield return ("P-1", E, [Profile("PROFILE( PF_BOX, 1000, 40, 120 )")], "범위 밖");

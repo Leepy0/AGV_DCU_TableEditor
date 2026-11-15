@@ -167,6 +167,18 @@ public static class SiteEdit
         return sp.Commit();
     }
 
+    /// <summary>구역 안 조각 after(문장·원문) 바로 뒤에 문장들을 넣는다(원문 블록을 고른 채 추가하면 그 블록 뒤).</summary>
+    public static EditResult InsertAfter(Site site, ZoneBlock zone, Piece after, IReadOnlyList<NewStatement> items)
+    {
+        if (!site.Zones.Contains(zone)) return EditResult.Fail("구역 없음");
+        int body = BodyIndex(zone, after);
+        if (body < 0) return EditResult.Fail("자리 틀림");
+        if (items.Count == 0) return EditResult.Fail("넣을 줄 없음");
+        var sp = new Splice(site);
+        InsertAt(sp, zone, body + 1, items);
+        return sp.Commit();
+    }
+
     internal static void InsertInto(Splice sp, ZoneBlock zone, int index, IReadOnlyList<NewStatement> items)
     {
         if (!sp.Site.Zones.Contains(zone)) { sp.Fail("구역 없음"); return; }

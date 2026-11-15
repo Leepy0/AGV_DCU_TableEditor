@@ -338,8 +338,9 @@ public sealed class SeqVm : BlockHost
         var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names));
         if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
         var e = d.Command.Entry;
-        int index = SelectedStep is { } s ? (s.Ordinal > 0 ? s.Ordinal : SlotOf(s, zone)) : zone.Statements.Count;
-        Main.Apply(SiteEdit.Insert(Site, zone, index, [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())]));
+        List<NewStatement> items = [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())];
+        // 고른 줄(문장·원문) 바로 뒤, 없으면 끝
+        Main.Apply(SelectedStep is { } s && zone.Body.Contains(s.Piece) ? SiteEdit.InsertAfter(Site, zone, s.Piece, items) : SiteEdit.Insert(Site, zone, zone.Statements.Count, items));
     }
 
     /// <summary>명령을 바꾼 줄의 글자(꼬리 주석 확인 표시). 글자가 같은 줄이면 다시 그린 뒤에도 표시가 남는다.</summary>
@@ -379,10 +380,14 @@ public sealed class SeqVm : BlockHost
         // 짝 표지(분기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
         List<Piece> pieces = [row.Piece];
         List<string>? ask = null;
-        if (row.Piece is Statement { Name: "SELECT_BEGIN" or "SELECT_END" } sel && Partner(z, sel) is { } other)
+        if (row.Piece is Statement { Name: "SELECT_BEGIN" or "SELECT_END" } sel)
         {
-            pieces.Add(other);
-            ask = [$"분기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
+            if (SeqEdit.SelectPartner(z, sel) is { } other)
+            {
+                pieces.Add(other);
+                ask = [$"분기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
+            }
+            else ask = [$"{row.Block.Head} · 짝 없음 · {row.Ordinal}줄"];
         }
         else if (row.Piece is Statement end && end.Name.StartsWith("END_", StringComparison.Ordinal) && ReferenceEquals(z.Statements[^1], end))
             ask = [$"끝 줄 · {row.Ordinal}줄 {end.Name}"];
@@ -394,16 +399,6 @@ public sealed class SeqVm : BlockHost
         int gone = pieces.Count(p => p is Statement s2 && z.Ordinal(s2) < nextOrd);
         if (Main.Apply(SiteEdit.Delete(Site, pieces)) && nextOrd > 0)
             SelectStep(Steps.FirstOrDefault(r => r.Ordinal == nextOrd - gone), true);
-    }
-
-    /// <summary>분기 시작의 짝 끝(뒤로 첫 SELECT_END), 분기 끝의 짝 시작(앞으로 첫 SELECT_BEGIN).</summary>
-    static Statement? Partner(ZoneBlock z, Statement st)
-    {
-        var list = z.Statements.ToList();
-        int i = list.IndexOf(st);
-        return st.Name == "SELECT_BEGIN"
-            ? list.Skip(i + 1).FirstOrDefault(x => x.Name == "SELECT_END")
-            : list.Take(i).LastOrDefault(x => x.Name == "SELECT_BEGIN");
     }
 
     /// <summary>줄의 구역 문장 자리: 문장 줄이면 그 앞(순번 - 1), 원문 줄이면 다음 문장 줄 앞(없으면 끝).</summary>
