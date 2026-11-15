@@ -83,6 +83,18 @@ static class UxTests
         var fl = new TagRule(Tag(s, "TAG( 40, PF_CART")).Actions[0];
         check(Switch(s, fl, "cm") == "AGV_STOP( 0 )", "센서 FL → cm 은 FL 안 옮김 " + Switch(s, fl, "cm"));
         check(Switch(s, new TagRule(Tag(s, "TAG ( 8,")).Actions[0], "바로") == "AGV_STOP", "TAPE → 바로");
+
+        // 버려지는 인자(검토 7): 꼴 낱말(TAPE)은 꼴 자체라 세지 않는다
+        IReadOnlyList<string> Drop(Arg act, string w)
+        {
+            var c = act.Node as CallNode;
+            var args = c?.Args ?? [];
+            var from = Facts.Fit(GrammarTable.Find(c?.Name ?? ((NameNode)act.Node).Name, Place.TagAction).Where(r => r.TagCells > 0), args)!;
+            return ActionForms.Dropped(ActionForms.Of(from).First(e => (ActionForms.Word(e) is { Length: > 0 } x ? x : "바로") == w), from, args);
+        }
+        check(Drop(stop30, "TAPE").SequenceEqual(["30"]), "cm → TAPE 는 30 버림");
+        check(Drop(a2, "TAPE_GD").Count == 0 && Drop(a2, "바로").Count == 0, "TAPE → TAPE_GD·바로 는 버릴 것 없음");
+        check(Drop(fl, "cm").SequenceEqual(["FL", "FROM_SENSOR( DEMO_SEN_4, 100 )"]), "센서 → cm 은 FL·FROM_SENSOR 버림 " + string.Join(" | ", Drop(fl, "cm")));
     }
 
     /// <summary>거르기: 태그 화면(태그 번호)과 시퀀스 화면(호기)이 같은 <see cref="RowFilter.Match"/> 를 쓴다.</summary>
