@@ -284,6 +284,25 @@ public sealed class SeqVm : BlockHost
         SelectStep(Steps.FirstOrDefault(), true);
     }
 
+    public bool HasSeq(string id) => allTree.Any(t => t.IsTable && t.Id == id);
+
+    /// <summary>
+    /// 시퀀스 ID 의 표를 고르고 보이게 한다: 그 프로파일 묶음 → 전체 묶음 → 다른 묶음 차례. 거르기에 가려 있으면 거르기를 푼다.
+    /// </summary>
+    public bool SelectSeq(string? profile, string id)
+    {
+        TreeItemVm? Find() => Tree.Where(t => t.IsTable && t.Id == id)
+            .OrderBy(t => t.Group == profile ? 0 : t.Group == TagVm.AllProfiles ? 1 : 2).FirstOrDefault();
+        var hit = Find();
+        if (hit == null && Filter.IsSet) { Filter.Clear(); ShowTree(); hit = Find(); }
+        if (hit == null) return false;
+        ShowTable(hit.Table);
+        node = hit;
+        Raise(nameof(Node));
+        SelectStep(Steps.FirstOrDefault(), true);
+        return true;
+    }
+
     /// <summary>검사 줄에서: 그 조각이 든 표·스텝.</summary>
     public void SelectPiece(Piece p)
     {

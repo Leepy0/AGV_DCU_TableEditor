@@ -6,9 +6,11 @@ using TableEditor.Engine.Text;
 
 namespace TableEditor.App.Blocks;
 
-/// <summary>블록·칩 안의 값 하나. Label = 앞 작은 라벨, Small = 뒤 작은 글(초, 단위).</summary>
+/// <summary>블록·칩 안의 값 하나. Label = 앞 작은 라벨, Small = 뒤 작은 글(초, 단위). Seq = 시퀀스 인자면 그 이름(SEQ_ 뺀 것, 두 번 누르면 시퀀스 화면).</summary>
 public sealed record Part(string? Label, string Value, string? Small)
 {
+    public string? Seq { get; init; }
+
     public override string ToString() => string.Join(" ", new[] { Label, Value, Small }.Where(s => !string.IsNullOrEmpty(s)));
 }
 

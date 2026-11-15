@@ -586,6 +586,14 @@ public sealed partial class MainVm : Observable
         Seq.SelectTable(name);
     }
 
+    /// <summary>태그 동작의 시퀀스 → 시퀀스 화면의 그 시퀀스 ID 표. 대응표에 없으면 화면을 안 바꾸고 false.</summary>
+    public bool GoSeq(string? profile, string id)
+    {
+        if (!Seq.HasSeq(id)) return false;
+        Tab = Tabs.First(t => t.Name == SeqTab);
+        return Seq.SelectSeq(profile, id);
+    }
+
     /// <summary>줄로 간 뒤 화면이 스크롤·포커스를 맞춘다.</summary>
     public event Action<FindingVm>? Went;
 

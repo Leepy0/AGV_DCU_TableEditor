@@ -211,6 +211,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             else if (spec.Unit == "틱") parts.Add(new(null, text, Seconds(names, a.Node)));
             else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(specs, i), text, null));
             else if (SuffixUnits.Contains(spec.Unit) && a.Node is NumberNode) parts.Add(new(null, text, spec.Unit));
+            else if (spec.Kind == ArgKind.SeqShort && a.Node is NameNode) parts.Add(new(null, text, null) { Seq = text });
             else parts.Add(new(null, text, null));
         }
         return parts;

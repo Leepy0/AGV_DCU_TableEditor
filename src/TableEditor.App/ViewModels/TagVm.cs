@@ -311,6 +311,13 @@ public sealed class TagVm : BlockHost
         else DeleteRows();
     }
 
+    /// <summary>동작의 시퀀스 이름을 두 번 누름: 시퀀스 화면의 그 시퀀스(줄의 프로파일 대응표 먼저).</summary>
+    public void OpenSeq(TagRowVm row, string seq)
+    {
+        if (row.Rule == null) return;
+        if (!main.GoSeq(row.IsAny ? null : row.Rule.Profile, "SEQ_" + seq)) main.Notify("없는 시퀀스 " + seq);
+    }
+
     // ---- 줄 ----
 
     void DeleteRows()

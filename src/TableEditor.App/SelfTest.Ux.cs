@@ -74,5 +74,23 @@ public sealed partial class SelfTest
         await Idle();
         Check(Tag.Rows.Count > 0 && Tag.Rows.All(r => r.Covers(40)), "태그 화면도 같은 거르기");
         Tag.Filter.Text = "";
+
+        Step("시퀀스 이름 두 번 누르기: 태그 40 PF_LIFT SEQ_START( TAPE, LOAD ) → lift_load");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        S.Filter.Profile = "PF_BOX"; // 가려 있어도 간다
+        var r40 = Row(40, "PF_LIFT");
+        var seqPart = r40.Blocks[1].Parts.FirstOrDefault(p => p.Seq != null);
+        Check(seqPart?.Seq == "LOAD" && r40.Blocks[0].Parts.All(p => p.Seq == null), $"시퀀스 값 ({seqPart?.Seq})");
+        Tag.OpenSeq(r40, seqPart!.Seq!);
+        await Idle();
+        Check(vm.IsSeqTab && S.SelectedTable == "lift_load" && S.Node?.Table == "lift_load" && S.Node.Group == "PF_LIFT", $"시퀀스 화면 lift_load ({S.SelectedTable}, {S.Node?.Group})");
+        Check(S.SelectedStep == S.Steps.FirstOrDefault() && S.Filter.Profile == TagVm.AllProfiles, "첫 스텝·거르기 풂");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        Tag.OpenSeq(Row(40, "PF_BELT"), "LOAD");
+        Check(S.SelectedTable == "belt_load", $"PF_BELT 줄 → belt_load ({S.SelectedTable})");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        Tag.OpenSeq(Row(40, "PF_BELT"), "NOPE");
+        Check(vm.IsTagTab && vm.Notice?.Contains("NOPE") == true, $"없는 시퀀스는 그대로 ({vm.Notice})");
+        vm.ClearNotice();
     }
 }
