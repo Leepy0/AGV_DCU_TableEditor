@@ -17,6 +17,7 @@ static class UxTests
         Switches(root);
         Seq(root);
         Guards(root);
+        Refs(root);
     }
 
     /// <summary>fixture 를 임시 앱 폴더(app/site/T900_DEMO)로 바이트째 복사한다(저장 시험).</summary>
@@ -159,15 +160,15 @@ static class UxTests
 
         var run = Z(s, "belt_unload").Statements.Single(x => x.Name == "L" && x.Args[0].Text.Trim() == "RUN");
         check(SeqEdit.LabelUses(Z(s, "belt_unload"), run).Count == 1, "라벨 RUN 쓰는 줄 1");
-        check(SeqEdit.TableUses(s, "belt_load").Any(u => u.Name.StartsWith("TAG", StringComparison.Ordinal)), "belt_load: 태그 SEQ_START( LOAD )");
+        check(SeqEdit.TableUses(s, "belt_load").Blocking.Any(u => u.Name.StartsWith("TAG", StringComparison.Ordinal)), "belt_load: 태그 SEQ_START( LOAD )");
         var uses = SeqEdit.TableUses(s, "shuttle");
-        check(uses.Count == 1 && uses[0].Name == "SEQ_MAP", "shuttle: 대응표 1줄만 " + uses.Count);
-        check(SeqEdit.TableUses(s, "belt2_run_5s").Any(u => u.Name == "ACT_START" || u.Name == "WAIT_ACT"), "ACT 표: 스텝 ACT_START·WAIT_ACT");
+        check(uses.Maps.Count == 1 && uses.Blocking.Count == 0 && uses.Maybe.Count == 0, $"shuttle: 대응표 1줄만 ({uses.Maps.Count}, {uses.Blocking.Count}, {uses.Maybe.Count})");
+        check(SeqEdit.TableUses(s, "belt2_run_5s").Blocking.Any(u => u.Name == "ACT_START" || u.Name == "WAIT_ACT"), "ACT 표: 스텝 ACT_START·WAIT_ACT");
 
         var nt = BundleEdit.AddSeqTable(s, "demo_new", "PF_BOX", "SEQ_LOAD");
         var ntErr = nt.Ok ? Checker.Run(nt.Site!).Where(f => f.Severity == Severity.Error).Select(f => f.Text).ToList() : [nt.Error!];
         check(ntErr.Count == 0, "표 추가 오류 0: " + string.Join(", ", ntErr));
-        check(SeqEdit.TableUses(nt.Site!, "demo_new") is { Count: 1 } nu && nu[0].Name == "SEQ_MAP", "PF_BOX SEQ_LOAD 표: 다른 프로파일 태그는 참조 아님");
+        check(SeqEdit.TableUses(nt.Site!, "demo_new") is { Maps.Count: 1, Blocking.Count: 0 }, "PF_BOX SEQ_LOAD 표: 다른 프로파일 태그는 참조 아님");
         var nd = SeqEdit.DeleteTable(nt.Site!, "demo_new");
         check(nd.Ok && nd.Site!.File("seq_table.c")!.ToBytes().AsSpan().SequenceEqual(before), "추가한 표 지우면 바이트 그대로(빈 줄 포함)");
 
@@ -245,5 +246,38 @@ static class UxTests
         var e8 = SiteEdit.SetArg(s8, st8.St, ((CallNode)st8.Actions[1].Node).Args[0], "7");
         check(e8.Ok && e8.Site!.File("tag_table.c")!.ToBytes().AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(text.Replace("AGV_STOP( 030 ), AGV_AUTOSTART( 5 )", "AGV_STOP( 030 ), AGV_AUTOSTART( 7 )"))),
             "옆 칸 고쳐도 030 글자 그대로(바이트)");
+    }
+
+    /// <summary>표 참조(검토 2): 함수 꼴 별칭·원문 태그 줄은 알림, 식 ID·숫자 프로파일·숫자 ACT 번호는 값으로 막음.</summary>
+    static void Refs(string root)
+    {
+        var fix = Path.Combine(root, "tests", "fixtures", "T900_DEMO");
+        var utf8 = new System.Text.UTF8Encoding(false);
+        var files = Directory.GetFiles(fix).Select(p => SourceFile.Parse(Path.GetFileName(p), File.ReadAllBytes(p))).ToList();
+        var tag = files.Single(f => f.Name == "tag_table.c").ToText();
+        var seq = files.Single(f => f.Name == "seq_table.c").ToText();
+        Site With(params (string Name, string Text)[] repl) => Site.FromFiles(files.Select(f => repl.FirstOrDefault(r => r.Name == f.Name) is { Name: not null } r ? SourceFile.Parse(f.Name, utf8.GetBytes(r.Text)) : f));
+        const string obs = "TAG ( 27,  ANY_PROFILE,  OBS_OFF )";
+        check(tag.Contains(obs) && tag.Contains("#define CALL_T(n)"), "fixture 글");
+
+        // (a) 함수 꼴 별칭
+        var a = SeqEdit.TableUses(With(("tag_table.c", tag.Replace("#define CALL_T(n)", "#define SEQ_T(n)       SEQ_START( n )\n#define CALL_T(n)")
+            .Replace(obs, "TAG ( 27,  ANY_PROFILE,  SEQ_T( DEMO_SHUTTLE ) )"))), "shuttle");
+        check(a.Maybe.Any(p => p.Text.Contains("SEQ_T( DEMO_SHUTTLE )")), "(a) 함수 꼴 별칭 → 확인 필요");
+        // (b) 인자 안 주석으로 원문인 태그 줄
+        var b = SeqEdit.TableUses(With(("tag_table.c", tag.Replace(obs, "TAG ( 27,  ANY_PROFILE,  /* 셔틀 */ SEQ_START( DEMO_SHUTTLE ) )"))), "shuttle");
+        check(b.Maybe.Any(p => p.Kind == PieceKind.Raw && p.Text.Contains("DEMO_SHUTTLE")), "(b) 원문 태그 줄 → 확인 필요");
+        // (c) 대응표 ID 를 식으로
+        var c = SeqEdit.TableUses(With(("seq_table.c", seq.Replace("SEQ_MAP( 0,         SEQ_DEMO_SHUTTLE,   shuttle )", "SEQ_MAP( 0,         SEQ_SITE_BASE + 1,  shuttle )")),
+            ("tag_table.c", tag.Replace(obs, "TAG ( 27,  ANY_PROFILE,  SEQ_START( DEMO_SHUTTLE ) )"))), "shuttle");
+        check(c.Blocking.Count == 1, "(c) 식 ID 값으로 막음 " + c.Blocking.Count);
+        // (d) 태그 프로파일 숫자(PF_BOX = 4)
+        var dd = SeqEdit.TableUses(With(("tag_table.c", tag.Replace("TAG( 41, PF_BOX,    SEQ_START( DEMO_TURN ) )", "TAG( 41, 4,    SEQ_START( DEMO_TURN ) )"))), "box_turn_unload");
+        check(dd.Blocking.Count == 1, "(d) 숫자 프로파일 값으로 막음 " + dd.Blocking.Count);
+        // (e) ACT 번호 숫자
+        var site = Site.FromFiles(files);
+        var actVal = site.Names.Find("ACT_DEMO_BELT")!.Value!.Value;
+        var e = SeqEdit.TableUses(With(("tag_table.c", tag.Replace(obs, $"TAG ( 27,  ANY_PROFILE,  ACT_START( {actVal} ) )"))), "belt2_run_5s");
+        check(e.Blocking.Any(x => x.Text.Contains($"ACT_START( {actVal} )")), "(e) 숫자 ACT 번호 값으로 막음");
     }
 }

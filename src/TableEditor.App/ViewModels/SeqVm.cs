@@ -355,7 +355,7 @@ public sealed class SeqVm : BlockHost
         if (SelectedStep is not { } row || Zone is not { } z) return;
         if (row.Piece is Statement st && SeqEdit.LabelUses(z, st) is { Count: > 0 } uses)
         {
-            await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(u => $"{z.Ordinal(u)}줄 {BlockBuilder.Collapse(u.Text)}")], OkOnly));
+            await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(At)], OkOnly));
             return;
         }
         var next = Steps.SkipWhile(r => !ReferenceEquals(r, row)).Skip(1).FirstOrDefault(r => r.Ordinal > 0);
@@ -386,23 +386,26 @@ public sealed class SeqVm : BlockHost
 
     /// <summary>
     /// [표 삭제]: 그 표를 시작하는 태그 동작·스텝이 있으면 팝업으로 막는다. 없으면 확인 팝업(기본 취소) 뒤 표와 그 대응표 줄을 지운다.
+    /// 글자로만 찾은 곳(원문 줄·함수 꼴 별칭 등)은 확인 팝업에 "확인 필요" 줄 수와 자리를 보인다.
     /// </summary>
     public async Task DeleteTableAsync()
     {
         if (Zone is not { } z) return;
-        var uses = SeqEdit.TableUses(Site, z.Name);
-        int maps = uses.Count(u => u.Name is "SEQ_MAP" or "ACT_MAP");
-        var others = uses.Where(u => u.Name is not ("SEQ_MAP" or "ACT_MAP")).ToList();
-        if (others.Count > 0)
+        var refs = SeqEdit.TableUses(Site, z.Name);
+        if (refs.Blocking.Count > 0)
         {
-            await Main.Show(new AskVm("지울 수 없음", [$"표 {z.Name} · 시작하는 줄 {others.Count}", .. others.Select(u => BlockBuilder.Collapse(u.Text))], OkOnly));
+            await Main.Show(new AskVm("지울 수 없음", [$"표 {z.Name} · 시작하는 줄 {refs.Blocking.Count}", .. refs.Blocking.Select(At)], OkOnly));
             return;
         }
-        var ask = new AskVm("표 삭제", [$"표 {z.Name} · 스텝 {z.Statements.Count}", $"대응표 {maps}줄"],
-            [new AskButton("cancel", "취소", Default: true), new AskButton("delete", "삭제", Primary: true)]);
+        List<string> lines = [$"표 {z.Name} · 스텝 {z.Statements.Count}", $"대응표 {refs.Maps.Count}줄"];
+        if (refs.Maybe.Count > 0) lines = [.. lines, $"확인 필요 {refs.Maybe.Count}줄", .. refs.Maybe.Select(At)];
+        var ask = new AskVm("표 삭제", lines, [new AskButton("cancel", "취소", Default: true), new AskButton("delete", "삭제", Primary: true)]);
         if (await Main.Show(ask) != "delete") return;
         if (Main.Apply(SeqEdit.DeleteTable(Site, z.Name)) && Tree.FirstOrDefault(t => t.IsTable)?.Table is { } first) SelectTable(first);
     }
+
+    /// <summary>팝업 한 줄: 파일 n줄 · 첫 줄 글.</summary>
+    string At(Piece p) => $"{Site.FileOf(p).Name} {p.StartLine}줄 · {BlockBuilder.FirstLine(p.Text)}";
 
     /// <summary>검사 줄에서: 그 조각이 든 표·스텝.</summary>
     public void SelectPiece(Piece p)

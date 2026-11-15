@@ -31,29 +31,70 @@ public static class SeqEdit
         return sp.Commit();
     }
 
-    /// <summary>라벨 줄 <c>L( 이름 )</c> 을 지우면 끊기는 곳: 같은 표 안에서 그 라벨을 쓰는 문장.</summary>
-    public static IReadOnlyList<Statement> LabelUses(ZoneBlock zone, Statement label)
+    /// <summary>
+    /// 라벨 줄 <c>L( 이름 )</c> 을 지우거나 바꾸면 끊기는 곳: 같은 표 안에서 그 라벨을 쓰는 문장, 그리고 그 이름 글자가 든 원문 조각.
+    /// </summary>
+    public static IReadOnlyList<Piece> LabelUses(ZoneBlock zone, Statement label)
     {
         if (label.Name != "L" || label.Args.Count == 0) return [];
         var name = label.Args[0].Text.Trim();
-        return zone.Statements.Where(s => !ReferenceEquals(s, label) && s.Args.Any(a => a.Node.Names().Contains(name))).ToList();
+        return zone.Body.Where(p => !ReferenceEquals(p, label) && (p is Statement s
+            ? s.Args.Any(a => a.Node.Names().Contains(name))
+            : p.Kind == PieceKind.Raw && Token(name).IsMatch(p.Text))).ToList();
     }
 
+    static System.Text.RegularExpressions.Regex Token(string name) => new($@"(?<![A-Za-z0-9_]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9_])");
+
+    /// <summary>표 하나를 지우면 걸리는 곳. Maps = 같이 지울 대응표 줄, Blocking = 그 표를 시작하는 태그 동작·스텝(막는다), Maybe = 글자로만 찾은 곳(알린다).</summary>
+    public sealed record TableRefs(IReadOnlyList<Statement> Maps, IReadOnlyList<Statement> Blocking, IReadOnlyList<Piece> Maybe);
+
     /// <summary>
-    /// 표를 지우면 끊기는 곳: 이 표를 가리키는 대응표 줄, 그 대응표 줄의 ID 를 시작하는 태그 동작(<c>SEQ_START</c>·<c>ACT_START</c>,
-    /// 태그 줄과 대응표 줄 가운데 하나가 전체이거나 프로파일이 같은 것)·다른 표의 스텝(<c>ACT_START</c>·<c>WAIT_ACT</c>).
+    /// 표를 지우면 끊기는 곳. ID·프로파일은 글자가 아니라 값으로 견준다(식·숫자로 쓴 ID, 숫자 프로파일).
+    /// Blocking: 그 대응표 줄의 ID 를 시작하는 태그 <c>SEQ_START</c>·<c>ACT_START</c>(태그 줄과 대응표 줄 가운데 하나가 전체이거나 프로파일 값이 같음),
+    /// 다른 표의 <c>ACT_START</c>·<c>WAIT_ACT</c>.
+    /// Maybe: 표 이름·그 ID 값을 가진 이름(<c>SEQ_</c> 뺀 꼴 포함) 글자가 든 원문 조각·<c>#define</c>(함수 꼴 별칭 등)·위 둘이 아닌 칸.
     /// </summary>
-    public static IReadOnlyList<Statement> TableUses(Site site, string table)
+    public static TableRefs TableUses(Site site, string table)
     {
         var maps = site.SeqMap.Concat(site.ActMap).Where(m => m.Table.Trim() == table).ToList();
-        var ids = maps.Select(m => m.Id.Trim()).ToHashSet();
-        static bool Starts(Node n, string id) => n is CallNode c && (c.Name == "SEQ_START" && c.Args.Count > 0 && c.Args[^1].Node is NameNode s && "SEQ_" + s.Name == id
-            || c.Name == "ACT_START" && c.Args.Count == 1 && c.Args[0].Node is NameNode a && a.Name == id);
-        var tags = site.TagRules.Where(r => maps.Any(m => (m.AnyProfile || r.AnyProfile || r.Profile.Trim() == m.Profile.Trim())
-            && r.Actions.Any(a => Starts(a.Node, m.Id.Trim())))).Select(r => r.St);
-        var steps = site.Seqs.Where(t => t.Name != table).SelectMany(t => t.Steps)
-            .Where(s => s.Name is "ACT_START" or "WAIT_ACT" && s.Args.Count == 1 && ids.Contains(s.Args[0].Text.Trim()));
-        return [.. maps.Select(m => m.St), .. tags, .. steps];
+        var zone = site.Zones.FirstOrDefault(z => z.Open is "SEQ_BEGIN" or "ACT_BEGIN" && z.Name == table);
+        long? Val(Arg a) => site.Num(a);
+        bool AnyPf(Arg a) => a.Text.Trim() is "ANY_PROFILE" || Val(a) == 0;
+        var seqIds = maps.Where(m => !m.IsAct).Select(m => (Id: Val(m.St.Args[1]), Map: m)).Where(x => x.Id != null).ToList();
+        var actIds = maps.Where(m => m.IsAct).Select(m => Val(m.St.Args[1])).OfType<long>().ToHashSet();
+
+        bool Starts(Node n, TagRule r) => n is CallNode c && (
+            c.Name == "SEQ_START" && c.Args.Count > 0 && c.Args[^1].Node is NameNode s && site.Names.Find("SEQ_" + s.Name)?.Value is long v
+                && seqIds.Any(x => x.Id == v && (AnyPf(x.Map.St.Args[0]) || AnyPf(r.ProfileArg) || Val(x.Map.St.Args[0]) == Val(r.ProfileArg)))
+            || c.Name == "ACT_START" && c.Args.Count == 1 && Val(c.Args[0]) is long a && actIds.Contains(a));
+        bool Structured(Node n) => n is CallNode { Name: "SEQ_START" or "ACT_START" };
+
+        var blocking = new List<Statement>();
+        blocking.AddRange(site.TagRules.Where(r => r.Actions.Any(a => Starts(a.Node, r))).Select(r => r.St));
+        blocking.AddRange(site.Seqs.Where(t => t.Name != table).SelectMany(t => t.Steps)
+            .Where(s => s.Name is "ACT_START" or "WAIT_ACT" && s.Args.Count == 1 && Val(s.Args[0]) is long a && actIds.Contains(a)));
+
+        // 글자로 찾을 이름: 표 이름 + 그 ID 값을 가진 시퀀스·ACT ID 이름(SEQ_ 뺀 꼴도)
+        var values = seqIds.Select(x => x.Id!.Value).ToHashSet();
+        var names = new HashSet<string>([table]);
+        foreach (var d in site.Names.All.Where(d => d.Kind == NameKind.SeqId && d.Value is long v && values.Contains(v) || d.Kind == NameKind.ActId && d.Value is long w && actIds.Contains(w)))
+        {
+            names.Add(d.Name);
+            if (d.Name.StartsWith("SEQ_", StringComparison.Ordinal)) names.Add(d.Name[4..]);
+        }
+        var defs = site.Names.All.Where(d => names.Contains(d.Name) && d.Def != null).Select(d => d.Def!).ToHashSet<Piece>(ReferenceEqualityComparer.Instance);
+        var skip = new HashSet<Piece>(ReferenceEqualityComparer.Instance);
+        if (zone != null) { skip.Add(zone.Begin); foreach (var p in zone.Body) skip.Add(p); if (zone.End != null) skip.Add(zone.End); }
+        foreach (var m in site.SeqMap.Concat(site.ActMap)) skip.Add(m.St);
+        foreach (var b in blocking) skip.Add(b);
+        var tokens = names.Select(Token).ToList();
+        bool Hit(string text) => tokens.Any(t => t.IsMatch(text));
+        var maybe = site.Files.SelectMany(f => f.Pieces).Where(p => !skip.Contains(p) && !defs.Contains(p) && p.Kind is PieceKind.Raw or PieceKind.Statement && p switch
+        {
+            Statement { Shape: StatementShape.Macro } st => st.Args.Any(a => !Structured(a.Node) && !(st.Name is "ACT_START" or "WAIT_ACT") && Hit(a.Text)),
+            _ => Hit(p.Text),
+        }).ToList();
+        return new TableRefs(maps.Select(m => m.St).ToList(), blocking, maybe);
     }
 
     /// <summary>
