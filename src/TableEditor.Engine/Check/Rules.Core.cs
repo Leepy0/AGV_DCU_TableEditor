@@ -149,7 +149,7 @@ public static partial class Checker
             var core = macro ? NameDict.CoreNamesAndWords : NameDict.CoreNames;
             Arg? cell = d.Kind == NameKind.Label && d.Def is Statement s && d.Value is long i ? s.Args[(int)i - 1] : null;
             if (core.Contains(d.Name)) yield return f.Error("N-5", d.Def!, $"코어 이름과 겹침 {d.Name}", cell);
-            else if (d.Kind == NameKind.Profile && !ProfileNameRx().IsMatch(d.Name)) yield return f.Error("N-5", d.Def!, $"이름 꼴 {d.Name} · PF_ 대문자");
+            else if (d.Kind == NameKind.Profile && !ProfileNameRx().IsMatch(d.Name)) yield return f.Error("N-5", d.Def!, $"이름 형식 {d.Name} · PF_ 대문자");
         }
         foreach (var z in f.Site.Zones)
             if (FixedArrays.TryGetValue(z.Open, out var want) && z.Name != want)

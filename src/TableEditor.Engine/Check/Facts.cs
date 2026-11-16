@@ -236,7 +236,7 @@ public sealed class Facts
                     if (def == null) { yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, Pool(NameKind.Profile))); yield break; }
                     if (def.Kind != NameKind.Profile) { yield return P("kind", $"종류 다름 {nameNode.Name} · 프로파일 자리"); yield break; }
                 }
-                else if (node is not NumberNode) { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                else if (node is not NumberNode) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 var pv = Names.Value(node, u.File);
                 if (pv is long v && (v < spec.Min || v > spec.Max)) yield return P("range", $"프로파일 {v} · {spec.Min}~{spec.Max}");
                 yield break;
@@ -277,7 +277,7 @@ public sealed class Facts
                     pin = def.Value;
                 }
                 else if (node is NumberNode num) pin = num.Value;
-                else { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                else { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 long lo = spec.Max == 0 ? 0 : spec.Min, hi = spec.Max == 0 ? 31 : spec.Max;
                 if (pin is long p && (p < lo || p > hi)) yield return P("range", $"신호 ID 밖 {p} · {lo}~{hi}");
                 yield break;
@@ -286,13 +286,13 @@ public sealed class Facts
             case ArgKind.Belt:
             {
                 var key = node is NumberNode bn ? bn.Literal : nameNode?.Name;
-                if (key == null) { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                if (key == null) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 if (!Names.Belts.ContainsKey(key)) yield return P("unknown", $"없는 벨트 {key}", NameDict.Near(key, Names.Belts.Keys));
                 yield break;
             }
 
             case ArgKind.SeqShort:
-                if (nameNode == null) { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                if (nameNode == null) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 if (Names.Find("SEQ_" + nameNode.Name) is not { Kind: NameKind.SeqId })
                     yield return P("unknown", $"없는 시퀀스 {nameNode.Name}",
                         NameDict.Near(nameNode.Name, Pool(NameKind.SeqId).Where(x => x.StartsWith("SEQ_", StringComparison.Ordinal)).Select(x => x[4..])));
@@ -316,7 +316,7 @@ public sealed class Facts
                     if (def == null) { yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, Pool(want))); yield break; }
                     if (def.Kind != want && !(numberOk && def.Kind is NameKind.Alias or NameKind.Constant)) { yield return P("kind", $"종류 다름 {nameNode.Name}"); yield break; }
                 }
-                else if (!(numberOk && node is NumberNode)) { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                else if (!(numberOk && node is NumberNode)) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 var val = Names.Value(node, u.File);
                 long max = spec.Kind == ArgKind.State ? 15 : spec.Max;
                 if (numberOk && max > 0 && val is long sv && (sv < 0 || sv > max)) yield return P("range", $"범위 밖 {sv} · 0~{max}");
@@ -328,7 +328,7 @@ public sealed class Facts
                 if (spec.Kind == ArgKind.StopDist && nameNode?.Name == "FL") yield break;
                 if (spec.Kind == ArgKind.Timeout && node is CallNode tc)
                 {
-                    if (tc.Name != "UNMATCHED" || Inner(tc.Name, tc.Args, spec.Kind, u.Area) == null) yield return P("form", $"꼴 {u.Loc.Text}");
+                    if (tc.Name != "UNMATCHED" || Inner(tc.Name, tc.Args, spec.Kind, u.Area) == null) yield return P("form", $"형식 {u.Loc.Text}");
                     yield break;
                 }
                 if (nameNode != null && def == null)
@@ -337,7 +337,7 @@ public sealed class Facts
                     yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, pool));
                     yield break;
                 }
-                if (node is CallNode) { yield return P("form", $"꼴 {u.Loc.Text}"); yield break; }
+                if (node is CallNode) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 var val = Names.Value(node, u.File);
                 if (val == null) { if (nameNode != null) yield return P("kind", $"종류 다름 {nameNode.Name} · 숫자 자리"); yield break; }
                 long x = val.Value;
@@ -359,7 +359,7 @@ public sealed class Facts
                 yield break;
 
             case ArgKind.AcsNumber or ArgKind.StationExpr when node is NumberNode or NameNode { Name: not "TAG_NUM" }:
-                if (spec.Kind == ArgKind.StationExpr) { yield return P("form", $"꼴 {u.Loc.Text} · STATION 식"); yield break; }
+                if (spec.Kind == ArgKind.StationExpr) { yield return P("form", $"형식 {u.Loc.Text} · STATION 식"); yield break; }
                 var av = Names.Value(node, u.File);
                 if (av == null) { yield return P(nameNode != null && def == null ? "unknown" : "kind", $"없는 이름 {u.Loc.Text}"); yield break; }
                 if (av < spec.Min || av > spec.Max) yield return P("range", $"범위 밖 {av} · {spec.Min}~{spec.Max}");
@@ -393,7 +393,7 @@ public sealed class Facts
             yield break;
         }
         if (spec.Kind == ArgKind.Action && StepOnly.Contains(nm)) { yield return P("seqonly", $"태그 표 금지 {nm}"); yield break; }
-        if (spec.Kind == ArgKind.ManCond && nm is "ON" or "OFF" or "ANY_ON") { yield return P("mancond", $"조건 꼴 {nm} · IN( … )"); yield break; }
+        if (spec.Kind == ArgKind.ManCond && nm is "ON" or "OFF" or "ANY_ON") { yield return P("mancond", $"조건 형식 {nm} · IN( … )"); yield break; }
         if (GrammarTable.Find(nm).Any() || Names.Find(nm, u.File) != null)
         {
             yield return P("kind", $"종류 다름 {nm}");

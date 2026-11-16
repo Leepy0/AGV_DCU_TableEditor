@@ -363,6 +363,72 @@ public sealed partial class SelfTest
         rawAsk.Close("cancel");
         await rawDone;
         Check(vm.ChangeCount == c1, "취소면 그대로");
+        Step("A4 형식 칸: 대기 제한 시간 → 파라미터(버림 팝업·취소) → 없음 → 시간, 인자 보존·원문 바이트");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        S.SelectTable("belt_load");
+        var formBase = Text("seq_table.c");
+        S.SelectStep(S.Steps.First(r => r.Piece.Text.Contains("WAIT_TO( IN( ON(DEMO_IF_IN1) ), 3000, ERR )")), true);
+        await Idle();
+        var form = S.Fields[0];
+        Check(form.Label == "형식" && form.Info.Value == "시간" && form.Info.Spec.Words!.SequenceEqual(["없음", "시간", "파라미터"]), $"형식 칸 {form.Label} {form.Info.Value} {string.Join("/", form.Info.Spec.Words!)}");
+        var (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "파라미터"); return Task.CompletedTask; });
+        Check(fAsk.Title == "값 버림" && fAsk.Lines.Contains("3000"), $"시간 값 버림 팝업 ({string.Join(" / ", fAsk.Lines)})");
+        fAsk.Close("cancel");
+        await fAskDone;
+        await Idle();
+        Check(Text("seq_table.c") == formBase && S.Fields[0].Text == "시간", "취소면 그대로·칸 시간");
+        form = S.Fields[0];
+        (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "파라미터"); return Task.CompletedTask; });
+        fAsk.Close("ok");
+        await fAskDone;
+        await Idle();
+        var fNow = S.SelectedStep!.Piece.Text.Trim();
+        Check(fNow.StartsWith("WAIT_TO_PARAM( IN( ON(DEMO_IF_IN1) ), ", StringComparison.Ordinal) && fNow.EndsWith(", ERR )", StringComparison.Ordinal) && vm.ErrorCount == 0 && Diff(formBase, Text("seq_table.c")) == (1, 1),
+            $"조건·라벨 보존, 그 줄만 바뀜 ({fNow}, {Diff(formBase, Text("seq_table.c"))}, {vm.ErrorCount})");
+        form = S.Fields[0];
+        (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "없음"); return Task.CompletedTask; });
+        Check(fAsk.Lines.Count == 4 && fAsk.Lines.Contains("ERR"), $"파라미터·단위·라벨 버림 ({string.Join(" / ", fAsk.Lines)})");
+        fAsk.Close("ok");
+        await fAskDone;
+        await Idle();
+        Check(S.SelectedStep!.Piece.Text.Trim() == "WAIT( IN( ON(DEMO_IF_IN1) ) )", $"없음 ({S.SelectedStep.Piece.Text.Trim()})");
+        S.Fields[0].Picked = S.Fields[0].Items!.Cast<Choice>().First(c => c.Name == "시간");
+        await Idle();
+        Check(S.SelectedStep!.Piece.Text.Trim().StartsWith("WAIT_TO( IN( ON(DEMO_IF_IN1) ), ", StringComparison.Ordinal) && Diff(formBase, Text("seq_table.c")).Added == 1, $"버릴 것 없으면 팝업 없이 시간 ({S.SelectedStep.Piece.Text.Trim()})");
+
+        Step("A5·A6 스텝 추가 팝업: 무리마다 하나·인자 설명·검색");
+        var (add2, add2Done) = await Open<StepVm>(() => S.AddStepAsync());
+        add2.Category = "대기";
+        Check(add2.Commands.Select(c => c.Entry.Family).Distinct().Count() == add2.Commands.Count, "무리마다 하나");
+        Check(add2.Commands.Any(c => c.Entry.Name == "WAIT") && !add2.Commands.Any(c => c.Entry.Name is "WAIT_TO" or "WAIT_TO_PARAM" or "DELAY_PARAM" or "WAIT_STABLE_TO"), "대기 목록에 형식 변형 없음");
+        add2.Command = add2.Commands.First(c => c.Entry.Name == "DELAY");
+        Check(add2.Note == "시간 틱 0~65535", $"인자 설명 ({add2.Note})");
+        await Shot("seq_add.png");
+        add2.Search = "대기";
+        Check(add2.IsSearching && add2.Commands.Any(c => c.Entry.Name == "WAIT") && add2.Commands.Any(c => c.Entry.Name == "WAIT_STABLE") && add2.Commands.Any(c => c.Entry.Name == "WAIT_BELTS")
+            && !add2.Commands.Any(c => c.Entry.Name is "OUT_ON" or "L"), $"검색 대기 ({add2.Commands.Count})");
+        add2.Search = "WAIT_TO";
+        Check(add2.Commands.Count == 1 && add2.Commands[0].Entry.Family == "WAIT", $"검색 WAIT_TO → 그 무리 ({string.Join(",", add2.Commands.Select(c => c.Entry.Name))})");
+        add2.Search = "분기";
+        Check(add2.Commands.Any(c => c.Entry.Name == "WHEN") && add2.Commands.Any(c => c.Entry.Name == "GOTO") && add2.Commands.All(c => c.Family!.Any(e => e.Palette == "분기" || e.Head.Contains("분기") || e.Note.Contains("분기"))), $"검색 분류 이름 ({add2.Commands.Count})");
+        add2.Search = "";
+        Check(!add2.IsSearching && add2.Commands.All(c => (c.Entry.Palette.Length > 0 ? c.Entry.Palette : "기타") == add2.Category), "검색어 지우면 분류");
+        add2.Close(null);
+        await add2Done;
+
+        Step("A5·A6 태그 동작 추가 팝업(메뉴 대신)");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        var (tadd, taddDone) = await Open<StepVm>(() => Tag.AddActionAsync(Row(28)));
+        Check(tadd.Categories.Count == 8 && tadd.Categories.SequenceEqual(TableEditor.Engine.Grammar.GrammarTable.TagPalette), $"태그 분류 {string.Join("/", tadd.Categories)}");
+        tadd.Category = "정지";
+        Check(tadd.Commands.Count(c => c.Entry.Name == "AGV_STOP") == 1 && tadd.Commands[0].Entry.Name == "AGV_STOP" && tadd.Note.Length == 0, $"정지 무리 하나 ({tadd.Commands.Count})");
+        tadd.Category = "속도·방향";
+        tadd.Command = tadd.Commands.First(c => c.Entry.Name == "AGV_SPEED");
+        Check(tadd.Note == "단계 HIGH·LOW·LLOW·MIN", $"속도 설명 ({tadd.Note})");
+        await Shot("tag_action_add.png");
+        tadd.Close(null);
+        await taddDone;
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
         while (vm.ChangeCount > changes && vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
     }
 

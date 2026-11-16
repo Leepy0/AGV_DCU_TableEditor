@@ -167,7 +167,7 @@ static class CheckTests
         yield return ("S-17", W, Seq("    BELT_OFF( 2 )\n    END_STOP\n"), "안 켠 벨트 2");
         yield return ("S-18", E, Seq(Lines("OBS_ON", 64) + "    END_STOP\n"), "스텝 65");
         yield return ("M-1", E, [new("manual_table.c", "    MAN_ELSE( PF_BOX,   JOG,                              NO_OUT )\r\n", "")], "사슬 안 닫힘 PF_BOX JOG");
-        yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, ON(DEMO_SEN_1), NO_OUT )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "조건 꼴");
+        yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, ON(DEMO_SEN_1), NO_OUT )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "조건 형식");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( ANY_PROFILE, IDLE, NO_IN, NO_OUT )"), Manual("MANUAL_END", "MAN_ELSE( ANY_PROFILE, IDLE, NO_OUT )")], "프로파일 0");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, ON(DEMO_MAN_LAMP), OFF(DEMO_MAN_LAMP) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, BELT( 1, CW ), ON(DEMO_CV1_DIR) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");

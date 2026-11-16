@@ -10,9 +10,13 @@ namespace TableEditor.Engine.Model;
 /// </summary>
 public static class ActionForms
 {
-    /// <summary>같은 이름·자리의 꼴(태그 칸을 차지하는 것). 한 개면 바꿀 꼴이 없다.</summary>
+    /// <summary>같은 무리(<see cref="GrammarEntry.Family"/>)·자리의 형식(태그 칸을 차지하는 것). 한 개면 바꿀 형식이 없다.</summary>
     public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e) =>
-        GrammarTable.Find(e.Name, e.Place).Where(r => r.TagCells > 0 || e.Place != Place.TagAction).ToList();
+        GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)).ToList();
+
+    /// <summary>형식 칸의 이름: 태그 동작이 한 이름 안의 변형(TAPE·cm)이면 위치, 그 밖은 형식.</summary>
+    public static string FieldLabel(IReadOnlyList<GrammarEntry> forms) =>
+        forms[0].Place == Place.TagAction && forms.All(f => f.Name == forms[0].Name) ? "위치" : "형식";
 
     /// <summary>
     /// 꼴을 가르는 낱말: 같은 이름의 모든 꼴에 있는 칸은 빼고 남은 칸마다 고정 낱말 하나(TAPE), 단위(cm), 센서, 아니면 칸 라벨.
@@ -20,6 +24,7 @@ public static class ActionForms
     /// </summary>
     public static string Word(GrammarEntry e)
     {
+        if (e.FormName.Length > 0) return e.FormName;
         var forms = Of(e);
         static string Key(ArgSpec a) => $"{a.Kind}|{a.Unit}|{string.Join(",", a.Words ?? [])}";
         var shared = forms.Count < 2 ? [] : forms.Select(f => f.Args.Select(Key).ToHashSet()).Aggregate((x, y) => { x.IntersectWith(y); return x; });

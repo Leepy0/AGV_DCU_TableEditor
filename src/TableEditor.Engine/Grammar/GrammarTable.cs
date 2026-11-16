@@ -83,6 +83,15 @@ public sealed record GrammarEntry(
     /// <summary>팔레트 분류(화면 띠 색·추가 드롭다운). 태그 동작은 <see cref="GrammarTable.TagPalette"/>, 시퀀스 스텝은 <see cref="GrammarTable.StepPalette"/> 가운데 하나. 그 밖은 빈 글자.</summary>
     public string Palette { get; init; } = "";
 
+    /// <summary>같은 명령의 형식들이 나눠 갖는 열쇠(<c>WAIT</c>/<c>WAIT_TO</c> 등). 목록에는 무리마다 하나, 형식은 칸에서 고른다.</summary>
+    public string Family { get; init; } = "";
+
+    /// <summary>형식 칸의 낱말(없음·시간·파라미터 등). 빈 글자면 <see cref="TableEditor.Engine.Model.ActionForms.Word"/> 가 인자에서 구한다.</summary>
+    public string FormName { get; init; } = "";
+
+    /// <summary>인자별 짧은 설명(단위·범위·고를 낱말). 인자가 없으면 빈 글자. <see cref="ArgSpec"/> 에서 만든다.</summary>
+    public string Note { get; init; } = "";
+
     public int MinArgs => Args.Sum(a => a.Least);
     public int MaxArgs => Args.Sum(a => a.Most);
 }
@@ -132,8 +141,63 @@ public static class GrammarTable
             : Spacing.Spaced;
         var labels = FormLabels(form);
         if (labels.Length == args.Length) args = args.Select((a, i) => a with { Label = labels[i] }).ToArray();
-        return new GrammarEntry(name, place, role, form, args, spacing, 0, false, head, cat, Version, null) { Palette = PaletteOf(name, place, cat) };
+        return new GrammarEntry(name, place, role, form, args, spacing, 0, false, head, cat, Version, null) { Palette = PaletteOf(name, place, cat), Family = FamilyOf(name), FormName = FormOf(name), Note = NoteOf(args) };
     }
+
+    /// <summary>같은 뜻의 이름 묶음(대기 제한·지연 단위·속도 단위·보고 출처). 그 밖은 이름 그대로.</summary>
+    static string FamilyOf(string name) => name switch
+    {
+        "WAIT_TO_PARAM" => "WAIT",
+        "DELAY_PARAM" => "DELAY",
+        "AGV_SPEED_MMIN" => "AGV_SPEED",
+        "ACS_SEND" => "ACS",
+        _ => name.EndsWith("_TO", StringComparison.Ordinal) ? name[..^3] : name,
+    };
+
+    /// <summary>묶음 안 형식 낱말. 같은 이름의 형식 변형(TAPE·cm 등)은 빈 글자로 둔다.</summary>
+    static string FormOf(string name) => name switch
+    {
+        "WAIT_TO_PARAM" or "DELAY_PARAM" => "파라미터",
+        "DELAY" => "틱",
+        "AGV_SPEED" => "단계",
+        "AGV_SPEED_MMIN" => "m/min",
+        "ACS" => "출처",
+        "ACS_SEND" => "번호",
+        "WAIT" or "WAIT_STABLE" or "WAIT_IF" or "WAIT_IF_IN" or "WAIT_ANY2" or "OUT_FLICKER_UNTIL_IN" or "SELECT_END" => "없음",
+        "WAIT_TO" or "WAIT_STABLE_TO" or "WAIT_IF_TO" or "WAIT_IF_IN_TO" or "WAIT_ANY2_TO" or "OUT_FLICKER_UNTIL_IN_TO" or "SELECT_END_TO" => "시간",
+        _ => "",
+    };
+
+    static string ArgNote(ArgSpec a)
+    {
+        string range = a.Max > a.Min ? $"{a.Min}~{a.Max}" : "";
+        string desc = a.Kind switch
+        {
+            _ when a.Switch => "ON·OFF",
+            ArgKind.Word => string.Join("·", a.Words ?? []),
+            ArgKind.Number or ArgKind.Time or ArgKind.Timeout or ArgKind.StopDist or ArgKind.AcsNumber => string.Join(" ", new[] { a.Unit, range }.Where(s => s.Length > 0)),
+            ArgKind.Profile => "프로파일",
+            ArgKind.Input or ArgKind.CoreInput or ArgKind.FromSensor => "입력",
+            ArgKind.Signal => "신호",
+            ArgKind.Output => "출력",
+            ArgKind.Belt => "벨트",
+            ArgKind.SeqId or ArgKind.SeqShort => "시퀀스",
+            ArgKind.SeqTable or ArgKind.ActTable => "표",
+            ArgKind.Label => "라벨",
+            ArgKind.ActId => "ACT",
+            ArgKind.State => "상태",
+            ArgKind.CallNo => "번호",
+            ArgKind.CoreParam or ArgKind.FndParam => "파라미터",
+            ArgKind.InCond or ArgKind.InGroup => "입력 조건",
+            ArgKind.XCond or ArgKind.TagCond => "확장 조건",
+            _ => "",
+        };
+        var label = a.Label;
+        var text = desc.Length == 0 ? label : label.Length == 0 || desc.StartsWith(label, StringComparison.Ordinal) ? desc : $"{label} {desc}";
+        return a.Most > 1 ? text + "…" : text;
+    }
+
+    static string NoteOf(ArgSpec[] args) => string.Join(" · ", args.Select(ArgNote).Where(s => s.Length > 0));
 
     /// <summary>태그 동작 팔레트(사양 9.2절 태그).</summary>
     public static readonly IReadOnlyList<string> TagPalette = ["정지", "시퀀스", "속도·방향", "회전", "분기", "보고", "장애물 감지", "기타"];

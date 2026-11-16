@@ -93,11 +93,4 @@ public static class Choices
     }
 
     static string FirstInput(NameDict names) => For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
-
-    /// <summary>추가 메뉴 낱말: 머리 이름. 같은 이름에 꼴이 여럿이면 꼴을 가르는 낱말을 붙인다(<see cref="ActionForms.Word"/>).</summary>
-    public static string MenuText(GrammarEntry e)
-    {
-        var word = ActionForms.Of(e).Count < 2 ? "" : ActionForms.Word(e);
-        return word.Length == 0 ? e.Head : $"{e.Head} {word}";
-    }
 }

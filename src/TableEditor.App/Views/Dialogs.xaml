@@ -420,9 +420,9 @@
         </Border>
     </DataTemplate>
 
-    <!-- 시퀀스 스텝 추가·명령 바꾸기: 분류 → 명령 → 미리 보기 (태그 추가 팝업과 같은 줄 꼴) -->
+    <!-- 스텝·동작 추가, 명령 바꾸기: 검색 → 분류 버튼 한 줄(같은 크기, 고른 것은 색) → 명령 → 인자 설명 → 미리 보기 -->
     <DataTemplate DataType="{x:Type vm:StepVm}">
-        <Border Style="{StaticResource DialogCard}">
+        <Border Style="{StaticResource DialogCard}" Width="860">
             <StackPanel>
                 <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
                     <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}"/>
@@ -437,26 +437,80 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-</Grid.RowDefinitions>
-                    <TextBlock Text="분류" Style="{StaticResource FrowLabel}"/>
-                    <ComboBox Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
-                              ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" AutomationProperties.Name="분류"/>
-                    <TextBlock Grid.Row="1" Text="명령" Style="{StaticResource FrowLabel}"/>
-                    <ComboBox Grid.Row="1" Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
-                              ItemsSource="{Binding Commands}" SelectedItem="{Binding Command}" AutomationProperties.Name="명령"/>
-                    <TextBlock Grid.Row="2" Text="미리 보기" Style="{StaticResource FrowLabel}"/>
-                    <Border Grid.Row="2" Grid.Column="2" Height="{StaticResource CodeHeight}" Background="{StaticResource Code}" CornerRadius="{StaticResource R.4}"
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="검색" Style="{StaticResource FrowLabel}"/>
+                    <TextBox Grid.Column="2" Style="{StaticResource Box}" Margin="{StaticResource Gap.B16}" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="검색"/>
+                    <TextBlock Grid.Row="1" Text="분류" Style="{StaticResource FrowLabel}"/>
+                    <ListBox Grid.Row="1" Grid.Column="2" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" Margin="{StaticResource Gap.B16}"
+                             BorderThickness="{StaticResource Bd.1}" BorderBrush="{StaticResource Line2}" Background="Transparent" AutomationProperties.Name="분류"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.Style>
+                            <Style TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSearching}" Value="True">
+                                        <Setter Property="Opacity" Value="0.4"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Height" Value="{StaticResource ControlHeight}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text2}"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd" Background="Transparent">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Well}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBg}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                                                    <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                    <TextBlock Grid.Row="2" Text="명령" Style="{StaticResource FrowLabel}"/>
+                    <ComboBox Grid.Row="2" Grid.Column="2" Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Gap.B16}"
+                              ItemsSource="{Binding Commands}" SelectedItem="{Binding Command}" AutomationProperties.Name="명령">
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                <Setter Property="IsEnabled" Value="{Binding Enabled}"/>
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
+                    <TextBlock Grid.Row="3" Text="인자" Style="{StaticResource FrowLabel}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Note}" Foreground="{StaticResource Text2}" VerticalAlignment="Top" TextWrapping="Wrap"
+                               MinHeight="44" Margin="{StaticResource Gap.B16}"/>
+                    <TextBlock Grid.Row="4" Text="미리 보기" Style="{StaticResource FrowLabel}"/>
+                    <Border Grid.Row="4" Grid.Column="2" Height="{StaticResource CodeHeight}" Background="{StaticResource Code}" CornerRadius="{StaticResource R.4}"
                             Padding="{StaticResource Pad.Box}">
                         <TextBlock Text="{Binding Preview}" FontFamily="{StaticResource Mono}" FontSize="{StaticResource Fs.Small}" Foreground="{StaticResource CodeText}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </Border>
-                    <TextBlock Grid.Row="3" Text="버릴 인자" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasDrops, Converter={StaticResource Shown}}"/>
-                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Drops}" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Err}" VerticalAlignment="Center"
+                    <TextBlock Grid.Row="5" Text="버릴 인자" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasDrops, Converter={StaticResource Shown}}"/>
+                    <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding Drops}" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Err}" VerticalAlignment="Center"
                                Margin="{StaticResource Gap.T12}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasDrops, Converter={StaticResource Shown}}"/>
-                    <TextBlock Grid.Row="4" Text="주석 확인" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasComment, Converter={StaticResource Shown}}"/>
-                    <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding Comment}" Foreground="{StaticResource Warn}" VerticalAlignment="Center"
+                    <TextBlock Grid.Row="6" Text="주석 확인" Style="{StaticResource FrowLabel}" Margin="{StaticResource Gap.T12}" Visibility="{Binding HasComment, Converter={StaticResource Shown}}"/>
+                    <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding Comment}" Foreground="{StaticResource Warn}" VerticalAlignment="Center"
                                Margin="{StaticResource Gap.T12}" TextTrimming="CharacterEllipsis" Visibility="{Binding HasComment, Converter={StaticResource Shown}}"/>
                 </Grid>
                 <Border Style="{StaticResource DialogFoot}">

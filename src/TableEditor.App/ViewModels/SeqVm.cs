@@ -370,10 +370,27 @@ public sealed class SeqVm : BlockHost
         string Preview(GrammarEntry to) => from == null ? Choices.DefaultText(to, Site.Names) : ActionForms.Convert(to, from, st.Args, Fill);
         IReadOnlyList<string> Drops(GrammarEntry to) => from == null ? [] : ActionForms.Dropped(to, from, st.Args);
         var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment));
-        if (await Main.Show(d) != "ok" || d.Command.Entry == from) return;
+        if (await Main.Show(d) != "ok" || d.Command.Entry.Family == from?.Family && d.Command.Entry.Place == from.Place) return; // 같은 무리의 형식은 형식 칸으로
         var r = SeqEdit.Change(Site, st, d.Command.Entry, Fill);
         if (r.Ok && st.TailComment.Length > 0 && r.Touched.FirstOrDefault() is { } changed) commentCheck.Add(changed.Text);
         Main.Apply(r);
+    }
+
+    /// <summary>형식 칸(<see cref="FieldInfo.To"/>)은 줄 전체를 그 형식으로 다시 쓴다. 버려지는 인자가 있으면 확인 팝업 뒤에만. 그 밖의 칸은 인자 바꾸기.</summary>
+    public override void SetField(FieldVm f, string text)
+    {
+        if (f.Info.To is not { } to) { base.SetField(f, text); return; }
+        _ = ChangeFormAsync(f, to(text), f.Info.Drops?.Invoke(text) ?? []);
+    }
+
+    async Task ChangeFormAsync(FieldVm f, GrammarEntry to, IReadOnlyList<string> drops)
+    {
+        if (drops.Count > 0)
+        {
+            var ask = new AskVm("값 버림", ["버릴 인자", .. drops], [new AskButton("cancel", "취소", Default: true), new AskButton("ok", "바꾸기", Primary: true)]);
+            if (await Main.Show(ask) != "ok") { f.Revert(); return; }
+        }
+        if (SelectedStep?.Piece is Statement st && Site.Files.Any(x => x.Pieces.Any(p => ReferenceEquals(p, st)))) Main.Apply(SeqEdit.Change(Site, st, to, Fill));
     }
 
     /// <summary>[삭제]·Del: 고른 스텝. 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.</summary>

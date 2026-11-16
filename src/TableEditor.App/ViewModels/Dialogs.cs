@@ -362,14 +362,15 @@ public sealed class RawVm(string text) : DialogVm
 
 // ---- 시퀀스 스텝·표 ----
 
-/// <summary>명령 드롭다운 항목: 추가 메뉴 낱말 + 문법 줄.</summary>
-public sealed record StepChoice(string Text, GrammarEntry Entry)
+/// <summary>명령 목록 항목: 머리 이름 + 대표 문법 줄(무리마다 하나) + 무리 전체(검색용). Enabled = 넣을 수 있는가(태그 칸 수).</summary>
+public sealed record StepChoice(string Text, GrammarEntry Entry, bool Enabled = true, IReadOnlyList<GrammarEntry>? Family = null)
 {
     public override string ToString() => Text;
 }
 
 /// <summary>
-/// 스텝 [추가]·[명령 바꾸기] 팝업: 분류 → 명령(문법 표의 시퀀스 스텝 줄만, ACT 표면 ACT 금지 줄 뺌) → C 글자 미리 보기.
+/// 스텝·동작 [추가]·[명령 바꾸기] 팝업: 분류 버튼 한 줄 → 명령(무리마다 하나, 형식은 칸에서 고른다) → 인자 설명·C 글자 미리 보기.
+/// 검색어가 있으면 분류는 무시하고 이름표·매크로 이름·분류·설명에서 찾는다.
 /// </summary>
 public sealed class StepVm : DialogVm
 {
@@ -378,26 +379,45 @@ public sealed class StepVm : DialogVm
 
     readonly Func<GrammarEntry, IReadOnlyList<string>> drops;
 
-    /// <summary>drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
+    /// <summary>시퀀스 스텝용. drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
     public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview,
         Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)
+        : this(title, okText, Group(SeqEdit.StepRows(act), null), GrammarTable.StepPalette, current, preview, drops, comment) { }
+
+    public StepVm(string title, string okText, IReadOnlyList<StepChoice> all, IReadOnlyList<string> palette, GrammarEntry? current,
+        Func<GrammarEntry, string> preview, Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)
     {
         Title = title;
         OkText = okText;
         this.preview = preview;
         this.drops = drops ?? (_ => []);
         Comment = string.IsNullOrWhiteSpace(comment) ? null : comment;
-        all = SeqEdit.StepRows(act).Select(e => new StepChoice(Choices.MenuText(e), e)).ToList();
-        Categories = [.. GrammarTable.StepPalette.Append(Other).Where(c => all.Any(x => Cat(x.Entry) == c))];
+        this.all = all;
+        Categories = [.. palette.Append(Other).Distinct().Where(c => all.Any(x => Cat(x.Entry) == c))];
         category = current != null && Categories.Contains(Cat(current)) ? Cat(current) : Categories[0];
         Commands = Of(category);
-        command = Commands.FirstOrDefault(c => c.Entry == current) ?? Commands[0];
-        Ok = new Command(() => Close("ok"));
+        command = Commands.FirstOrDefault(c => c.Family!.Contains(current!)) ?? Commands[0];
+        Ok = new Command(() => { if (command is { Enabled: true }) Close("ok"); });
+    }
+
+    /// <summary>문법 줄들 → 명령 목록: 무리(<see cref="GrammarEntry.Family"/>)마다 하나. 대표 = enabled 인 첫 줄, 없으면 첫 줄.</summary>
+    public static IReadOnlyList<StepChoice> Group(IEnumerable<GrammarEntry> rows, Func<GrammarEntry, bool>? enabled)
+    {
+        return rows.GroupBy(r => r.Family).Select(g =>
+        {
+            var list = g.ToList();
+            var rep = enabled == null ? list[0] : list.FirstOrDefault(enabled) ?? list[0];
+            return new StepChoice(rep.Head, rep, enabled?.Invoke(rep) ?? true, list);
+        }).ToList();
     }
 
     const string Other = "기타";
     static string Cat(GrammarEntry e) => e.Palette.Length > 0 ? e.Palette : Other;
     IReadOnlyList<StepChoice> Of(string cat) => all.Where(x => Cat(x.Entry) == cat).ToList();
+
+    /// <summary>검색: 무리 안 어느 줄이든 이름표·매크로 이름·분류·설명에 검색어가 들면 맞다.</summary>
+    IReadOnlyList<StepChoice> Find(string q) =>
+        all.Where(x => x.Family!.Any(e => new[] { e.Head, e.Name, Cat(e), e.Note }.Any(t => t.Contains(q, StringComparison.OrdinalIgnoreCase)))).ToList();
 
     public override string Title { get; }
     public string OkText { get; }
@@ -411,21 +431,55 @@ public sealed class StepVm : DialogVm
         set
         {
             if (value == null || !Set(ref category, value)) return;
-            Commands = Of(value);
-            Raise(nameof(Commands));
-            Command = Commands[0];
+            if (!IsSearching) Show(Of(value));
         }
+    }
+
+    string search = "";
+    public string Search
+    {
+        get => search;
+        set
+        {
+            value = (value ?? "").Trim();
+            if (!Set(ref search, value)) return;
+            Raise(nameof(IsSearching));
+            Show(IsSearching ? Find(value) : Of(category));
+        }
+    }
+
+    public bool IsSearching => search.Length > 0;
+
+    void Show(IReadOnlyList<StepChoice> list)
+    {
+        Commands = list;
+        Raise(nameof(Commands));
+        command = list.Contains(command!) ? command : list.FirstOrDefault();
+        Raise(nameof(Command));
+        RaiseCommand();
     }
 
     public IReadOnlyList<StepChoice> Commands { get; private set; }
 
-    StepChoice command;
-    public StepChoice Command { get => command; set { if (value != null && Set(ref command, value)) { Raise(nameof(Preview)); Raise(nameof(Drops)); Raise(nameof(HasDrops)); } } }
+    StepChoice? command;
+    /// <summary>고른 명령. 검색 결과가 없으면 null(그때 [확인]은 안 닫힌다).</summary>
+    public StepChoice Command { get => command!; set { if (value != null && Set(ref command, value)) RaiseCommand(); } }
 
-    public string Preview => preview(Command.Entry);
+    void RaiseCommand()
+    {
+        Raise(nameof(Preview));
+        Raise(nameof(Drops));
+        Raise(nameof(HasDrops));
+        Raise(nameof(Note));
+    }
+
+    public string Preview => command == null ? "" : preview(command.Entry);
+
+    /// <summary>고른 명령의 인자 설명(단위·범위·낱말).</summary>
+    public string Note => command?.Entry.Note ?? "";
 
     /// <summary>버릴 인자(쉼표로). 없으면 빈 글자.</summary>
-    public string Drops => string.Join(", ", drops(Command.Entry));
+    public string Drops => command == null ? "" : string.Join(", ", drops(command.Entry));
     public bool HasDrops => Drops.Length > 0;
 
     /// <summary>바꿀 줄의 꼬리 주석(그대로 남는다).</summary>

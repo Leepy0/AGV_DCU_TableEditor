@@ -148,20 +148,7 @@ public partial class TagView : UserControl
     void OnPlus(object sender, RoutedEventArgs e)
     {
         if (vm == null || ((FrameworkElement)sender).DataContext is not TagRowVm row) return;
-        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-        foreach (var group in vm.ActionChoices(row).GroupBy(c => c.Palette))
-        {
-            var head = new MenuItem { Header = group.Key, IsEnabled = group.Any(c => c.Enabled) };
-            foreach (var c in group)
-            {
-                var item = new MenuItem { Header = c.Text, IsEnabled = c.Enabled };
-                var entry = c.Entry;
-                item.Click += (_, _) => vm.AddAction(row, entry);
-                head.Items.Add(item);
-            }
-            menu.Items.Add(head);
-        }
-        menu.IsOpen = true;
+        _ = vm.AddActionAsync(row);
     }
 
     // ---- 줄 끌기 ----

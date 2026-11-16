@@ -36,7 +36,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         };
     }
 
-    /// <summary>꼴 칸 낱말(꼴 낱말이 빈 꼴).</summary>
+    /// <summary>형식 칸 낱말(형식 낱말이 빈 형식).</summary>
     public const string Bare = "바로";
 
     /// <summary>
@@ -48,15 +48,24 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         var fields = FieldsOf(entry, args);
         var forms = ActionForms.Of(entry);
         if (forms.Count < 2) return fields;
-        string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
-        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = "위치" };
-        var form = new FieldInfo("위치", a, spec)
+        var form = FormField(entry, forms, a, args);
+        form = form with { Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)) };
+        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
+    }
+
+    static string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
+
+    /// <summary>형식 칸(<see cref="ActionForms"/>): 값 = 지금 형식 낱말, 고르면 그 형식으로. 버려지는 인자는 <see cref="FieldInfo.Drops"/>.</summary>
+    static FieldInfo FormField(GrammarEntry entry, IReadOnlyList<GrammarEntry> forms, Arg a, IReadOnlyList<Arg> args)
+    {
+        var label = ActionForms.FieldLabel(forms);
+        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = label };
+        return new FieldInfo(label, a, spec)
         {
             Value = WordOf(entry),
-            Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)),
+            To = w => forms.First(e => WordOf(e) == w),
             Drops = w => ActionForms.Dropped(forms.First(e => WordOf(e) == w), entry, args),
         };
-        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }
 
     /// <summary>문장 하나 = 블록 하나(시퀀스 스텝, 수동 입력 줄). 문법 표의 그 자리 줄로 칸을 만든다. 모르면 원문 블록.</summary>
@@ -64,10 +73,14 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     {
         var entry = Facts.Fit(GrammarTable.Find(st.Name, place), st.Args);
         if (entry == null) return RawBlock(st.Text, null, MarkOf(st, null), index);
+        var fields = FieldsOf(entry, st.Args);
+        var forms = ActionForms.Of(entry);
+        if (forms.Count > 1 && st.Args.Count > 0) // 형식 칸: 맨 앞. 인자가 없는 형식은 칸이 없다
+            fields = [FormField(entry, forms, st.Args[0], st.Args), .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
         return new BlockVm
         {
             Head = entry.Head, Cat = entry.Palette.Length > 0 ? entry.Palette : entry.Category, Parts = PartsOf(entry, st.Args, true),
-            Fields = FieldsOf(entry, st.Args), Cells = 0, Mark = MarkOf(st, null), Index = index,
+            Fields = fields, Cells = 0, Mark = MarkOf(st, null), Index = index,
         };
     }
 
