@@ -7,13 +7,13 @@ namespace TableEditor.Engine.Check;
 /// <summary>
 /// 사이트 전체 검사(사양 6절). 규칙 하나 = 함수 하나, 번호는 사양 그대로.
 /// 넣지 않은 규칙: R-3(저장 때), N-6(이름 바꾸기·지우기 때), C-1·C-1b·C-1c(빌드 단계에서 압축 표를 다시 만든다).
-/// D-1~D-6 은 코어 v0.58.0 이상 사이트에만 건다(새 DSL 형식의 컴파일 오류를 저장 전에 잡는다).
+/// D-1~D-6 은 코어 v0.58.0 이상 사이트에만 건다(새 DSL 형식의 컴파일 오류를 저장 전에 잡는다). V-4 는 거꾸로 옛 코어 사이트가 새 문법을 쓴 줄을 잡는다.
 /// </summary>
 public static partial class Checker
 {
     public static readonly IReadOnlyList<(string Rule, Func<Facts, IEnumerable<Finding>> Run)> Rules =
     [
-        ("V-1", V1), ("V-2", V2), ("V-3", V3), ("R-1", R1), ("R-2", R2),
+        ("V-1", V1), ("V-2", V2), ("V-3", V3), ("V-4", V4), ("R-1", R1), ("R-2", R2),
         ("N-1", N1), ("N-2", N2), ("N-3", N3), ("N-4", N4), ("N-5", N5), ("N-7", N7),
         ("P-1", P1), ("P-2", P2), ("P-3", P3), ("P-4", P4), ("P-5", P5), ("P-6", P6),
         ("I-1", I1), ("I-2", I2), ("I-3", I3), ("I-4", I4), ("I-5", I5), ("I-6", I6),

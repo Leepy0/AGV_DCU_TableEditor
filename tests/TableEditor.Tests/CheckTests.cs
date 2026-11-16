@@ -269,13 +269,16 @@ static class CheckTests
         check(Run(root, good).Any(f => f.Rule == "V-3" && f.Text.Contains("추가됨 include/agv/extra.h")), "V-3 추가됨");
 
         var seen = new HashSet<string>();
-        // 새 코어(v0.58.0 이상): 옛 형식 fixture 와 새 형식 fixture 모두 결과 0, 새 규칙(D-*)은 새 코어에만 건다
+        // 새 코어(v0.58.0 이상): 옛 형식 fixture 와 새 형식 fixture 모두 결과 0(fixture 가 정의한 NO_ACTION 의 새 낱말 겹침 경고 하나만), 새 규칙(D-*)은 새 코어에만 건다
         var newCore = MakeCore("new", "v0.58.0", false, false);
-        var oldOnNew = Run(root, newCore);
-        check(oldOnNew.Count == 0, "옛 형식 fixture + 새 코어 결과 0: " + string.Join(" | ", oldOnNew.Take(5)));
+        bool NoAction(Finding f) => f.Rule == "N-5" && f.Severity == Severity.Warning && f.Text.Contains("NO_ACTION", StringComparison.Ordinal);
+        var oldOnNewAll = Run(root, newCore);
+        var oldOnNew = oldOnNewAll.Where(f => !NoAction(f)).ToList();
+        check(oldOnNew.Count == 0 && oldOnNewAll.Count(NoAction) == 1, "옛 형식 fixture + 새 코어 결과 0(NO_ACTION 경고 하나 뺌): " + string.Join(" | ", oldOnNew.Take(5)));
         var newFixture = Path.Combine(Fixture(root), "dsl_v058");
-        var newOnNew = Checker.Run(Site.Open(newFixture, newCore));
-        check(newOnNew.Count == 0, "새 형식 fixture + 새 코어 결과 0: " + string.Join(" | ", newOnNew.Take(5)));
+        var newOnNewAll = Checker.Run(Site.Open(newFixture, newCore));
+        var newOnNew = newOnNewAll.Where(f => !NoAction(f)).ToList();
+        check(newOnNew.Count == 0 && newOnNewAll.Count(NoAction) == 1, "새 형식 fixture + 새 코어 결과 0(NO_ACTION 경고 하나 뺌): " + string.Join(" | ", newOnNew.Take(5)));
         var oldCore = MakeCore("old57", "v0.57.0", false, false);
         check(!Site.Open(newFixture, oldCore).NewDsl && Site.Open(newFixture, newCore).NewDsl && !Site.Open(newFixture).NewDsl, "새 형식 판단: core/VERSION v0.58.0 이상");
         foreach (var (rule, edits, text) in DslCases())

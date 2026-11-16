@@ -28,7 +28,7 @@ static class DslTests
         var old = Site.Open(fx, Core("old", "v0.57.0"));
         var none = Site.Open(fx);
         check(site.NewDsl && site.Names.NewDsl && !old.NewDsl && !none.NewDsl && !old.Names.NewDsl, "코어 버전으로 새 형식 판단");
-        check(Checker.Run(site).Count(f => f.Rule is not ("V-2" or "V-3")) == 0, "새 형식 fixture + v0.58.0 = 결과 0(헤더·MANIFEST 없는 지어낸 core 의 V-2·V-3 만 뺀다)");
+        check(Checker.Run(site).Count(f => f.Rule is not ("V-2" or "V-3") && !(f.Rule == "N-5" && f.Text.Contains("NO_ACTION", StringComparison.Ordinal))) == 0, "새 형식 fixture + v0.58.0 = 결과 0(헤더·MANIFEST 없는 지어낸 core 의 V-2·V-3, fixture 가 정의한 NO_ACTION 겹침 경고만 뺀다)");
 
         // 상태 낱말 대응
         XCond X(string n, params string[] a) => new(n, a);

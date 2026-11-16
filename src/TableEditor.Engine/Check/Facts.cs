@@ -31,6 +31,11 @@ public sealed class Facts
     /// <summary>문장마다 고른 문법 줄.</summary>
     public IReadOnlyDictionary<Statement, GrammarEntry> Rows { get; }
 
+    /// <summary>안쪽 이름(조건·동작·상태 낱말 …) 풀이 나무마다 고른 문법 줄.</summary>
+    public IReadOnlyDictionary<Node, GrammarEntry> Inners => inners;
+
+    readonly Dictionary<Node, GrammarEntry> inners = new(ReferenceEqualityComparer.Instance);
+
     readonly Dictionary<Statement, Area> areas = new(ReferenceEqualityComparer.Instance);
 
     public Facts(Site site)
@@ -227,6 +232,7 @@ public sealed class Facts
         if (!callish) return;
         var entry = Inner(name, args, spec.Kind, area);
         if (entry == null) return;
+        inners[node] = entry;
         var specs = Expand(entry, args.Count)!;
         for (int i = 0; i < args.Count; i++)
             Walk(uses, f, st, args[i], args[i].Node, specs[i], area, entry.Name, sigOut, inCond);

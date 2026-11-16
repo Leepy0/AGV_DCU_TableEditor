@@ -61,6 +61,36 @@ public static partial class Checker
             yield return CoreFinding("V-3", Severity.Error, k, $"core 없어짐 {k}");
     }
 
+    static readonly string[] OldAcsWords = ["CONST", "STATION0", "STATION0_PLUS1", "AGV_ID"];
+
+    /// <summary>
+    /// V-4: 옛 코어(v0.58.0 미만) 사이트가 v0.58.0 에서 생긴 문법을 썼다(<c>AND</c>·<c>ANY</c>·새 상태 낱말·<c>PARAM_TIME</c>·<c>OUT_SET</c>·
+    /// 숫자 <c>AGV_SPEED</c>·번호 <c>ACS</c> 등). 줄마다 하나, 낱말을 모아 보인다. 사이트가 같은 이름을 직접 <c>#define</c> 했으면 사이트 매크로로 보고 건너뛴다.
+    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다.
+    /// </summary>
+    static IEnumerable<Finding> V4(Facts f)
+    {
+        if (f.Site.CoreFolder == null || f.Site.CoreVersion == null || f.Site.NewDsl) yield break;
+        var found = new Dictionary<Statement, (Arg? Cell, List<string> Names)>(ReferenceEqualityComparer.Instance);
+        void Add(Statement st, Arg? cell, string name)
+        {
+            if (f.Names.Get(name).Any(d => !d.Core)) return;
+            if (!found.TryGetValue(st, out var x)) found[st] = x = (cell, []);
+            if (!x.Names.Contains(name)) x.Names.Add(name);
+        }
+        foreach (var (st, row) in f.Rows)
+            if (row.Since.Length > 0) Add(st, st.Args.FirstOrDefault(), row.Name);
+        foreach (var u in f.Uses)
+        {
+            // 수동 표 칸의 KEY( 키 ) 는 옛 코어에도 있었다(문법 표에는 새 상태 낱말 줄만 있다)
+            if (f.Inners.TryGetValue(u.Node, out var e) && e.Since.Length > 0 && !(u.Spec.Kind == ArgKind.ManCond && e.Name == "KEY")) Add(u.St, u.Loc, e.Name);
+            if (u.Spec.Kind == ArgKind.AcsSource && (u.Node is NumberNode || u.Node is NameNode n && !OldAcsWords.Contains(n.Name) && f.Names.Value(n) != null))
+                Add(u.St, u.Loc, "ACS 번호");
+        }
+        foreach (var (st, x) in found)
+            yield return f.Error("V-4", st, $"코어 {GrammarTable.NewVersion} 필요 · {string.Join(", ", x.Names)}", x.Cell);
+    }
+
     /// <summary>글 파일은 CRLF 를 LF 로 맞춰, <c>.lib</c> 은 그대로 해시(앱 tools/core_manifest.ps1 과 같다).</summary>
     static string NormHash(string path)
     {
@@ -155,6 +185,33 @@ public static partial class Checker
         foreach (var z in f.Site.Zones)
             if (FixedArrays.TryGetValue(z.Open, out var want) && z.Name != want)
                 yield return f.Error("N-5", z.Begin, $"배열 이름 {z.Name} · {want}", z.Begin.Args.FirstOrDefault());
+        if (f.Site.NewDsl)
+            foreach (var x in N5New(f)) yield return x;
+    }
+
+    /// <summary>v0.58.0 에서 새로 생긴 공개 이름(상태 낱말·AND·ANY·OUT_SET·NO_ACTION …).</summary>
+    static readonly IReadOnlySet<string> NewNames = GrammarTable.Names.Except(GrammarTable.OldNames).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>사이트가 <c>#define</c> 한 이름(그 이름이 쓰인 곳은 매크로로 펼쳐진다). 원문 블록 안 정의(Weak)도 같다.</summary>
+    static bool SiteDefine(Facts f, string name) => f.Names.Get(name).Any(d => !d.Core && (d.Weak || d.Def is Statement { Shape: StatementShape.Define }));
+
+    /// <summary>
+    /// N-5(새 코어): 새 낱말과 같은 이름의 <c>#define</c> 은 경고. 그 이름이 <c>AND( … )</c> 안에서 쓰였거나,
+    /// <c>PARAM</c>·<c>PARAM_MIN</c>·<c>PARAM_MAX</c> 의 파라미터 이름·<c>KEY</c> 의 키 이름이 사이트 매크로면 오류(코어 헤더가 낱말을 이어 붙이기 전에 펼쳐 컴파일이 깨진다).
+    /// </summary>
+    static IEnumerable<Finding> N5New(Facts f)
+    {
+        foreach (var d in f.Names.All.Where(d => !d.Core && !d.Weak && d.Def is Statement { Shape: StatementShape.Define } && NewNames.Contains(d.Name)))
+            yield return f.Warn("N-5", d.Def!, $"새 낱말과 겹침 {d.Name} · {GrammarTable.NewVersion} 부터 코어 낱말");
+        static IEnumerable<(Arg Loc, Node Node)> Inside(Arg loc) => loc.Node is CallNode c ? c.Args.SelectMany(Inside).Prepend((loc, loc.Node)) : [(loc, loc.Node)];
+        foreach (var u in f.Uses.Where(u => u.Node is CallNode { Name: "AND" }))
+            foreach (var (loc, n) in ((CallNode)u.Node).Args.SelectMany(Inside))
+            {
+                if (NameOf(n) is { Length: > 0 } name && NewNames.Contains(name) && SiteDefine(f, name))
+                    yield return f.Error("N-5", u.St, $"AND 안 {name} · 사이트 #define 이 낱말을 덮는다", loc);
+                if (n is CallNode { Name: "PARAM" or "PARAM_MIN" or "PARAM_MAX" or "KEY", Args: [{ Node: NameNode { Name: var arg } } first, ..] } c && SiteDefine(f, arg))
+                    yield return f.Error("N-5", u.St, $"AND 안 {c.Name}( {arg} ) · 사이트 #define 이 이름을 덮는다", first);
+            }
     }
 
     /// <summary>C-2: 처음으로 ACT 를 쓴다(<c>act_table.c</c> 가 빈 자리 꼴).</summary>
