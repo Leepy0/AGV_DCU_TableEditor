@@ -139,6 +139,23 @@ public sealed partial class SelfTest
         Check(TagText == tagBase && vm.ChangeCount == c0, "되돌려 처음 바이트 그대로");
         Check(!w.HandleUndoKey(Key.Z, ModifierKeys.Control | ModifierKeys.Shift) && !w.HandleUndoKey(Key.A, ModifierKeys.Control), "다른 조합은 건드리지 않음");
 
+        Step("A14 검토 10: 칸 확정이 실패하면(빨간 칸) Ctrl+Z 가 앞 편집을 되돌리지 않는다");
+        Tag.Fields.First(f => f.Label == "각도").Text = "60";
+        Tag.Fields.First(f => f.Label == "각도").Commit();
+        await Idle();
+        int c1 = vm.ChangeCount;
+        var text60 = TagText;
+        Below<FieldEdit>(w).FirstOrDefault(f => ReferenceEquals(f.DataContext, Tag.Fields.First(x => x.Label == "각도")))?.FocusEditor();
+        await Idle();
+        var red = Tag.Fields.First(f => f.Label == "각도");
+        red.Text = "x";
+        Check(c1 == c0 + 1 && red.Invalid, $"앞 편집 한 단계 + 빨간 칸 (변경 {c1 - c0}, 빨강 {red.Invalid})");
+        Check(w.HandleUndoKey(Key.Z, ModifierKeys.Control) && vm.ChangeCount == c1 && TagText == text60, $"빨간 칸에서 Ctrl+Z = 되돌리지 않음 (변경 {vm.ChangeCount - c0})");
+        red.Revert();
+        Below<FieldEdit>(w).FirstOrDefault(f => ReferenceEquals(f.DataContext, Tag.Fields.First(x => x.Label == "각도")))?.FocusEditor();
+        await Idle();
+        Check(w.HandleUndoKey(Key.Z, ModifierKeys.Control) && vm.ChangeCount == c0 && TagText == tagBase, "칸을 안 바꾼 포커스에서는 평소처럼 앞 편집을 되돌림");
+
         Step("A15 우클릭 메뉴: 선택 규칙(여러 줄 안이면 유지, 밖이면 그 줄만), 줄 메뉴 항목");
         var rows = (w.FindName("TagPane") as TagView)!.FindName("Rows") as ListBox ?? throw new InvalidOperationException("Rows");
         var vis = Tag.Rows.Where(r => r.Rule != null).Take(3).ToList();

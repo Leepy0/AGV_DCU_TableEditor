@@ -58,16 +58,41 @@ public static class ActionForms
         var specs = Facts.Expand(from, args.Count) ?? [];
         var left = args.Select((a, i) => (Arg: a, Spec: i < specs.Count ? specs[i] : null)).ToList();
         var outArgs = new List<string>();
+        var extra = new List<string>();
+        bool inputOnly = to.Args.Any(a => a.Kind == ArgKind.ParamTime); // PARAM_TIME 형식의 조건 칸은 입력만 받는다(코어가 상태·둘째 ANY 를 막는다)
         foreach (var spec in to.Args)
             for (int k = 0; k < spec.Most; k++)
             {
                 int i = left.FindIndex(x => x.Spec != null && Same(x.Spec, spec) && Fits(x.Arg.Node, spec));
-                if (i >= 0) { outArgs.Add(left[i].Arg.Text.Trim()); left.RemoveAt(i); }
+                if (i >= 0)
+                {
+                    var arg = left[i].Arg;
+                    if (inputOnly && CondLike(spec) && arg.Node is CallNode { Name: "AND" } and) { var (text, drop) = InputOnly(and); outArgs.Add(text); extra.AddRange(drop); }
+                    else outArgs.Add(arg.Text.Trim());
+                    left.RemoveAt(i);
+                }
                 else if (k < spec.Least) outArgs.Add(fill(spec));
                 else break;
             }
-        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).ToList();
+        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).Concat(extra).ToList();
         return (Form.Call(to.Name, outArgs), dropped);
+    }
+
+    /// <summary><c>AND( … )</c> 에서 입력 항목만 남긴다: 상태 낱말(<c>ALWAYS</c> 는 상태가 아니다)과 둘째 이후 <c>ANY</c> 는 버린다. 남은 것이 없으면 <c>NO_IN</c>.</summary>
+    static (string Text, List<string> Dropped) InputOnly(CallNode and)
+    {
+        var keep = new List<string>();
+        var drop = new List<string>();
+        bool anyKept = false;
+        foreach (var a in and.Args)
+        {
+            string name = a.Node switch { CallNode c => c.Name, NameNode m => m.Name, _ => "" };
+            bool state = name != "ALWAYS" && Facts.StateWords.Contains(name);
+            bool second = name == "ANY" && anyKept;
+            if (name == "ANY") anyKept = true;
+            (state || second ? drop : keep).Add(a.Text.Trim());
+        }
+        return (keep.Count == 0 ? "NO_IN" : Form.Call("AND", keep), drop);
     }
 
     static bool Numeric(ArgSpec s) => s.Kind is ArgKind.Number or ArgKind.StopDist;

@@ -100,6 +100,9 @@ public static partial class Checker
     [GeneratedRegex(@"\b(?:ACS|AGV_SPEED)\s*\(\s*(?:[A-Z_]+\s*,\s*)?\(")]
     private static partial Regex ParenArgRx();
 
+    [GeneratedRegex(@"/\*.*?\*/|//[^\n]*", RegexOptions.Singleline)]
+    private static partial Regex CommentRx();
+
     /// <summary>D-5: <c>ACS( 종류, CONST )</c>(늘 0 을 보고하는 낱말이라 숫자 0 을 쓴다), 번호·속도 칸이 <c>(</c> 로 시작하는 식(<c>ACS( 종류, (70 + 7) )</c>, <c>AGV_SPEED( (20 + 10) )</c>).</summary>
     static IEnumerable<Finding> D5(Facts f)
     {
@@ -108,8 +111,9 @@ public static partial class Checker
             foreach (var st in file.Statements.Where(s => s.Shape == StatementShape.Macro && s.Name == "ACS" && f.AreaOf(s) is Area.Seq or Area.Act))
                 if (st.Args.Count == 2 && st.Args[1].Node is NameNode { Name: "CONST" })
                     yield return f.Error("D-5", st, "ACS CONST · 숫자 0 을 쓴다", st.Args[1]);
-        foreach (var p in f.Site.Files.SelectMany(file => file.RawInZones))
-            if (ParenArgRx().Match(p.Text) is { Success: true } m)
+        // 원문 블록과 문장으로 읽힌 줄(태그 동작 안의 ACS·AGV_SPEED 포함) 모두, 주석을 지운 글로 본다(칸 앞 주석이 있어도 같다)
+        foreach (var p in f.Site.Files.SelectMany(file => file.RawInZones.Concat(file.Statements.Where(s => s.Shape == StatementShape.Macro && s.Zone != null))))
+            if (ParenArgRx().Match(CommentRx().Replace(p.Text, " ")) is { Success: true } m)
                 yield return f.Error("D-5", p, $"괄호로 시작하는 식 · {m.Value.Split('(')[0].Trim()} 은 ( 로 시작하는 칸을 못 받는다");
     }
 

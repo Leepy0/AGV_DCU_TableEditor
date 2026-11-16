@@ -25,11 +25,28 @@ public static class SiteBuild
         return bin != null && Path.GetFileName(bin).Equals("bin", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(bin) : null;
     }
 
-    /// <summary>앱의 tools/check.ps1 가 <c>$Cgt</c> 인자를 아는가(모르는 인자를 넘기면 스크립트가 실패한다).</summary>
+    /// <summary>앱의 tools/check.ps1 가 <c>$Cgt</c> 인자를 아는가(모르는 인자를 넘기면 스크립트가 실패한다). <c>param( … )</c> 블록 안의 매개변수만 인정한다(지역 변수·주석의 글자는 아니다).</summary>
     public static bool KnowsCgt(string appRoot)
     {
-        try { return Regex.IsMatch(File.ReadAllText(Path.Combine(appRoot, "tools", "check.ps1")), @"\$Cgt\b", RegexOptions.IgnoreCase); }
+        try { return Regex.IsMatch(ParamBlock(File.ReadAllText(Path.Combine(appRoot, "tools", "check.ps1"))), @"\$Cgt\b", RegexOptions.IgnoreCase); }
         catch (IOException) { return false; }
+    }
+
+    /// <summary>스크립트의 첫 <c>param( … )</c> 안쪽 글(괄호 짝·따옴표·# 주석을 읽는다). 없으면 빈 글.</summary>
+    static string ParamBlock(string script)
+    {
+        var m = Regex.Match(script, @"^[ \t]*param\s*\(", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        if (!m.Success) return "";
+        int depth = 1;
+        for (int i = m.Index + m.Length; i < script.Length; i++)
+        {
+            char c = script[i];
+            if (c is '\'' or '"') { int e = script.IndexOf(c, i + 1); if (e < 0) break; i = e; }
+            else if (c == '#') { int e = script.IndexOf('\n', i); if (e < 0) break; i = e; }
+            else if (c == '(') depth++;
+            else if (c == ')' && --depth == 0) return script[(m.Index + m.Length)..i];
+        }
+        return "";
     }
 
     /// <summary>powershell 인자. cl2000 경로가 있고 스크립트가 <c>-Cgt</c> 를 알 때만 <c>-Cgt</c> 를 넘긴다.</summary>
