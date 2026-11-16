@@ -132,6 +132,41 @@ public sealed partial class SelfTest
         vm.Undo.Execute(null);
         await Idle();
 
+        Step("검토 1·5: 새 코어 사이트에서 옛 줄을 열고 OK 만 = 바이트 동일, 옛 전용 조건에 상태를 더하면 줄 전체가 옛 형식");
+        var dir2 = Path.Combine(Path.GetFullPath(work), "dsl_v058_old_line");
+        Clear(dir2);
+        Directory.CreateDirectory(dir2);
+        foreach (var f in Directory.GetFiles(dir))
+            File.Copy(f, Path.Combine(dir2, Path.GetFileName(f)));
+        var tagFile = Path.Combine(dir2, "tag_table.c");
+        File.WriteAllText(tagFile, File.ReadAllText(tagFile, Utf8).Replace("TAG_TABLE_END", "    TAG_IF( 960, ANY_PROFILE, IF_X_IN( X_FORWARD, NO_IN ), AGV_STOP )\nTAG_TABLE_END"), Utf8);
+        await vm.TryOpen(() => vm.OpenSiteAsync(dir2, core));
+        await Idle();
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var r960 = Row(960);
+        int ch0 = vm.ChangeCount;
+        var tag960 = TagText;
+        Check(r960.Rule!.St.Args[2].Text == "IF_X_IN( X_FORWARD, NO_IN )", $"옛 줄 ({r960.Rule!.St.Args[2].Text})");
+        var (c960, d960) = await Open<CondVm>(() => { Tag.SelectOnly(r960); return vm.EditConditionAsync(r960); });
+        Check(c960.XRows.Count == 1 && c960.XRows[0].Kind.Name == "FORWARD", $"팝업은 새 낱말로 보임 ({string.Join(",", c960.XRows.Select(x => x.Kind.Name))})");
+        c960.Ok.Execute(null);
+        await d960;
+        await Idle();
+        Check(TagText == tag960 && vm.ChangeCount == ch0, "옛 줄 열고 OK = 줄·파일 바이트 동일 · 단계 안 생김");
+        var r65 = Row(65);
+        var (c65, d65) = await Open<CondVm>(() => { Tag.SelectOnly(r65); return vm.EditConditionAsync(r65); });
+        c65.AddX.Execute(null);
+        c65.Ok.Execute(null);
+        await d65;
+        await Idle();
+        var t65 = Row(65).Rule!.St.Args[2].Text;
+        Check(t65 == "IF_X2( X_STATION_RUNNING(1, 5, 9), X_FORWARD )" && vm.ErrorCount == 0 && Diff(tag960, TagText) == (1, 1), $"옛 전용 조건 + FORWARD = 옛 형식 한 줄 ({t65})");
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(TagText == tag960, "되돌리면 바이트 동일");
+        Clear(dir2);
+
         Step("B2 옛 코어(core 없음): 같은 조건 편집은 옛 형식으로 쓴다");
         await vm.TryOpen(() => vm.OpenSiteAsync(site));
         await Idle();

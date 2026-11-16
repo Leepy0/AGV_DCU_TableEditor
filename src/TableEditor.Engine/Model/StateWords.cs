@@ -38,4 +38,21 @@ public static class StateWords
             return new XCond("NOT", [s.Text]);
         return null;
     }
+    static readonly Dictionary<string, string> Reverse = Plain.ToDictionary(p => p.Value, p => p.Key, StringComparer.Ordinal);
+
+    /// <summary>
+    /// <see cref="ToState"/> 의 반대: 새 상태 낱말이면 대응하는 옛 <c>X_…</c>(인자도 옮김). 옛 이름은 그대로.
+    /// 옛 형식으로 못 옮기면(자리 있는 파라미터가 아닌 <c>PARAM_MIN</c> 의 FND 이름 모름 등) null.
+    /// </summary>
+    public static XCond? ToLegacy(XCond x)
+    {
+        if (!IsWord(x.Name)) return x;
+        if (Reverse.TryGetValue(x.Name, out var old)) return new XCond(old, x.Args);
+        if (x.Name is "PARAM_MIN" or "PARAM_MAX" && x.Args.Count == 2
+            && Grammar.CoreConstants.Params.FirstOrDefault(p => p.TableNames.Contains(x.Args[0].Trim())) is { } p)
+            return new XCond(x.Name == "PARAM_MIN" ? "X_PARAM_GE" : "X_PARAM_LE", [p.Core, x.Args[1]]);
+        if (x.Name == "NOT" && x.Args.Count == 1 && Reader.ParseArg(x.Args[0]) is { } inner && XCond.FromNode(inner) is { } ix && ToLegacy(ix) is { } s)
+            return new XCond("X_NOT", [s.Text]);
+        return null;
+    }
 }

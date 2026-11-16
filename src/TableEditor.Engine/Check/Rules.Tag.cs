@@ -117,7 +117,7 @@ public static partial class Checker
         Val(f, hider.FirstArg) is long a && Val(f, hider.LastArg) is long b && Val(f, r.FirstArg) is long c && Val(f, r.LastArg) is long d
         && a <= c && d <= b && (hider.AnyProfile || hider.Profile == r.Profile);
 
-    static bool HidesT10(Facts f, TagRule e, TagRule r) => Covers(f, e, r) && (!e.HasCond || e.CondText == r.CondText);
+    static bool HidesT10(Facts f, TagRule e, TagRule r) => Covers(f, e, r) && (!e.HasCond || TagEdit.CondKey(e) == TagEdit.CondKey(r));
 
     static bool HidesT11(Facts f, TagRule e, TagRule r) =>
         Covers(f, e, r) && (e.Cond?.Node is CallNode { Name: "IF_ID" or "IF_STATION" }
