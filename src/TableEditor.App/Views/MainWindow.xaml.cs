@@ -36,6 +36,25 @@ public partial class MainWindow : Window
         if (remember) Restore();
     }
 
+    /// <summary>
+    /// Ctrl+Z·Ctrl+Y 를 글 상자보다 먼저 받는다(상자가 키를 먹어 창 단축키가 안 닿았다). 칸 편집 중이면 포커스를 풀어 칸을 확정한 뒤
+    /// 표 되돌리기·다시하기 한 단계. 팝업·설정 화면의 글 상자는 상자 자신의 되돌리기에 맡긴다. 처리했으면 true.
+    /// </summary>
+    public bool HandleUndoKey(Key key, ModifierKeys mods)
+    {
+        if (mods != ModifierKeys.Control || key is not (Key.Z or Key.Y) || vm.HasDialog || vm.IsSettingsTab) return false;
+        if (Keyboard.FocusedElement is TextBox or ComboBox) Keyboard.ClearFocus(); // 확정은 칸이 포커스를 잃을 때
+        var cmd = key == Key.Z ? vm.Undo : vm.Redo;
+        if (cmd.CanExecute(null)) cmd.Execute(null);
+        return true;
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+        if (HandleUndoKey(e.Key, Keyboard.Modifiers)) e.Handled = true;
+    }
+
     /// <summary>위 줄 칩(변경·바깥 변경)을 누르면 작은 메뉴.</summary>
     void OnChipMenu(object sender, RoutedEventArgs e)
     {

@@ -81,7 +81,8 @@ public static partial class Checker
 
     /// <summary>N-1: 없는 이름. 가까운 이름을 후보로.</summary>
     static IEnumerable<Finding> N1(Facts f) =>
-        FromProblems(f, "N-1", p => p.Kind == "unknown").Select(x => x.Candidates.Count == 0 ? x : x with { Text = x.Text + " · 후보 " + string.Join(", ", x.Candidates) });
+        FromProblems(f, "N-1", p => p.Kind == "unknown").Select(x => x.Candidates.Count == 0 ? x : x with { Text = x.Text + " · 후보 " + string.Join(", ", x.Candidates) })
+            .Concat(f.Problems.Where(p => p.Kind == "swap").Select(p => f.Error("N-1", p.Use.St, $"{p.Text} · 후보 {p.Candidates[0]}", p.Use.Loc, p.Candidates) with { Replace = p.Candidates[0] }));
 
     /// <summary>N-2: 이름 종류·꼴이 칸과 다르다(안쪽 묶음 인자 수 포함).</summary>
     static IEnumerable<Finding> N2(Facts f) => FromProblems(f, "N-2", p => p.Kind is "kind" or "form" or "count");

@@ -221,7 +221,8 @@ public sealed class InputVm : Observable
     {
         Label = label;
         this.wrap = wrap;
-        inputs = Choices.For(new ArgSpec(ArgKind.Input), names);
+        // 조건에는 논리 입력 ID 32 이상(IN_AMP_*)·IO_NONE 을 못 쓴다: 이미 쓴 것만 남긴다
+        inputs = Choices.For(new ArgSpec(ArgKind.Input), names).Where(c => !(long.TryParse(c.Note, out var id) && id >= 32) || raw?.Contains(c.Name) == true).ToList();
         if (node != null && !ReadGroups(node)) RawInput = raw;
         AddGroup = new Command(() => Groups.Add(new GroupVm("ON", inputs, [])), () => RawInput == null);
         RemoveGroup = new Command(p => { if (p is GroupVm g) Groups.Remove(g); });

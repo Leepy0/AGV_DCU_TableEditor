@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using TableEditor.App.ViewModels;
 
@@ -25,6 +26,24 @@ public partial class ManualView : UserControl
             if (vm != null) vm.ScrollTo += OnScroll;
         };
         PreviewKeyDown += OnKey;
+        PreviewMouseRightButtonDown += OnRightDown;
+    }
+
+    /// <summary>줄·블록 우클릭(A15): 그 줄(블록이면 그 블록)을 고르고 메뉴.</summary>
+    void OnRightDown(object sender, MouseButtonEventArgs e)
+    {
+        if (vm == null) return;
+        ManRowVm? row = null;
+        for (var d = e.OriginalSource as DependencyObject; d != null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+        {
+            if (d is TextBox) return;
+            if (d is FrameworkElement { DataContext: Blocks.BlockVm { Pick: { } pick } }) pick.Execute(null);
+            if (d is FrameworkElement { DataContext: ManRowVm r }) { row = r; break; }
+        }
+        if (row != null) vm.Pick.Execute(row);
+        ContextMenu = RowMenu.Build(row == null
+            ? [new("카드 추가", vm.AddCard)]
+            : [new("카드 추가", vm.AddCard), new("가지 추가", vm.AddBranch), new("줄 삭제", vm.DeleteRow), new("카드 삭제", vm.DeleteCard), new("동작 삭제", vm.DeleteBlock), new("조건", vm.EditCond, row)]);
     }
 
     void OnScroll(object item) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>

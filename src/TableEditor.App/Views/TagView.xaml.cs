@@ -17,6 +17,24 @@ public partial class TagView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, _) => Attach(DataContext as TagVm);
+        RowMenu.Attach(Rows, row => TagMenu(row as TagRowVm));
+    }
+
+    /// <summary>줄 우클릭(A15): 있는 명령만 잇는다.</summary>
+    IEnumerable<RowMenu.Item?> TagMenu(TagRowVm? r)
+    {
+        if (vm == null) yield break;
+        yield return new("추가", vm.Add);
+        yield return new("복제", vm.Duplicate);
+        yield return new("삭제", vm.Delete);
+        if (r == null) yield break;
+        yield return new("조건", vm.EditCond, r);
+        yield return new("동작 추가", new Mvvm.Command(() => _ = vm.AddActionAsync(r), () => vm.Add.CanExecute(null)));
+        yield return new("동작 삭제", vm.DeleteBlock);
+        yield return new("칸 편집", new Mvvm.Command(() => vm.BeginCellEdit(), () => vm.Add.CanExecute(null)));
+        yield return new("원문", vm.EditRaw);
+        if (r.Blocks.SelectMany(b => b.Parts).FirstOrDefault(p => p.Seq != null)?.Seq is { } seq)
+            yield return new("시퀀스 열기", new Mvvm.Command(() => vm.OpenSeq(r, seq)));
     }
 
     void Attach(TagVm? next)

@@ -214,6 +214,14 @@ public sealed class Facts
 
     IEnumerable<string> Pool(params NameKind[] kinds) => Names.All.Where(d => kinds.Contains(d.Kind)).Select(d => d.Name);
 
+    /// <summary>접두만 다른 짝: <c>X_FORWARD</c>↔<c>IF_FORWARD</c>. 짝이 문법 표에 없으면 null. B절 코어 형식이 들어오면 이 쌍 표를 맞춘다.</summary>
+    static string? Swapped(string name)
+    {
+        var other = name.StartsWith("X_", StringComparison.Ordinal) ? "IF_" + name[2..]
+            : name.StartsWith("IF_", StringComparison.Ordinal) ? "X_" + name[3..] : null;
+        return other != null && GrammarTable.Find(other).Any() ? other : null;
+    }
+
     IEnumerable<Problem> Classify(Use u)
     {
         var spec = u.Spec;
@@ -379,6 +387,7 @@ public sealed class Facts
         if (spec.Kind == ArgKind.Action && def is { Kind: NameKind.Macro }) yield break; // shortcut: 함수 꼴 별칭(CALL_T 등)은 뜻을 모른다. 펼쳐 보려면 원문을 풀어야 한다
         var allowed = Allowed(spec.Kind, u.Area);
         if (allowed.Count == 0) yield break;
+        if (Swapped(nm) is { } sw && allowed.Contains(sw) && !allowed.Contains(nm)) { yield return P("swap", $"자리 다름 {nm}", [sw]); yield break; }
         if (u.Area is Area.Seq or Area.Act && TagOnly.Contains(nm)) { yield return P("tagonly", $"시퀀스 표 금지 {nm}"); yield break; }
         if (Inner(nm, args, spec.Kind, u.Area) != null)
         {

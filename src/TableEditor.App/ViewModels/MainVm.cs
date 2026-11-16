@@ -41,6 +41,7 @@ public sealed record FindingVm(Finding Finding, string At, TabVm? Tab)
     public bool IsError => Finding.Severity == Severity.Error;
     public string Rule => Finding.Rule;
     public string Text => Finding.Text;
+    public bool CanFix => Finding.Replace != null;
 }
 
 /// <summary>
@@ -86,6 +87,7 @@ public sealed partial class MainVm : Observable
         Config = new SettingsVm(settings, this);
         Update = new UpdateVm(this, settings);
         GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
+        Fix = new Command(p => { if (p is FindingVm f) FixFinding(f.Finding); }, _ => CanEdit);
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
         Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);
         Redo = new Command(() => Step(h => h.Redo()), () => CanEdit && history?.CanRedo == true);
@@ -560,6 +562,15 @@ public sealed partial class MainVm : Observable
     public bool IsHistoryTab => Tab.Name == HistoryTabName;
 
     public ICommand GoTo { get; }
+    public ICommand Fix { get; }
+
+    /// <summary>[바꾸기] 빠른 고침: 걸린 인자의 맨 앞 이름만 맞는 낱말로(<see cref="Finding.Replace"/>). 한 명령.</summary>
+    public bool FixFinding(Finding f)
+    {
+        if (f.Replace is not { } to || f.Cell is not { } cell || f.Piece is not Statement st) return false;
+        var text = System.Text.RegularExpressions.Regex.Replace(cell.Text, @"^(\s*)\w+", "${1}" + to);
+        return Apply(SiteEdit.SetArg(Site!, st, cell, text));
+    }
 
     /// <summary>검사 줄을 누르면 그 탭·그 줄로 가서 고른다.</summary>
     public void Go(FindingVm f)

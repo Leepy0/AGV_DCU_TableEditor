@@ -15,6 +15,8 @@ public partial class SeqView : UserControl
     public SeqView()
     {
         InitializeComponent();
+        RowMenu.Attach(StepList, _ => vm == null ? [] : [new("추가", vm.AddStep), new("바꾸기", vm.ChangeStep), new("삭제", vm.DeleteStep)]);
+        RowMenu.Attach(TreeList, _ => vm == null ? [] : [new("표 추가", vm.AddTable), new("표 삭제", vm.DeleteTable)]);
         drag = new(this, (a, b) => vm?.MoveStep(a, b));
         DataContextChanged += (_, _) =>
         {

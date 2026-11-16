@@ -15,6 +15,7 @@ public partial class MapView : UserControl
     public MapView()
     {
         InitializeComponent();
+        RowMenu.Attach(Rows, row => vm == null ? [] : [new("추가", vm.Add), new("삭제", vm.Delete), row == null ? null : new("표 열기", vm.GoTable, row)]);
         drag = new(this, (a, b) => vm?.MoveRow(a, b));
         DataContextChanged += (_, _) =>
         {
