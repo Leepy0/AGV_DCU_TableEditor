@@ -289,7 +289,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         Check(DiskText == other, "취소면 그대로");
 
         Step("설정 화면");
-        vm.Settings.LastRepo = @"D:\work\AGV_DCU_App";
+        vm.Settings.LastRepo = @"D:\work\app";
         vm.Settings.GccPath = @"D:\tools\gcc\bin\gcc.exe";
         vm.Settings.Cl2000Path = @"C:\ti\ti-cgt-c2000_18.12.2.LTS\bin\cl2000.exe";
         vm.Settings.UserName = "작업자";
