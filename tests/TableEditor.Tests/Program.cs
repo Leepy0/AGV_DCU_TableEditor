@@ -34,21 +34,32 @@ string RepoRoot()
 
 var tests = new (string Name, Action Run)[]
 {
-    ("문법 표 163", () =>
+    ("문법 표 163 + v0.58.0 26", () =>
     {
-        Check(GrammarTable.Names.Count == 163, $"공개 이름 {GrammarTable.Names.Count} != 163");
-        int Distinct(params Place[] places) => GrammarTable.Rows.Where(r => places.Contains(r.Place)).Select(r => r.Name).Distinct().Count();
+        // v0.54.0 부터 있던 줄(Since 빈 글자)은 사양 4절 그대로 163개
+        var oldRows = GrammarTable.Rows.Where(r => r.Since.Length == 0).ToList();
+        Check(GrammarTable.OldNames.Count == 163, $"옛 공개 이름 {GrammarTable.OldNames.Count} != 163");
+        Check(GrammarTable.Names.Count == 189, $"공개 이름 {GrammarTable.Names.Count} != 189");
+        int Distinct(params Place[] places) => oldRows.Where(r => places.Contains(r.Place)).Select(r => r.Name).Distinct().Count();
         Check(Distinct(Place.Frame) == 23, "4.1 표 틀 23");
         Check(Distinct(Place.InputCond) == 8, "4.2 입력 조건 8");
         Check(Distinct(Place.ExtCond) == 22, "4.3 확장 조건 22");
         Check(Distinct(Place.Step) == 62, "4.4 스텝 62");
         Check(Distinct(Place.Manual) == 5, "4.5 수동 5");
         Check(Distinct(Place.TagRule, Place.TagCond) == 20, "4.6 태그 규칙·조건 20");
-        var step = GrammarTable.Rows.Where(r => r.Place == Place.Step).Select(r => r.Name).ToHashSet();
-        var tagAct = GrammarTable.Rows.Where(r => r.Place == Place.TagAction).Select(r => r.Name).Distinct().ToList();
+        var step = oldRows.Where(r => r.Place == Place.Step).Select(r => r.Name).ToHashSet();
+        var tagAct = oldRows.Where(r => r.Place == Place.TagAction).Select(r => r.Name).Distinct().ToList();
         Check(tagAct.Count(step.Contains) == 12, "4.7 같은 이름 12");
         Check(tagAct.Count(n => !step.Contains(n)) == 10, "4.7 태그 전용 10");
         Check(Distinct(Place.Packed) == 13, "4.8 압축 13");
+        // v0.58.0: 상태 낱말 20(STATION 은 스텝 식과 이름이 같다), 입력 조건 4, 스텝 2, 태그 동작 1
+        var added = GrammarTable.Rows.Where(r => r.Since.Length > 0).ToList();
+        Check(added.Where(r => r.Place == Place.StateCond).Select(r => r.Name).Distinct().Count() == 20, "새 상태 낱말 20");
+        Check(added.Where(r => r.Place == Place.InputCond).Select(r => r.Name).SequenceEqual(["AND", "ANY", "IN_INVERTED", "PARAM_TIME"]), "새 입력 조건 4");
+        Check(GrammarTable.Names.Except(GrammarTable.OldNames).Count() == 26, "새 이름 26");
+        Check(GrammarTable.Rows.Where(r => r.Legacy).Select(r => r.Name).Distinct().Order(StringComparer.Ordinal).SequenceEqual(
+            ["ACS_SEND", "AGV_SPEED_MMIN", "WAIT_ANY2", "WAIT_ANY2_TO", "WAIT_IF", "WAIT_IF_IN", "WAIT_IF_IN_TO", "WAIT_IF_TO", "WAIT_PARAM_TO", "WAIT_TO_PARAM", "WHEN_ANY2", "WHEN_IF", "WHEN_IF_IN"]), "옛 이름 별칭 13");
+        Check(GrammarTable.IsNew("v0.58.0") && GrammarTable.IsNew("v0.60.1") && !GrammarTable.IsNew("v0.57.0") && !GrammarTable.IsNew(null), "코어 버전 판정");
         Check(GrammarTable.Rows.Where(r => r.ActForbidden).Select(r => r.Name).Distinct().Count() == 8, "ACT 금지 8 이름");
         var tableNames = CoreConstants.Params.SelectMany(p => p.TableNames).Distinct().Count();
         Check(tableNames == 47, $"파라미터 표 이름 {tableNames} != 47");
@@ -66,7 +77,7 @@ var tests = new (string Name, Action Run)[]
         Check(GrammarTable.Find("ON").Single().Args[0].Label == "신호", "… 뗀 라벨");
         Check(GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0).All(r => GrammarTable.TagPalette.Contains(r.Palette)), "태그 동작 팔레트");
         Check(GrammarTable.Rows.Where(r => r.Place == Place.Step && r.Role == Role.Statement).All(r => GrammarTable.StepPalette.Contains(r.Palette)), "스텝 팔레트");
-        Check(GrammarTable.Find("SEQ_START", Place.TagAction).All(r => r.Head == "시퀀스") && GrammarTable.Find("AGV_STOP", Place.TagAction).All(r => r.Head == "정지"), "같은 매크로 같은 머리");
+        Check(GrammarTable.Find("SEQ_START", Place.TagAction).All(r => r.Head == "정지·시퀀스") && GrammarTable.Find("AGV_STOP", Place.TagAction).All(r => r.Head == "정지"), "같은 매크로 같은 머리");
     }),
 
     ("살펴볼 것 1: 줄 끝 섞임·끝 줄 끝 없음·줄 끝 공백", () =>
@@ -210,32 +221,39 @@ var tests = new (string Name, Action Run)[]
 
     ("T900_DEMO", () =>
     {
-        var folder = Path.Combine(RepoRoot(), "tests", "fixtures", "T900_DEMO");
-        var files = SiteFolder.Read(folder);
-        Check(files.Count == FileZones.Files.Count, $"읽기 대상 {files.Count} != {FileZones.Files.Count}");
-        foreach (var f in files)
+        // 옛 형식 한 벌(폴더 바로 밑)과 코어 v0.58.0 새 형식 한 벌(dsl_v058). 둘 다 왕복 바이트가 같고, 이름이 모자라지 않다
+        var root = Path.Combine(RepoRoot(), "tests", "fixtures", "T900_DEMO");
+        foreach (var (folder, label) in new[] { (root, "옛"), (Path.Combine(root, "dsl_v058"), "새") })
         {
-            Check(SameBytes(f, File.ReadAllBytes(Path.Combine(folder, f.Name))), f.Name + " 왕복");
-            Check(!f.ReadOnly, f.Name + " 읽기 전용 아님");
-            Check(!f.RawInZones.Any(), f.Name + " 표 구역 안 원문 0");
+            var files = SiteFolder.Read(folder);
+            Check(files.Count == FileZones.Files.Count, $"{label} 읽기 대상 {files.Count} != {FileZones.Files.Count}");
+            foreach (var f in files)
+            {
+                Check(SameBytes(f, File.ReadAllBytes(Path.Combine(folder, f.Name))), $"{label} {f.Name} 왕복");
+                Check(!f.ReadOnly, $"{label} {f.Name} 읽기 전용 아님");
+                Check(!f.RawInZones.Any(), $"{label} {f.Name} 표 구역 안 원문 0");
+            }
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var st in files.SelectMany(f => f.Statements))
+            {
+                used.Add(st.Name);
+                foreach (var a in st.Args) used.UnionWith(a.Node.Names());
+            }
+            // 4.8 압축 표 이름은 생성물 자리(tag_packed.c)에만 나온다. 이 파일은 읽기 대상이 아니라 글자로 찾는다
+            var packed = File.ReadAllText(Path.Combine(folder, "tag_packed.c"));
+            used.UnionWith(Regex.Matches(packed, @"\b[A-Za-z_]\w*\b").Select(m => m.Value));
+            // 옛 한 벌: v0.54.0 이름 전부(옛 이름 별칭도). 새 한 벌: 새 낱말 26개 전부
+            var want = label == "옛" ? GrammarTable.OldNames.AsEnumerable() : GrammarTable.Names.Except(GrammarTable.OldNames);
+            var missing = want.Where(n => !used.Contains(n) && !(label == "옛" && n == "NO_ACTION")).Distinct().ToList();
+            Check(missing.Count == 0, $"{label} fixture 에 없는 문법 이름: " + string.Join(", ", missing));
         }
-        var used = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var st in files.SelectMany(f => f.Statements))
-        {
-            used.Add(st.Name);
-            foreach (var a in st.Args) used.UnionWith(a.Node.Names());
-        }
-        // 4.8 압축 표 이름은 생성물 자리(tag_packed.c)에만 나온다. 이 파일은 읽기 대상이 아니라 글자로 찾는다
-        var packed = File.ReadAllText(Path.Combine(folder, "tag_packed.c"));
-        used.UnionWith(Regex.Matches(packed, @"\b[A-Za-z_]\w*\b").Select(m => m.Value));
-        var missing = GrammarTable.Names.Where(n => !used.Contains(n)).ToList();
-        Check(missing.Count == 0, "fixture 에 없는 문법 이름: " + string.Join(", ", missing));
-        var multi = files.Single(f => f.Name == "tag_table.c").Statements.Single(s => s.Name == "TAG_IF" && s.EndLine > s.StartLine);
+        var multi = SiteFolder.Read(root).Single(f => f.Name == "tag_table.c").Statements.Single(s => s.Name == "TAG_IF" && s.EndLine > s.StartLine);
         Check(multi.Args.Count == 4, "fixture 여러 줄 문장");
     }),
 
     ("Ops(작업 3)", () => OpsTests.Run(Check)),
     ("검사 규칙", () => CheckTests.Run(Check, RepoRoot())),
+    ("새 DSL 형식 v0.58.0(B)", () => DslTests.Run(Check, RepoRoot())),
     ("편집·저장(작업 2)", () => EditTests.Run(Check, RepoRoot())),
     ("검토 결함: 읽기·편집·저장(작업 8)", () => ReviewTests.Run(Check, RepoRoot())),
     ("화면 손질: 꼴 바꾸기·거르기·칸 고치기", () => UxTests.Run(Check, RepoRoot())),

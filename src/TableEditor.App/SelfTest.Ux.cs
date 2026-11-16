@@ -40,7 +40,7 @@ public sealed partial class SelfTest
         await Idle();
         Check(Row(40, "PF_BELT").Rule!.St.Text.Contains("SEQ_START( TAPE, LOAD ), AGV_FORBACK( TOGGLE )"), "SEQ_START( TAPE, LOAD )");
         Check(Diff(start, TagText) == (1, 1) && vm.ErrorCount == 0, $"한 줄·오류 0 {Diff(start, TagText)}");
-        Check(Tag.Picked?.Head == "시퀀스" && Tag.Fields[0].Text == "TAPE" && Tag.Fields.Count == 2, $"같은 블록·칸 TAPE ({string.Join("/", Tag.Fields.Select(f => f.Label + "=" + f.Text))})");
+        Check(Tag.Picked?.Head == "정지·시퀀스" && Tag.Fields[0].Text == "TAPE" && Tag.Fields.Count == 2, $"같은 블록·칸 TAPE ({string.Join("/", Tag.Fields.Select(f => f.Label + "=" + f.Text))})");
         Tag.Fields[0].Picked = Tag.Fields[0].Items!.Cast<Choice>().First(c => c.Name == "TAPE_GD");
         await Idle();
         Check(Row(40, "PF_BELT").Rule!.St.Text.Contains("SEQ_START( TAPE_GD, LOAD )") && vm.ErrorCount == 0, "TAPE_GD");
@@ -204,7 +204,7 @@ public sealed partial class SelfTest
         Check(S.SelectedStep?.Piece.Text.Trim() == "WAIT_STABLE( NO_IN, 100 )" && vm.ErrorCount == 0, $"바꿈 ({S.SelectedStep?.Piece.Text.Trim()})");
         S.MoveStep(S.SelectedStep!, null);
         await Idle();
-        Check(S.Steps.Last(r => r.Ordinal > 0).Block.Head == "안정 대기" && S.SelectedStep?.Block.Head == "안정 대기", "끝으로 끌기");
+        Check(S.Steps.Last(r => r.Ordinal > 0).Block.Head == "유지 대기" && S.SelectedStep?.Block.Head == "유지 대기", "끝으로 끌기");
         S.SelectStep(S.Steps.First(r => r.Label == "RUN"), true);
         var (ask, askDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(ask.Title == "지울 수 없음" && ask.Lines.Count == 2, $"라벨 RUN 막힘 ({ask.Title})");
@@ -339,18 +339,18 @@ public sealed partial class SelfTest
         S.MoveStep(mover, raw);
         await Idle();
         var moved = S.Steps.First(r => r.Piece.Text.Contains("AGV_FORBACK"));
-        Check(vm.ChangeCount == c0 + 1 && moved.Ordinal == nextAfterRaw && S.Steps.Last(r => r.Ordinal > 0).Block.Head == "끝 재출발",
+        Check(vm.ChangeCount == c0 + 1 && moved.Ordinal == nextAfterRaw && S.Steps.Last(r => r.Ordinal > 0).Block.Head == "끝·재출발",
             $"원문 줄 위에 놓으면 다음 문장 앞 ({moved.Ordinal}, {nextAfterRaw})");
 
-        Step("지우기 팝업: 분기 시작·끝 짝째, 끝 줄, 원문 줄");
-        S.SelectStep(S.Steps.First(r => r.Block.Head == "분기 시작"), true);
+        Step("지우기 팝업: 고르기 시작·끝 짝째, 끝 줄, 원문 줄");
+        S.SelectStep(S.Steps.First(r => r.Block.Head == "고르기 시작(대기)"), true);
         var (pair, pairDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(pair.Title == "스텝 삭제" && pair.Lines[0].Contains("짝") && pair.Buttons.First(b => b.Default).Key == "cancel", $"짝 팝업 ({pair.Lines[0]})");
         await Shot("seq_pair_delete.png");
         pair.Close("delete");
         await pairDone;
         await Idle();
-        Check(!S.Steps.Any(r => r.Block.Head is "분기 시작" or "분기 끝") && vm.ErrorCount == 0, $"짝 둘 다 지움·오류 0 ({vm.ErrorCount})");
+        Check(!S.Steps.Any(r => r.Block.Head is "고르기 시작(대기)" or "고르기 끝") && vm.ErrorCount == 0, $"짝 둘 다 지움·오류 0 ({vm.ErrorCount})");
         S.SelectStep(S.Steps.Last(r => r.Ordinal > 0), true);
         var (endAsk, endDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(endAsk.Lines[0].StartsWith("끝 줄", StringComparison.Ordinal), "끝 줄 팝업");
@@ -370,7 +370,7 @@ public sealed partial class SelfTest
         S.SelectStep(S.Steps.First(r => r.Piece.Text.Contains("WAIT_TO( IN( ON(DEMO_IF_IN1) ), 3000, ERR )")), true);
         await Idle();
         var form = S.Fields[0];
-        Check(form.Label == "형식" && form.Info.Value == "시간" && form.Info.Spec.Words!.SequenceEqual(["없음", "시간", "파라미터"]), $"형식 칸 {form.Label} {form.Info.Value} {string.Join("/", form.Info.Spec.Words!)}");
+        Check(form.Label == "형식" && form.Info.Value == "시간" && form.Info.Spec.Words!.SequenceEqual(["없음", "시간", "상태", "상태·시간", "상태·입력", "상태·입력·시간", "하나라도 2", "하나라도 2·시간", "파라미터"]), $"형식 칸 {form.Label} {form.Info.Value} {string.Join("/", form.Info.Spec.Words!)}");
         var (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "파라미터"); return Task.CompletedTask; });
         Check(fAsk.Title == "값 버림" && fAsk.Lines.Contains("3000"), $"시간 값 버림 팝업 ({string.Join(" / ", fAsk.Lines)})");
         fAsk.Close("cancel");

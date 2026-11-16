@@ -68,7 +68,7 @@ static class CheckTests
         yield return ("N-2", E, [Tag("TAG_IF( 201, ANY_PROFILE, IF_X( X_ID(5) ), AGV_STOP )")], "인자 수");
         yield return ("N-2", E, [Manual("MANUAL_END", "MAN( PF_BOX, IDLE, IN( ON(DEMO_SEN_1) ), ON(DEMO_SEN_2) )"),
             Manual("MANUAL_END", "MAN_ELSE( PF_BOX, IDLE, NO_OUT )")], "출력 자리");
-        yield return ("N-3", E, [Tag("TAG_IF( 202, ANY_PROFILE, IF_IN( ANY_ON(DEMO_SENH_1, DEMO_SEN_2) ), AGV_STOP )")], "핀 1 활성");
+        yield return ("N-3", E, [Tag("TAG_IF( 202, ANY_PROFILE, IF_IN( ANY_ON(DEMO_SENH_1, DEMO_SEN_2) ), AGV_STOP )")], "반대 극성 입력");
         yield return ("N-4", E, [new("io_map.h", "#define DEMO_SEN_4      IN_EXT_4", "#define DEMO_SEN_4      IN_EXT_4\n#define DEMO_SEN_1      IN_EXT_9")], "두 번 정의 DEMO_SEN_1");
         yield return ("N-4", E, [new("seq_table.c", "SEQ_LABELS( DONE, REQ, RUN, ERR, BELT_STOP )", "SEQ_LABELS( DONE, REQ, RUN, ERR, BELT_STOP, REQ )")], "두 번 정의 REQ");
         yield return ("N-5", E, [new("seq_table.c", "SEQ_LABELS( DONE, REQ, RUN, ERR, BELT_STOP )", "SEQ_LABELS( DONE, REQ, RUN, ERR, BELT_STOP, ON )")], "코어 이름과 겹침 ON");
@@ -181,6 +181,59 @@ static class CheckTests
         yield return ("C-3", E, [new("seq_custom.h", "    CALL_SEQ_COUNT\n", "    CALL_SEQ_COUNT = 0\n"), new("tag_custom.h", "TAGC_COUNT = 1", "TAGC_COUNT = 0")], "CALL 처음");
     }
 
+    /// <summary>
+    /// 코어 v0.58.0 이상 사이트에서만 거는 규칙(D-1~D-6)과 새 형식에 맞춘 기존 규칙. (규칙, 고침, 글에 들어갈 낱말).
+    /// D-* 는 같은 줄이 옛 코어(v0.57.0)에서는 안 걸린다(아래 Run).
+    /// </summary>
+    static IEnumerable<(string Rule, Edit[] Edits, string Text)> DslCases()
+    {
+        const string S1 = "DEMO_SEN_1", S2 = "DEMO_SEN_2", S3 = "DEMO_SEN_3", S4 = "DEMO_SEN_4", S5 = "DEMO_LIFT_TOP";
+        yield return ("D-1", Seq($"    WHEN( AND( FORWARD, ID(1, 9) ), DONE )\n"), "AND 상태 2개 · WHEN");
+        yield return ("D-1", Seq($"    WHEN( AND( FORWARD, ID(1, 9), LOW_BATTERY ), DONE )\n"), "AND 상태 3개");
+        yield return ("D-1", Seq($"    WHEN( AND( FORWARD, ANY({S1}, {S2}), ANY({S3}, {S4}) ), DONE )\n"), "둘째 ANY");
+        yield return ("D-1", Seq($"    WHEN( AND( ANY({S1}, {S2}), ANY({S3}, {S4}), ANY({S5}, DEMO_LIFT_TOP) ), DONE )\n"), "AND ANY 3개");
+        yield return ("D-1", Seq($"    WHEN( AND( ON({S1}), OFF({S2}), ON({S3}), OFF({S4}), ON({S5}), FORWARD, ID(1, 9), LOW_BATTERY ), DONE )\n"), "AND 항목 8개 · 7 이하");
+        yield return ("D-1", Seq($"    WAIT_STABLE( AND( ON({S1}), FORWARD ), 10 )\n"), "AND 상태 1개 · 입력만");
+        yield return ("D-1", Seq($"    WAIT_STABLE_TO( AND( ANY({S1}, {S2}), ANY({S3}, {S4}) ), 10, 100, DONE )\n"), "둘째 ANY");
+        yield return ("D-1", Seq($"    ERROR_HOLD( 5, AND( ON({S1}), BACKWARD ), DONE )\n"), "AND 상태 1개 · 입력만");
+        yield return ("D-1", Seq($"    OUT_FLICKER_UNTIL_IN( OUT_EXT_1, 10, AND( FORWARD, ID( 1, 9 ) ) )\n"), "AND 상태 2개 · 점멸");
+        yield return ("D-1", Seq($"    WAIT_TO( AND( ON({S1}), FORWARD ), PARAM_TIME( AS, SEC ), DONE )\n"), "AND 상태 1개 · 입력만");
+        yield return ("D-1", [Tag($"TAG_IF( 900, ANY_PROFILE, AND( FORWARD, ID(1, 9), LOW_BATTERY ), AGV_STOP )")], "AND 상태 3개 · 태그");
+        yield return ("D-1", [Tag($"TAG_IF( 900, ANY_PROFILE, AND( ANY({S1}, {S2}), ANY({S3}, {S4}) ), AGV_STOP )")], "둘째 ANY");
+        yield return ("D-1", [Manual("MANUAL_END", "MAN( PF_CART, IDLE, AND( FORWARD, KEY( UP ) ), NO_OUT )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "AND 상태 2개 · 수동");
+        yield return ("D-2", [Tag($"TAG_IF( 900, ANY_PROFILE, AND( FORWARD ), X_STATION( 1, 5, 9 ), AGV_STOP )")], "조건 칸 밖 X_STATION");
+        yield return ("D-3", Seq($"    WHEN( AND( IN( ANY_ON({S1}, {S2}) ), ANY({S3}, {S4}) ), DONE )\n"), "ANY_ON + ANY");
+        yield return ("D-3", Seq($"    WHEN( AND( ANY_ON({S1}, {S2}), ON({S5}), ANY({S3}, {S4}) ), DONE )\n"), "ANY_ON + ANY");
+        yield return ("D-4", Seq("    WHEN( AND( NOT( NOT( FORWARD ) ) ), DONE )\n"), "NOT 겹침");
+        yield return ("D-4", Seq("    WHEN( AND( PARAM_MIN( TFB_1, 2 ) ), DONE )\n"), "PARAM_MIN 자리 있는 파라미터 TFB_1");
+        yield return ("D-4", Seq($"    WAIT_TO( IN( ON({S1}) ), PARAM_TIME( TFB_10, SEC ), DONE )\n"), "PARAM_TIME 자리 있는 파라미터 TFB_10");
+        yield return ("D-5", Seq("    ACS( ARRIVE, CONST )\n    END_STOP\n"), "ACS CONST");
+        yield return ("D-5", Seq("    ACS( ARRIVE, (70 + 7) )\n    END_STOP\n"), "괄호로 시작하는 식 · ACS");
+        yield return ("D-5", Seq("    AGV_SPEED( (20 + 10) )\n    END_STOP\n"), "괄호로 시작하는 식 · AGV_SPEED");
+        yield return ("D-6", Seq("    SELECT_END_TO( 0, DONE )\n"), "SELECT_END_TO 제한 0");
+        yield return ("D-6", Seq("    SELECT_END_TO( 40000, DONE )\n"), "SELECT_END_TO 제한 40000");
+        yield return ("D-6", Seq($"    WAIT_TO( IN( ON({S1}) ), UNMATCHED(2000), DONE )\n"), "WAIT_TO UNMATCHED");
+        yield return ("D-6", Seq($"    WAIT_TO( IN( ON({S1}) ), 40000, DONE )\n"), "WAIT_TO 제한 40000");
+        yield return ("D-6", Seq("    HANDSHAKE( OUT_EXT_1, IN_EXT_1, UNMATCHED(100), DONE )\n"), "HANDSHAKE UNMATCHED");
+        yield return ("D-6", Seq($"    OUT_FLICKER_UNTIL_IN_TO( OUT_EXT_1, 10, IN( ON({S1}) ), UNMATCHED(100), DONE )\n"), "OUT_FLICKER_UNTIL_IN_TO UNMATCHED");
+        // 기존 규칙이 새 형식에도 걸린다
+        yield return ("N-1", Seq("    WHEN( AND( FORWRD, ON(DEMO_SEN_1) ), DONE )\n"), "후보 FORWARD");
+        yield return ("N-2", Seq("    WHEN( AND( NOT( ON(DEMO_SEN_1) ) ), DONE )\n"), "종류 다름 ON");
+        yield return ("N-2", Seq("    WHEN( AND( STATION(0, 70) ), DONE )\n"), "인자 수 STATION 2");
+        yield return ("I-2", Seq("    WHEN( AND( ON(DEMO_SEN_1), OFF(DEMO_SEN_1) ), DONE )\n"), "같은 핀 반대");
+        yield return ("I-1", Seq("    WHEN( AND( ON( 33 ) ), DONE )\n"), "신호 ID 밖 33");
+        yield return ("I-4", Seq("    WHEN( IN( ON(DEMO_SEN_1), OFF(DEMO_SEN_2), ON(DEMO_SEN_3), OFF(DEMO_SEN_4), ON(DEMO_SEN_1), OFF(DEMO_SEN_2), ON(DEMO_SEN_3), OFF(DEMO_SEN_4), ON(DEMO_SEN_1) ), DONE )\n"), "묶음 9개 · 8 이하");
+        yield return ("S-8", Seq("    WHEN( AND( ID( 20, 10 ) ), DONE )\n"), "처음 > 끝");
+        yield return ("S-8", Seq("    AGV_SPEED( 3 )\n    END_STOP\n"), "범위 밖 3");
+        yield return ("S-14", Seq("    WHEN( AND( TAG_IS( STATION(0) + 100 ) ), DONE )\n"), "시퀀스 표 금지 TAG_IS");
+        yield return ("S-14", Seq("    ACS( ARRIVE, STATION(1) + 1 )\n    END_STOP\n"), "STATION(0) + 1 만");
+        yield return ("T-9", [Tag("TAG_IF( 900, ANY_PROFILE, AND( ID( 15, 12 ) ), OBS_ON )")], "처음 > 끝 ID");
+        yield return ("T-10", [Tag("TAG_IF( 50, ANY_PROFILE, AND( FORWARD ), OBS_ON )"), Tag("TAG_IF( 50, ANY_PROFILE, AND( FORWARD ), OBS_OFF )")], "무시됨 · 중복");
+        yield return ("T-11", [Tag("TAG_IF( 901, PF_LIFT, AND( ID( 10, 19 ) ), OBS_ON )"), Tag("TAG_IF( 901, PF_LIFT, AND( ID( 11, 12 ) ), OBS_OFF )")], "무시됨 · 중복");
+        yield return ("T-12", [Tag("TAG_IF( 217, PF_LIFT, AND( ID( 50, 51 ) ), OBS_ON )")], "호기 안 맞음 50~51");
+        yield return ("T-8", [Tag("TAG( 900, ANY_PROFILE, AGV_STOP, OBS_ON, OBS_OFF, CALL( 1 ), CALL( 2 ) )")], "동작 칸 5");
+    }
+
     /// <summary>지어낸 core 폴더: VERSION, 헤더(문법 이름 전부 또는 하나 뺌), MANIFEST.sha256(맞게 또는 하나 틀리게).</summary>
     static string MakeCore(string name, string version, bool dropName, bool badHash)
     {
@@ -191,8 +244,10 @@ static class CheckTests
         var names = GrammarTable.Names.Where(n => !dropName || n != "TAG_NUM");
         File.WriteAllText(Path.Combine(inc, "seq_dsl.h"), "#ifndef AGV_SEQ_DSL_H\r\n#define AGV_SEQ_DSL_H\r\n" + string.Concat(names.Select(n => $"#define {n} 1\r\n")) + "#endif\r\n", Utf8);
         File.WriteAllText(Path.Combine(inc, "tag_dsl.h"), "#ifndef AGV_TAG_DSL_H\n#define AGV_TAG_DSL_H\n#endif\n", Utf8);
+        bool newDsl = GrammarTable.IsNew(version);
+        if (newDsl) File.WriteAllText(Path.Combine(inc, "dsl_and.h"), "#ifndef AGV_DSL_AND_H\n#define AGV_DSL_AND_H\n#endif\n", Utf8);
         string Hash(string rel) => Convert.ToHexStringLower(SHA256.HashData(Encoding.Latin1.GetBytes(File.ReadAllText(Path.Combine(dir, rel), Encoding.Latin1).Replace("\r\n", "\n"))));
-        var rels = new[] { "VERSION", "include/agv/seq_dsl.h", "include/agv/tag_dsl.h" };
+        var rels = newDsl ? ["VERSION", "include/agv/seq_dsl.h", "include/agv/tag_dsl.h", "include/agv/dsl_and.h"] : new[] { "VERSION", "include/agv/seq_dsl.h", "include/agv/tag_dsl.h" };
         var lines = rels.Select(r => (badHash && r == "VERSION" ? new string('0', 64) : Hash(r)) + "  " + r);
         File.WriteAllText(Path.Combine(dir, "MANIFEST.sha256"), string.Join("\n", lines) + "\n", Utf8);
         return dir;
@@ -214,6 +269,44 @@ static class CheckTests
         check(Run(root, good).Any(f => f.Rule == "V-3" && f.Text.Contains("추가됨 include/agv/extra.h")), "V-3 추가됨");
 
         var seen = new HashSet<string>();
+        // 새 코어(v0.58.0 이상): 옛 형식 fixture 와 새 형식 fixture 모두 결과 0, 새 규칙(D-*)은 새 코어에만 건다
+        var newCore = MakeCore("new", "v0.58.0", false, false);
+        var oldOnNew = Run(root, newCore);
+        check(oldOnNew.Count == 0, "옛 형식 fixture + 새 코어 결과 0: " + string.Join(" | ", oldOnNew.Take(5)));
+        var newFixture = Path.Combine(Fixture(root), "dsl_v058");
+        var newOnNew = Checker.Run(Site.Open(newFixture, newCore));
+        check(newOnNew.Count == 0, "새 형식 fixture + 새 코어 결과 0: " + string.Join(" | ", newOnNew.Take(5)));
+        var oldCore = MakeCore("old57", "v0.57.0", false, false);
+        check(!Site.Open(newFixture, oldCore).NewDsl && Site.Open(newFixture, newCore).NewDsl && !Site.Open(newFixture).NewDsl, "새 형식 판단: core/VERSION v0.58.0 이상");
+        foreach (var (rule, edits, text) in DslCases())
+        {
+            seen.Add(rule);
+            var got = Run(root, newCore, edits);
+            check(got.Any(f => f.Rule == rule && f.Severity == Severity.Error && f.Text.Contains(text, StringComparison.Ordinal)),
+                $"{rule} '{text}' 새 코어에서 안 걸림: " + string.Join(" | ", got.Where(f => f.Rule == rule || f.Rule.StartsWith("D-")).Take(6)));
+            if (rule.StartsWith("D-", StringComparison.Ordinal))
+            {
+                var older = Run(root, oldCore, edits);
+                check(!older.Any(f => f.Rule.StartsWith("D-", StringComparison.Ordinal)), $"{rule} '{text}' 옛 코어에는 안 건다: " + string.Join(" | ", older.Where(f => f.Rule.StartsWith("D-")).Take(3)));
+            }
+        }
+        // 새 형식 정상 줄은 오류 0(코어 새 형식으로 컴파일되는 것, gcc 로 확인한 모양)
+        var okLines = Run(root, newCore, Seq(string.Concat(new[]
+        {
+            "WHEN( AND( ON(DEMO_SEN_1) ), DONE )", "WHEN( AND( NO_IN, FORWARD ), DONE )", "WHEN( AND( ANY_ON(DEMO_SEN_1, DEMO_SEN_2), OFF(DEMO_LIFT_BOT) ), DONE )",
+            "WHEN( AND( ANY(DEMO_SEN_1, DEMO_SEN_2), ANY(DEMO_SEN_3, DEMO_SEN_4), ON(DEMO_LIFT_BOT) ), DONE )", "WHEN( AND( FORWARD, ON(DEMO_SEN_1) ), DONE )",
+            "WAIT_TO( AND( ON(DEMO_SEN_1), ANY(DEMO_SEN_2, DEMO_SEN_3), ANY(DEMO_SEN_4, DEMO_LIFT_BOT) ), 300, DONE )",
+            "WAIT_TO( AND( ON(DEMO_SEN_1), ANY(DEMO_SEN_2, DEMO_SEN_3) ), PARAM_TIME( ST, DSEC ), DONE )", "WAIT_TO( IN( ON(DEMO_SEN_1) ), PARAM_TIME( P_AUTO_START_SEC, TICK ), DONE )",
+            "WAIT_TO( NO_IN, 32767, DONE )", "WHEN( AND( NOT( ID(1, 5) ) ), DONE )", "WHEN( AND( PARAM_MIN( DRS, 5 ), ON(DEMO_SEN_1) ), DONE )",
+            "ACS( ARRIVE, 5 )", "ACS( ARRIVE, STATION(0) + 1 )", "ACS( ARRIVE, AGV_ID )", "ACS( ARRIVE, STATION(3) )", "AGV_SPEED( 4 )", "AGV_SPEED( MIN )", "AGV_SPEED( 20 + 10 )",
+            "OUT_SET( OUTS( DEMO_LAMP ), NO_OUT )", "OUT_FLICKER_UNTIL_IN( OUT_EXT_1, 10, AND( ON(DEMO_SEN_1), FORWARD ) )",
+        }.Select(l => "    " + l + "\n")) + "    L( DONE )\n    END_STOP\n"));
+        check(!okLines.Any(f => f.Severity == Severity.Error), "새 형식 정상 줄은 오류 0: " + string.Join(" | ", okLines.Where(f => f.Severity == Severity.Error).Take(5)));
+        var okTags = Run(root, newCore, Tag("TAG_IF( 900, ANY_PROFILE, AND( TAG_IS( STATION(0) + 100 ), FORWARD ), AGV_STOP )"),
+            Tag("TAG_RANGE_IF( 910, 915, ANY_PROFILE, AND( ANY(DEMO_SEN_1, DEMO_SEN_2), NOT( BACKWARD ) ), AGV_STOP )"),
+            Tag("TAG( 920, ANY_PROFILE, ACS( ARRIVE, AGV_ID ) )"), Tag("TAG( 921, ANY_PROFILE, AGV_SPEED( 20 ), NO_ACTION )"), Tag("TAG_IF( 922, ANY_PROFILE, AND( ON( DEMO_SENH_1 ) ), AGV_STOP )"));
+        check(!okTags.Any(f => f.Severity == Severity.Error), "새 형식 태그 줄은 오류 0: " + string.Join(" | ", okTags.Where(f => f.Severity == Severity.Error).Take(5)));
+
         foreach (var (rule, sev, edits, text) in Cases())
         {
             seen.Add(rule);

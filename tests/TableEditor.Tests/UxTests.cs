@@ -154,7 +154,7 @@ static class UxTests
         var before = File.ReadAllBytes(path);
         var s = Site.Open(dir);
         ZoneBlock Z(Site x, string n) => x.Zones.Single(z => z.Open == "SEQ_BEGIN" && z.Name == n);
-        string Fill(ArgSpec a) => a.Kind == ArgKind.InCond ? "NO_IN" : a.Kind == ArgKind.Word ? a.Words![0] : "0";
+        string Fill(ArgSpec a) => a.Kind is ArgKind.InCond or ArgKind.AndCond ? "NO_IN" : a.Kind == ArgKind.Word ? a.Words![0] : "0";
 
         check(SeqEdit.StepRows(act: false).All(r => r.Place == Place.Step && r.Role == Role.Statement), "스텝 줄만");
         check(SeqEdit.StepRows(act: true).All(r => !r.ActForbidden) && SeqEdit.StepRows(false).Any(r => r.ActForbidden), "ACT 표면 ACT 금지 줄 뺌");
