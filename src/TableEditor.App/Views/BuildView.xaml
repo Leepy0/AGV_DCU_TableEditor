@@ -58,6 +58,11 @@
                           ItemsPanel="{StaticResource Across}" VerticalAlignment="Center" AutomationProperties.Name="단계"/>
         </DockPanel>
 
+        <!-- 진행 막대: 끝난 단계 비중 -->
+        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress, Mode=OneWay}" Height="{StaticResource Bar.W}" Margin="{StaticResource Pad.Bar}"
+                     VerticalAlignment="Bottom" BorderThickness="0" Background="{StaticResource Line}" Foreground="{StaticResource Accent}"
+                     Visibility="{Binding Running, Converter={StaticResource Shown}}" AutomationProperties.Name="진행"/>
+
         <!-- 출력 줄: 고정폭, 가상화, 끝 따라가기(위로 올리면 풀림) -->
         <Border Grid.Row="1" Margin="{StaticResource Pad.Out}" Background="{StaticResource Well}" BorderBrush="{StaticResource Line}"
                 BorderThickness="{StaticResource Bd.1}" CornerRadius="{StaticResource R.4}">

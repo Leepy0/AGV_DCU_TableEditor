@@ -235,6 +235,56 @@ public sealed partial class SelfTest
         vm.ClearNotice();
         await Shot("build.png");
 
+        Step("A7 빌드: 두 번 눌러도 한 번 · 바로 빌드 탭 · 도구 확인 낱말 · 단계 비중 진행");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        var slowTools = new TaskCompletionSource<IReadOnlyList<ToolStatus>>();
+        int probes = 0, images = 0;
+        var seen = new List<int>();
+        vm.Probe = _ => { probes++; return slowTools.Task; };
+        var okPack = vm.Packer;
+        vm.Packer = (app, site, on, ct) => { seen.Add(bp.Progress); return okPack(app, site, on, ct); };
+        vm.Imager = async (app, site, field, on, ct) =>
+        {
+            images++;
+            seen.Add(bp.Progress);
+            if (field) await Shot("build_run.png");
+            return await ok(app, site, field, on, ct);
+        };
+        var run1 = vm.BuildAsync();
+        await Idle();
+        Check(vm.IsBuildTab && vm.BusyText == "도구 확인" && bp.Running && bp.Progress == 0, $"누르는 즉시 빌드 탭 · 도구 확인 ({vm.BusyText}, {bp.Progress})");
+        Check(!vm.Build.CanExecute(null) && !bp.Run.CanExecute(null), "[빌드] 흐림");
+        await vm.BuildAsync(); // 두 번째 눌림: 아무 일 없이 돌아온다
+        slowTools.SetResult(allTools);
+        await run1;
+        await Idle();
+        Check(probes == 1 && images == 2, $"한 번만 시작 (도구 확인 {probes}, 이미지 {images})");
+        Check(seen.SequenceEqual([10, 25, 60]) && bp.Progress == 100 && vm.BusyText == null, $"압축·개발·현장 앞 진행 {string.Join("/", seen)} → {bp.Progress}");
+        Check(vm.Build.CanExecute(null), "끝나면 [빌드] 눌림");
+        vm.Packer = okPack;
+        vm.Imager = ok;
+        vm.Probe = _ => Task.FromResult(allTools);
+
+        Step("A8·A9 cl2000: 출력 18.12.2 읽기 · 느리면 경고(실패 아님) · -Cgt 는 설정이 있고 스크립트가 알 때만");
+        var fakeDir = Path.Combine(Path.GetFullPath(work), "fake_cl2000");
+        Clear(fakeDir);
+        Directory.CreateDirectory(fakeDir);
+        File.WriteAllText(Path.Combine(fakeDir, "fast.cmd"), "@echo off\r\necho 18.12.2\r\n");
+        File.WriteAllText(Path.Combine(fakeDir, "slow.cmd"), "@echo off\r\nping -n 10 127.0.0.1 >nul\r\necho 18.12.2\r\n");
+        var fastTool = await ToolProbe.Cl2000Async(Path.Combine(fakeDir, "fast.cmd"));
+        var slowTool = await ToolProbe.Cl2000Async(Path.Combine(fakeDir, "slow.cmd"), default, TimeSpan.FromSeconds(1));
+        Check(fastTool.Found && fastTool.Version == "v18.12.2" && !fastTool.Slow, $"출력 18.12.2 읽기 ({fastTool.Version})");
+        Check(slowTool.Found && slowTool.Slow, "제한 초과 = 느림 경고, 있음으로 계속");
+        var cgtCfg = @"C:\ti\ti-cgt-c2000_18.12.2.LTS\bin\cl2000.exe";
+        var scriptDir = Path.Combine(fakeDir, "app");
+        Directory.CreateDirectory(Path.Combine(scriptDir, "tools"));
+        File.WriteAllText(Path.Combine(scriptDir, "tools", "check.ps1"), "param([string]$Site)\n");
+        Check(!SiteBuild.ScriptArgs(scriptDir, SiteName, "n", false, cgtCfg).Contains("-Cgt"), "스크립트가 -Cgt 를 모르면 안 넘김");
+        File.WriteAllText(Path.Combine(scriptDir, "tools", "check.ps1"), "param([string]$Site, [string]$Cgt = 'x')\n");
+        Check(SiteBuild.ScriptArgs(scriptDir, SiteName, "n", false, cgtCfg).SkipWhile(x => x != "-Cgt").Skip(1).FirstOrDefault() == @"C:\ti\ti-cgt-c2000_18.12.2.LTS"
+            && !SiteBuild.ScriptArgs(scriptDir, SiteName, "n", false, null).Contains("-Cgt"), "알고 설정 있을 때만 -Cgt = bin 의 상위");
+        Clear(fakeDir);
+
         Step("회차 내기: 확인 팝업(번호·코어·표·공유) → 진행 → README 줄");
         var head = await G(a, "rev-parse", "--short", "HEAD");
         var (rd, roundDone) = await Open<FactsVm>(() => vm.RoundAsync());

@@ -47,11 +47,12 @@ public sealed partial class MainVm
     {
         BuildPane = new BuildVm(this);
         History = new HistoryVm(this);
+        Imager = (app, site, field, on, ct) => SiteBuild.RunAsync(app, site, null, field, on, ct, Settings.Cl2000Path);
         Packer = (app, site, on, ct) => SitePack.RunAsync(app, site, Settings.GccPath, on, ct);
         Probe = ct => ToolProbe.ProbeAllAsync(Settings.GccPath, Settings.Cl2000Path ?? ToolProbe.Cl2000Default, ct);
         Pull = new Command(() => _ = PullAsync(), () => CanGit && op != "pull");
         Push = new Command(() => _ = PushAsync(), () => CanGit && op != "push");
-        Build = new Command(() => _ = BuildAsync(), () => CanGit && op is not ("build" or "round" or "core"));
+        Build = new Command(() => _ = BuildAsync(), () => CanGit && !building && op is not ("build" or "round" or "core"));
         Discard = new Command(() => _ = DiscardAsync(), () => CanEdit && HasRepo);
         ReloadExternal = new Command(() => _ = ReloadExternalAsync(), () => CanEdit);
         BackFromView = new Command(LeaveView, () => IsReadOnly && Dialog == null);
@@ -352,28 +353,46 @@ public sealed partial class MainVm
     /// </summary>
     public async Task BuildAsync()
     {
-        if (!CanGit || op is "build" or "round" or "core") return;
-        if (Dirty && !await SaveAsync()) return;
-        if (Dirty) return;
-        if (!await ToolsReadyAsync()) return;
-        var root = Repo!;
-        var site = SiteName!;
-        Tab = TabNamed(BuildTabName);
-        var b = BuildPane;
-        b.Start("빌드", root);
-        ClearOpFindings();
-        await Locked("build", "검사", async () =>
+        if (!CanGit || building || op is "build" or "round" or "core") return;
+        building = true; // 누르는 즉시 잠금(저장·도구 확인 동안 두 번째 눌림 막기)
+        CommandManager.InvalidateRequerySuggested();
+        try
         {
-            try
+            Tab = TabNamed(BuildTabName);
+            if (Dirty && !await SaveAsync()) return;
+            if (Dirty) return;
+            var b = BuildPane;
+            var root = Repo!;
+            var site = SiteName!;
+            b.Start("빌드", root);
+            b.ToolsChecked(false);
+            BusyText = "도구 확인";
+            bool ready;
+            try { ready = await ToolsReadyAsync(); }
+            finally { if (op == null) BusyText = null; }
+            b.ToolsChecked(true);
+            if (!ready) { b.Finish(); return; }
+            ClearOpFindings();
+            await Locked("build", "검사", async () =>
             {
-                if (!CheckStage(b)) return 0;
-                var img = await StagedBuilder(b)(root, site, b.OnLine, b.Token);
-                if (!img.Ok) ShowBuildErrors(img.Errors);
-            }
-            finally { b.Finish(); }
-            return 0;
-        });
+                try
+                {
+                    if (!CheckStage(b)) return 0;
+                    var img = await StagedBuilder(b)(root, site, b.OnLine, b.Token);
+                    if (!img.Ok) ShowBuildErrors(img.Errors);
+                }
+                finally { b.Finish(); }
+                return 0;
+            });
+        }
+        finally
+        {
+            building = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
+
+    bool building;
 
     /// <summary>앞 빌드·압축 오류를 검사 목록에서 뺀다(새로 돈다).</summary>
     void ClearOpFindings()
@@ -402,7 +421,7 @@ public sealed partial class MainVm
         if (key == "settings")
         {
             Tab = SettingsTab;
-            Config.ShowTools(tools.Select(t => new ToolRow(t.Name, t.Found, t.Found ? $"{t.Version} · {t.Path}" : t.Detail ?? t.Path ?? "")));
+            Config.ShowTools(tools.Select(t => new ToolRow(t.Name, t.Found, t.Found ? (t.Slow ? $"느림 · {t.Path}" : $"{t.Version} · {t.Path}") : t.Detail ?? t.Path ?? "")));
         }
         return false;
     }

@@ -62,7 +62,7 @@ public sealed class SettingsVm : Observable
             var list = await ToolProbe.ProbeAllAsync(s.GccPath, s.Cl2000Path ?? ToolProbe.Cl2000Default, cts.Token);
             if (cts.IsCancellationRequested) return;
             Tools.Clear();
-            foreach (var t in list) Tools.Add(new ToolRow(t.Name, t.Found, t.Found ? $"{t.Version} · {t.Path}" : t.Detail ?? t.Path ?? ""));
+            foreach (var t in list) Tools.Add(new ToolRow(t.Name, t.Found, t.Found ? (t.Slow ? $"느림 · {t.Path}" : $"{t.Version} · {t.Path}") : t.Detail ?? t.Path ?? ""));
         }
         catch (OperationCanceledException) { }
         finally { if (ReferenceEquals(probe, cts)) IsProbing = false; }

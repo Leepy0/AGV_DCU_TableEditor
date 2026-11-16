@@ -1,7 +1,7 @@
 namespace TableEditor.Engine.Ops;
 
-/// <summary>도구 하나의 상태. 없으면 Found=false 와 Detail(이유). 예외를 내지 않는다.</summary>
-public sealed record ToolStatus(string Name, bool Found, string? Path, string? Version, string? Detail);
+/// <summary>도구 하나의 상태. 없으면 Found=false 와 Detail(이유). 제한 시간을 넘으면 Found=true, Slow=true(경고). 예외를 내지 않는다.</summary>
+public sealed record ToolStatus(string Name, bool Found, string? Path, string? Version, string? Detail, bool Slow = false);
 
 /// <summary>사양 7.1절 도구 확인.</summary>
 public static class ToolProbe
@@ -17,11 +17,11 @@ public static class ToolProbe
         return all;
     }
 
-    public static async Task<ToolStatus> Cl2000Async(string path = Cl2000Default, CancellationToken ct = default)
+    /// <summary>하위 도구를 안 띄우는 <c>--compiler_revision</c>(출력 예: 18.12.2). 제한 시간 20 s 는 D1(회사 PC 실측) 뒤에 정한다.</summary>
+    public static async Task<ToolStatus> Cl2000Async(string path = Cl2000Default, CancellationToken ct = default, TimeSpan? limit = null)
     {
-        // 첫 줄 예: TMS320C2000 C/C++ Compiler              v18.12.2.LTS
-        var r = await FirstLine("cl2000", path, ["-version"], ct);
-        return r with { Version = r.Version is { } v && System.Text.RegularExpressions.Regex.Match(v, @"v\d[\d.]*\S*") is { Success: true } m ? m.Value : r.Version };
+        var r = await FirstLine("cl2000", path, ["--compiler_revision"], ct, limit);
+        return r with { Version = r.Version is { } v && System.Text.RegularExpressions.Regex.Match(v, @"\d+(\.\d+)+\S*") is { Success: true } m ? "v" + m.Value : r.Version };
     }
 
     public static Task<ToolStatus> GitAsync(CancellationToken ct = default) => FirstLine("git", Which("git"), ["--version"], ct);
@@ -46,11 +46,12 @@ public static class ToolProbe
         return null;
     }
 
-    static async Task<ToolStatus> FirstLine(string name, string? path, string[] args, CancellationToken ct)
+    static async Task<ToolStatus> FirstLine(string name, string? path, string[] args, CancellationToken ct, TimeSpan? limit = null)
     {
         if (path == null || !File.Exists(path)) return new ToolStatus(name, false, path, null, path == null ? "PATH 에 없음" : "파일 없음");
-        var r = await ProcessRunner.RunAsync(new ProcessSpec(path, args, Timeout: TimeSpan.FromSeconds(20), OutputEncoding: ProcessRunner.Oem()), null, ct);
+        var r = await ProcessRunner.RunAsync(new ProcessSpec(path, args, Timeout: limit ?? TimeSpan.FromSeconds(20), OutputEncoding: ProcessRunner.Oem()), null, ct);
         if (r.StartError != null) return new ToolStatus(name, false, path, null, r.StartError);
+        if (r.TimedOut && name == "cl2000") return new ToolStatus(name, true, path, null, "느림", Slow: true); // 있다: 실패 아니라 경고, 빌드는 계속
         var line = r.Texts.Select(t => t.Trim()).FirstOrDefault(t => t.Length > 0);
         return r.Ok && line != null
             ? new ToolStatus(name, true, path, line, null)
