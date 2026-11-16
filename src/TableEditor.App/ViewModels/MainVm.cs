@@ -240,10 +240,10 @@ public sealed partial class MainVm : Observable
 
     public bool CanEdit => Site != null && Dialog == null && !IsBusy && !IsReadOnly;
 
-    /// <summary>명령 결과를 쌓고 다시 그린다. 막히면 까닭을 잠깐 보인다. 성공 여부.</summary>
     /// <summary>편집이 막혀 알림을 띄운 횟수(Ctrl+Z 가 칸 확정이 실패했는지 본다).</summary>
     public int ApplyFailures { get; private set; }
 
+    /// <summary>명령 결과를 쌓고 다시 그린다. 막히면 까닭을 잠깐 보인다. 성공 여부.</summary>
     public bool Apply(EditResult r)
     {
         if (history == null) return false;

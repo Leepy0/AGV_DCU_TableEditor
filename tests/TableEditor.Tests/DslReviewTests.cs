@@ -48,6 +48,7 @@ static class DslReviewTests
         Item7(n);
         Item8(n);
         Item9();
+        Item10(n);
     }
 
     // 1: X_STATION_RUNNING 처럼 새 낱말이 없는 조건이 하나라도 있으면 줄 전체를 옛 형식으로, 상태 낱말은 X_… 로 되돌린다
@@ -146,10 +147,20 @@ static class DslReviewTests
     // 6: 사이트 #define 이 새 낱말을 덮는다
     static void Item6(string n)
     {
-        var warn = (Site s) => Rule(s, "N-5").Where(f => f.Severity == Severity.Warning && f.Text.Contains("새 낱말")).ToList();
+        var warn = (Site s) => Rule(s, "N-5").Where(f => f.Severity == Severity.Warning && f.Text.Contains("코어와 다른 정의")).ToList();
         var err = (Site s) => Rule(s, "N-5").Where(f => f.Severity == Severity.Error && f.Text.Contains("AND 안")).ToList();
         var used = TagSite(n, "#define LOW_BATTERY 1", "TAG_IF( 960, ANY_PROFILE, AND( LOW_BATTERY ), OBS_ON )");
         check(warn(used).Count == 1 && err(used).Count == 1, $"6 새 낱말 #define + AND 안 사용 = 경고 + 오류 ({warn(used).Count}, {err(used).Count})");
+        // 재검토 1: 코어 헤더와 토큰열이 같은 정의(주석·공백 무시, 함수형은 매개변수 포함)는 경고도 없다
+        var hdr = Core("n_hdr", "v0.58.0");
+        Directory.CreateDirectory(Path.Combine(hdr, "include", "agv"));
+        File.WriteAllText(Path.Combine(hdr, "include", "agv", "tag_dsl.h"), "#define NO_ACTION  0   /* 코어 */\n#define OUT_SET( on, off )  DSL_STEP( SK_OUT, (on), (off) )\n", Utf8);
+        var same = TagSite(hdr, "#define NO_ACTION       0   /* 다른 주석 */", "TAG( 960, ANY_PROFILE, NO_ACTION )");
+        check(warn(same).Count == 0, "6 코어와 같은 NO_ACTION = 경고 없음");
+        var diff = TagSite(hdr, "#define NO_ACTION 1", "TAG( 960, ANY_PROFILE, NO_ACTION )");
+        check(warn(diff).Count == 1 && warn(diff)[0].Severity == Severity.Warning, "6 코어와 다른 NO_ACTION = 경고(오류 아님)");
+        check(warn(SeqSite(hdr, "#define OUT_SET( on,off )   DSL_STEP(SK_OUT,(on),(off))", "DELAY( 5 )")).Count == 0, "6 함수형 OUT_SET 도 토큰열이 같으면 없음");
+        check(warn(SeqSite(hdr, "#define OUT_SET( a, b )   DSL_STEP( SK_OUT, (a), (b) )", "DELAY( 5 )")).Count == 1, "6 함수형 OUT_SET 매개변수가 다르면 경고");
         var unused = TagSite(n, "#define NO_ACTION 0", "TAG( 960, ANY_PROFILE, NO_ACTION )");
         check(warn(unused).Count == 1 && err(unused).Count == 0, "6 AND 밖(NO_ACTION)은 경고만");
         var param = TagSite(n, "#define LDS 7", "TAG_IF( 960, ANY_PROFILE, AND( PARAM(LDS, 1) ), OBS_ON )");
@@ -202,10 +213,29 @@ static class DslReviewTests
             return SiteBuild.KnowsCgt(root);
         }
         check(Knows("param([string]$Site, [string]$Cgt = 'x')\n"), "9 param 안 $Cgt");
+        check(!Knows("param([string]$Site = 'x' # $Cgt later\n)\n"), "9 param 블록 안 # 주석의 $Cgt = 모름");
+        check(!Knows("param([string]$Site, <# $Cgt #> [int]$A)\n"), "9 블록 주석의 $Cgt = 모름");
+        check(!Knows("param([string]$Site = '$Cgt')\n"), "9 따옴표 글 안 $Cgt = 모름");
         check(Knows("# 설명\r\nparam(\r\n    [string]$Site = 'T1',\r\n    [string]$cgt = ''\r\n)\r\n"), "9 소문자·여러 줄");
         check(!Knows("param([string]$Site)\n$Cgt = 'x'\nWrite-Output $Cgt\n"), "9 지역 변수만 = 모름");
         check(!Knows("# -Cgt $Cgt 설명\nparam([string]$Site) # $Cgt\n"), "9 주석의 $Cgt = 모름");
         check(!Knows("param([string]$Site)\nfunction f { param($Cgt) }\n"), "9 다른 함수 매개변수 = 모름");
         check(!Knows("Write-Output 1\n"), "9 param 없음");
+    }
+
+    // 재검토 2: AND 항목 7 한계. 같은 종류 묶음을 합치고, 그래도 넘으면 옛 형식
+    static void Item10(string n)
+    {
+        string? C(IReadOnlyList<XCond> x, string input) => TagEdit.CondText(x, input, true);
+        var seven = C([X("FORWARD")], "IN( ON(DEMO_SEN_1), ON(DEMO_SEN_2), ON(DEMO_SEN_3), OFF(DEMO_SEN_4), OFF(DEMO_SEN_5), ON(DEMO_SEN_6), ON(DEMO_SEN_7) )");
+        check(seven == "AND( FORWARD, ON(DEMO_SEN_1, DEMO_SEN_2, DEMO_SEN_3, DEMO_SEN_6, DEMO_SEN_7), OFF(DEMO_SEN_4, DEMO_SEN_5) )", "재2 8항목 → ON·OFF 합침 · " + seven);
+        var ok = C([X("FORWARD")], "IN( ON(DEMO_SEN_1), ON(DEMO_SEN_2) )");
+        check(ok == "AND( FORWARD, ON(DEMO_SEN_1), ON(DEMO_SEN_2) )", "재2 7 이하면 그대로 · " + ok);
+        var many = string.Join(", ", Enumerable.Range(1, 9).Select(i => $"ANY_ON(S{i})"));
+        var legacy = C([X("FORWARD")], $"IN( ON(A1), OFF(B1), ON(A2), OFF(B2), ON(A3), OFF(B3), IN( {many} ) )");
+        var s = TagSite(n, "", "TAG_IF( 960, ANY_PROFILE, IF_FORWARD, AGV_STOP )");
+        var big = TagEdit.SetCondition(s, s.TagRules[0], [X("FORWARD")], "IN( ON(DEMO_SEN_1), OFF(DEMO_SEN_2), ANY_ON(DEMO_SEN_3), ON(DEMO_SEN_4), OFF(DEMO_SEN_5), ANY_ON(DEMO_SEN_6), ON(DEMO_SEN_7), OFF(DEMO_SEN_1) )");
+        check(big.Ok && Rule(big.Site!, "D-1").Count == 0, "재2 쓴 줄에 D-1 없음 · " + (big.Ok ? big.Touched[0].Text : big.Error));
+        check(legacy != null, "재2 한계를 넘어도 줄은 나온다");
     }
 }

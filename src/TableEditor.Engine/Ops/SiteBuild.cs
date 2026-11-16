@@ -32,19 +32,30 @@ public static class SiteBuild
         catch (IOException) { return false; }
     }
 
-    /// <summary>스크립트의 첫 <c>param( … )</c> 안쪽 글(괄호 짝·따옴표·# 주석을 읽는다). 없으면 빈 글.</summary>
+    /// <summary>스크립트의 첫 <c>param( … )</c> 안쪽 글. 괄호 짝을 읽고, 따옴표 글·<c># 주석</c>·<c>&lt;# … #&gt;</c> 는 공백으로 바꿔 돌려준다. 없으면 빈 글.</summary>
     static string ParamBlock(string script)
     {
         var m = Regex.Match(script, @"^[ \t]*param\s*\(", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         if (!m.Success) return "";
+        var sb = new System.Text.StringBuilder();
         int depth = 1;
         for (int i = m.Index + m.Length; i < script.Length; i++)
         {
             char c = script[i];
-            if (c is '\'' or '"') { int e = script.IndexOf(c, i + 1); if (e < 0) break; i = e; }
-            else if (c == '#') { int e = script.IndexOf('\n', i); if (e < 0) break; i = e; }
-            else if (c == '(') depth++;
-            else if (c == ')' && --depth == 0) return script[(m.Index + m.Length)..i];
+            int skipTo;
+            if (c is '\'' or '"') skipTo = script.IndexOf(c, i + 1);
+            else if (c == '<' && i + 1 < script.Length && script[i + 1] == '#') { int e = script.IndexOf("#>", i + 2, StringComparison.Ordinal); skipTo = e < 0 ? -1 : e + 1; }
+            else if (c == '#') { int e = script.IndexOf('\n', i); skipTo = e < 0 ? script.Length - 1 : e; }
+            else
+            {
+                if (c == '(') depth++;
+                else if (c == ')' && --depth == 0) return sb.ToString();
+                sb.Append(c);
+                continue;
+            }
+            if (skipTo < 0) return "";
+            i = skipTo;
+            sb.Append(' ');
         }
         return "";
     }

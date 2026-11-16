@@ -189,6 +189,31 @@ public static partial class Checker
             foreach (var x in N5New(f)) yield return x;
     }
 
+    [GeneratedRegex(@"/\*.*?\*/|//[^\n]*", RegexOptions.Singleline)]
+    private static partial Regex CCommentRx();
+
+    [GeneratedRegex(@"[A-Za-z_]\w*|\d+|\S")]
+    private static partial Regex TokenRx();
+
+    /// <summary>코어 <c>include/agv/*.h</c> 전부(주석 지움). 코어 폴더가 없으면 빈 글.</summary>
+    static string CoreHeaderText(string? core)
+    {
+        var dir = core == null ? null : Path.Combine(core, "include", "agv");
+        if (dir == null || !Directory.Exists(dir)) return "";
+        try { return string.Join("\n", Directory.EnumerateFiles(dir, "*.h").Order(StringComparer.Ordinal).Select(File.ReadAllText)); }
+        catch (IOException) { return ""; }
+    }
+
+    /// <summary>글 안의 <c>#define 이름 …</c> 마다 토큰열(주석·공백 무시, 함수형은 매개변수 목록 포함, 함수형·값형을 구별).</summary>
+    static List<string> DefineTokens(string text, string name)
+    {
+        var rx = new Regex(@"^[ 	]*#[ 	]*define[ 	]+" + Regex.Escape(name) + @"(?![A-Za-z0-9_])(\()?([^\n]*)", RegexOptions.Multiline);
+        var list = new List<string>();
+        foreach (Match m in rx.Matches(CCommentRx().Replace(text, " ")))
+            list.Add((m.Groups[1].Success ? "(" : "=") + string.Join(" ", TokenRx().Matches(m.Groups[2].Value).Select(t => t.Value)));
+        return list;
+    }
+
     /// <summary>v0.58.0 에서 새로 생긴 공개 이름(상태 낱말·AND·ANY·OUT_SET·NO_ACTION …).</summary>
     static readonly IReadOnlySet<string> NewNames = GrammarTable.Names.Except(GrammarTable.OldNames).ToHashSet(StringComparer.Ordinal);
 
@@ -201,8 +226,15 @@ public static partial class Checker
     /// </summary>
     static IEnumerable<Finding> N5New(Facts f)
     {
-        foreach (var d in f.Names.All.Where(d => !d.Core && !d.Weak && d.Def is Statement { Shape: StatementShape.Define } && NewNames.Contains(d.Name)))
-            yield return f.Warn("N-5", d.Def!, $"새 낱말과 겹침 {d.Name} · {GrammarTable.NewVersion} 부터 코어 낱말");
+        var coreDefs = new Lazy<string>(() => CoreHeaderText(f.Site.CoreFolder));
+        foreach (var d in f.Names.All.Where(d => !d.Core && d.Def != null && NewNames.Contains(d.Name) && (d.Weak || d.Def is Statement { Shape: StatementShape.Define })))
+        {
+            var mine = DefineTokens(d.Def!.Text, d.Name);
+            if (mine.Count == 0) continue;
+            var core = DefineTokens(coreDefs.Value, d.Name);
+            if (!mine.Any(m => core.Contains(m))) // 코어와 토큰열이 같으면 겹쳐 정의해도 컴파일러가 아무 말 안 한다
+                yield return f.Warn("N-5", d.Def!, $"코어와 다른 정의 {d.Name} · {GrammarTable.NewVersion} 부터 코어 낱말");
+        }
         static IEnumerable<(Arg Loc, Node Node)> Inside(Arg loc) => loc.Node is CallNode c ? c.Args.SelectMany(Inside).Prepend((loc, loc.Node)) : [(loc, loc.Node)];
         foreach (var u in f.Uses.Where(u => u.Node is CallNode { Name: "AND" }))
             foreach (var (loc, n) in ((CallNode)u.Node).Args.SelectMany(Inside))

@@ -266,7 +266,7 @@ public static partial class TagEdit
     /// <c>ANY_ON</c> 은 <c>ANY</c> 하나로 합친다: 코어는 AND 안의 ANY 둘째를 칸마다 막고, 옛 <c>IN( ANY_ON, ANY_ON )</c> 도 한 묶음(하나라도 켜짐)으로 합쳐 읽는다.
     /// 합친 ANY 가 코어 한계(16)를 넘으면 null: 옛 형식으로 쓴다.
     /// </summary>
-    static IReadOnlyList<string>? AndItems(string? input)
+    static IReadOnlyList<string>? AndItems(string? input, int fixedItems = 0)
     {
         if (input == null) return [];
         var items = new List<string>();
@@ -294,7 +294,27 @@ public static partial class TagEdit
             if (merged.Count > AnyLimit) return null;
             items[anyAt] = Form.Call("ANY", merged);
         }
-        return items;
+        if (fixedItems + items.Count > AndLimit) items = MergeOnOff(items); // 같은 종류 묶음을 합쳐 줄인다: ON(a), ON(b) → ON(a, b)
+        return fixedItems + items.Count > AndLimit ? null : items;
+    }
+
+    /// <summary><c>AND</c> 한 개의 항목 개수 한계(코어 <c>DSL_ANDM7</c>).</summary>
+    const int AndLimit = 7;
+
+    /// <summary>항목 글 가운데 <c>ON(…)</c> 끼리, <c>OFF(…)</c> 끼리 첫 자리에 하나로 합친다(합친 신호가 16 넘으면 그대로).</summary>
+    static List<string> MergeOnOff(List<string> items)
+    {
+        var list = new List<string>(items);
+        foreach (var name in new[] { "ON", "OFF" })
+        {
+            var at = Enumerable.Range(0, list.Count).Where(i => Reader.ParseArg(list[i]) is CallNode c && c.Name == name).ToList();
+            if (at.Count < 2) continue;
+            var args = at.SelectMany(i => ((CallNode)Reader.ParseArg(list[i])!).Args.Select(a => a.Text)).Distinct().ToList();
+            if (args.Count > AnyLimit) continue;
+            list[at[0]] = Form.Call(name, args);
+            foreach (var i in at.Skip(1).Reverse()) list.RemoveAt(i);
+        }
+        return list;
     }
 
     /// <summary><c>ANY( … )</c> 신호 개수 한계(코어 <c>DSL_MASK16</c>).</summary>
@@ -311,7 +331,7 @@ public static partial class TagEdit
         if (newDsl)
         {
             var states = x.Select(StateWords.ToState).ToList();
-            if (states.All(s => s != null) && AndItems(input) is { } andItems)
+            if (states.All(s => s != null) && AndItems(input, states.Count) is { } andItems)
             {
                 var items = states.Select(s => s!.Text).Concat(andItems).ToList();
                 var and = items.Count == 0 ? null : Form.Call("AND", items);
