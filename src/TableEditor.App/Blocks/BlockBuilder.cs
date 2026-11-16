@@ -236,19 +236,38 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return parts;
     }
 
-    /// <summary>선택 줄 칸: 인자마다 하나. 안쪽 묶음(센서 등)은 그 칸들로 편다.</summary>
-    List<FieldInfo> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args)
+    /// <summary>선택 줄 칸: 인자마다 하나. 안쪽 묶음(센서 등)은 그 칸들로 편다. 출력 조건(WAIT_OUT) 안 신호는 출력 이름에서 고른다.</summary>
+    List<FieldInfo> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args, bool outs = false)
     {
         var specs = Facts.Expand(e, args.Count) ?? [];
         var list = new List<FieldInfo>();
         for (int i = 0; i < args.Count && i < specs.Count; i++)
         {
             var (name, inner) = Split(args[i].Node);
-            if (args[i].Node is CallNode && name != null && InnerFor(specs[i].Kind, name, inner) is { } ie && ie.Args.Count > 0)
-                list.AddRange(FieldsOf(ie, inner));
-            else list.Add(SwitchField(specs[i], args[i]) ?? new(specs[i].Label, args[i], specs[i]));
+            var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
+            if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
+            if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
+                list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
+            else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
+            else if (name != "NO_IN") list.Add(new(spec.Label, args[i], spec));
         }
         return list;
+    }
+
+    public const string OutNone = "없음", OutOn = "켜짐", OutOff = "꺼짐";
+
+    /// <summary>출력 조건 칸의 켬·끔 고르기: 없음(<c>NO_IN</c>) / 켜짐 / 꺼짐. 고르면 <c>IN( ON( 출력 ) )</c> 로 다시 쓴다(있던 출력은 그대로).</summary>
+    FieldInfo OutKind(Arg a, ArgSpec spec)
+    {
+        var (name, inner) = Split(a.Node);
+        var (group, sigs) = name == "IN" && inner.Count == 1 ? Split(inner[0].Node) : (null, []);
+        var shown = name == "NO_IN" ? OutNone : group == "ON" ? OutOn : group == "OFF" ? OutOff : Collapse(a.Text);
+        var sig = sigs.Count > 0 ? string.Join(", ", sigs.Select(x => Collapse(x.Text))) : Choices.For(new ArgSpec(ArgKind.Output), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "OUT_EXT_1";
+        return new FieldInfo("켬·끔", a, new ArgSpec(ArgKind.Word, Words: [OutNone, OutOn, OutOff]) { Label = "켬·끔" })
+        {
+            Value = shown,
+            Write = w => w == OutNone ? "NO_IN" : $"IN( {(w == OutOn ? "ON" : "OFF")}({sig}) )",
+        };
     }
 
     /// <summary>켬/끔 칸(값 1·0): ON·OFF 드롭다운. 고르면 원문에 1·0 을 쓴다. 다른 값이면 null(숫자 칸 그대로).</summary>

@@ -405,8 +405,8 @@ public sealed class TagVm : BlockHost
     IReadOnlyList<LookRow> lookRows = [];
     public IReadOnlyList<LookRow> LookRows { get => lookRows; private set => Set(ref lookRows, value); }
 
-    /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그.</summary>
-    public long? LookTag => Filter.Number ?? Selected?.First;
+    /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그, 그것도 없으면 보이는 첫 줄의 태그.</summary>
+    public long? LookTag => Filter.Number ?? Selected?.First ?? Rows.FirstOrDefault(r => r.Rule != null)?.First;
 
     public string LookTitle => LookTag is long t ? $"태그 {t}" : "태그 —";
 

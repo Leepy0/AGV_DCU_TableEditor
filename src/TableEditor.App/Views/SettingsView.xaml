@@ -97,7 +97,10 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Border>
-                <Button Content="다시 확인" Style="{StaticResource Btn.Small}" HorizontalAlignment="Left" Margin="{StaticResource Gap.T8}" Command="{Binding Probe}"/>
+                <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap.T8}">
+                    <Button Content="{Binding ProbeText}" Style="{StaticResource Btn.Small}" Command="{Binding Probe}" Margin="{StaticResource Gap.R12}"/>
+                    <TextBlock Text="{Binding ProbedAt}" Style="{StaticResource T.Faint}" VerticalAlignment="Center" Visibility="{Binding ProbedAt, Converter={StaticResource Shown}}"/>
+                </StackPanel>
             </StackPanel>
 
             <TextBlock Grid.Row="6" Text="이름" Style="{StaticResource SetLabel}"/>
