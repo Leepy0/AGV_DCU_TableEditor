@@ -259,12 +259,38 @@ public static partial class TagEdit
     /// <summary>줄임 꼴이 있는 확장 조건(사양 5.4절 태그 조건 꼴 고르기): X_ 를 뗀 이름.</summary>
     static readonly HashSet<string> Short = ["FORWARD", "BACKWARD", "FORBACK_MODE", "LOW_BATTERY", "ID", "STATION", "STATION_RUNNING", "STATION_MOD", "STATION_DIV", "TAG_NUM", "PARAM"];
 
-    static readonly HashSet<string> XNames = GrammarTable.Rows.Where(r => r.Place == Place.ExtCond).Select(r => r.Name).ToHashSet();
+    static readonly HashSet<string> XNames = GrammarTable.Rows.Where(r => r.Place is Place.ExtCond or Place.StateCond).Select(r => r.Name).ToHashSet();
 
-    /// <summary>조건 칸 글자(사양 5.4절 표). 확장·입력이 모두 없으면 null.</summary>
-    public static string? CondText(IReadOnlyList<XCond> x, string? input)
+    /// <summary>입력 조건 글 → <c>AND( … )</c> 안 항목 글자들. <c>IN( … )</c> 은 묶음마다, <c>ANY_ON</c> 은 새 이름 <c>ANY</c> 로, <c>NO_IN</c> 은 없음. 풀 수 없는 글은 한 항목으로 그대로.</summary>
+    static IReadOnlyList<string> AndItems(string? input)
+    {
+        if (input == null) return [];
+        string One(Node n, string text) => n is CallNode { Name: "ANY_ON" } c ? Form.Call("ANY", c.Args.Select(a => a.Text).ToList()) : text;
+        return Reader.ParseArg(input) switch
+        {
+            NameNode { Name: "NO_IN" } => [],
+            CallNode { Name: "IN" } c => c.Args.Select(a => One(a.Node, a.Text)).ToList(),
+            CallNode { Name: "ON" or "OFF" or "ANY_ON" } c => [One(c, input)],
+            _ => [input],
+        };
+    }
+
+    /// <summary>
+    /// 조건 칸 글자(사양 5.4절 표). 확장·입력이 모두 없으면 null.
+    /// newDsl(코어 v0.58.0 이상)이면 <c>AND( 상태 낱말…, 입력 항목… )</c> 하나로 쓴다(옛 <c>X_…</c> 는 새 낱말로 옮김. 옮길 수 없으면 옛 꼴).
+    /// </summary>
+    public static string? CondText(IReadOnlyList<XCond> x, string? input, bool newDsl = false)
     {
         input = string.IsNullOrWhiteSpace(input) ? null : input.Trim();
+        if (newDsl)
+        {
+            var states = x.Select(StateWords.ToState).ToList();
+            if (states.All(s => s != null))
+            {
+                var items = states.Select(s => s!.Text).Concat(AndItems(input)).ToList();
+                return items.Count == 0 ? null : Form.Call("AND", items);
+            }
+        }
         return (x.Count, input) switch
         {
             (0, null) => null,
@@ -282,6 +308,15 @@ public static partial class TagEdit
     {
         if (rule.Cond == null) return ([], null);
         var n = rule.Cond.Node;
+        if (n is CallNode { Name: "AND" } ac)
+        {
+            // 새 형식: 상태 낱말은 확장 조건 칸으로, 나머지(ON·OFF·ANY·IN)는 입력 조건으로(ANY → ANY_ON, IN 은 묶음마다 풀어 IN( … ) 하나로)
+            var states = ac.Args.Where(a => XCond.FromNode(a.Node) is { } xc && StateWords.IsWord(xc.Name)).ToList();
+            var rest = ac.Args.Except(states).ToList();
+            var groups = rest.SelectMany(a => a.Node is CallNode { Name: "IN" } c ? c.Args.Select(g => g.Text) : [a.Node is CallNode { Name: "ANY" } y ? Form.Call("ANY_ON", y.Args.Select(g => g.Text).ToList()) : a.Text]).ToList();
+            string? input = groups.Count == 0 ? null : groups.Count == 1 ? groups[0] : Form.Call("IN", groups);
+            return (states.Select(a => XCond.FromNode(a.Node)!).ToList(), input);
+        }
         string name = n is CallNode c0 ? c0.Name : n is NameNode m0 ? m0.Name : "";
         var a = n is CallNode c ? c.Args : [];
         XCond? X(int i) => XCond.FromNode(a[i].Node);
@@ -300,11 +335,12 @@ public static partial class TagEdit
     /// <summary>조건 바꾸기. 꼴은 사양 5.4절 표로 고른다(TAG ↔ TAG_IF, TAG_RANGE ↔ TAG_RANGE_IF). 확장 조건 2개까지.</summary>
     public static EditResult SetCondition(Site site, TagRule rule, IReadOnlyList<XCond> x, string? input)
     {
+        bool newDsl = site.NewDsl;
         if (x.Count > 2) return EditResult.Fail("확장 조건 2개까지");
         input = string.IsNullOrWhiteSpace(input) ? null : input;
         if (x.FirstOrDefault(c => !XNames.Contains(c.Name)) is { } bad) return EditResult.Fail($"확장 조건 아님 · {bad.Name}");
         if (x.SelectMany(c => c.Args).Concat(input == null ? [] : [input]).FirstOrDefault(t => Form.BadText(t) != null) is { } bt) return EditResult.Fail($"{Form.BadText(bt)} · {bt}");
-        var cond = CondText(x, input);
+        var cond = CondText(x, input, newDsl);
         var st = rule.St;
         var baseName = rule.IsRange ? "TAG_RANGE" : "TAG";
         var name = cond == null ? baseName : baseName + "_IF";
@@ -324,7 +360,9 @@ public static partial class TagEdit
 
     /// <summary>동작 하나를 넣는다. index = 동작 순번(0부터, 끝이면 동작 수).</summary>
     public static EditResult InsertAction(Site site, TagRule rule, int index, string text) =>
-        index < 0 || index > rule.Actions.Count ? EditResult.Fail("자리 틀림") : SiteEdit.InsertArg(site, rule.St, rule.ActionStart + index, text);
+        index < 0 || index > rule.Actions.Count ? EditResult.Fail("자리 틀림")
+        : rule.Actions.Count >= 4 ? EditResult.Fail("동작 칸 넘침 · 4칸")
+        : SiteEdit.InsertArg(site, rule.St, rule.ActionStart + index, text);
 
     /// <summary>동작 하나를 지운다. 마지막 동작은 지우지 않는다.</summary>
     public static EditResult DeleteAction(Site site, TagRule rule, int index) =>

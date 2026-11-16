@@ -10,7 +10,7 @@
             <Border x:Name="B" Style="{StaticResource Tok}" ToolTip="{Binding Tip}" BorderThickness="{StaticResource Bd.1}" BorderBrush="Transparent">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                    <TextBlock Text="핀 1" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" Foreground="{StaticResource Accent}"
+                    <TextBlock Text="반대 극성" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" Foreground="{StaticResource Accent}"
                                Visibility="{Binding High, Converter={StaticResource Shown}}"/>
                     <TextBlock Text="{Binding UsesText}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" ToolTip="쓰인 곳"/>
                 </StackPanel>

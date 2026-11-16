@@ -47,6 +47,9 @@ public sealed class NameDict
     public IReadOnlyList<NameDef> All => all;
     public IReadOnlyDictionary<string, BeltDef> Belts { get; private set; } = new Dictionary<string, BeltDef>();
 
+    /// <summary>사이트 코어가 v0.58.0 이상(<see cref="Site.NewDsl"/>). 새 줄 쓰기·묶음 개수 한계가 이것으로 갈린다.</summary>
+    public bool NewDsl { get; internal set; }
+
     internal void Add(NameDef d)
     {
         all.Add(d);
@@ -81,9 +84,10 @@ public sealed class NameDict
 
     static HashSet<string> BuildCoreNames(bool words)
     {
-        var s = new HashSet<string>(GrammarTable.Names, StringComparer.Ordinal);
+        var s = new HashSet<string>(GrammarTable.OldNames, StringComparer.Ordinal);
         foreach (var c in CoreConstants.Inputs.Concat(CoreConstants.Outputs).Concat(CoreConstants.SeqIds).Concat(CoreConstants.Directions)) s.Add(c.Name);
         foreach (var p in CoreConstants.Params) s.Add(p.Core);
+        foreach (var (alias, _) in CoreConstants.ParamAliases) s.Add(alias);
         s.Add("SEQ_SITE_BASE");
         s.Add("SEQ_MAX");
         if (words)

@@ -10,9 +10,13 @@ namespace TableEditor.Engine.Model;
 /// </summary>
 public static class ActionForms
 {
-    /// <summary>같은 무리(<see cref="GrammarEntry.Family"/>)·자리의 형식(태그 칸을 차지하는 것). 한 개면 바꿀 형식이 없다.</summary>
-    public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e) =>
-        GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)).ToList();
+    /// <summary>
+    /// 같은 무리(<see cref="GrammarEntry.Family"/>)·자리의 형식(태그 칸을 차지하는 것). 한 개면 바꿀 형식이 없다.
+    /// newDsl 을 주면 그 코어 형식에 맞는 줄만(<see cref="GrammarTable.Fits"/>) + 고른 줄 자신: 새 코어는 옛 별칭 줄을 빼고, 옛 코어는 새 줄을 뺀다.
+    /// </summary>
+    public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e, bool? newDsl = null) =>
+        GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)
+            && (newDsl is not bool nd || ReferenceEquals(r, e) || GrammarTable.Fits(r, nd))).ToList();
 
     /// <summary>형식 칸의 이름: 태그 동작이 한 이름 안의 변형(TAPE·cm)이면 위치, 그 밖은 형식.</summary>
     public static string FieldLabel(IReadOnlyList<GrammarEntry> forms) =>
@@ -68,13 +72,17 @@ public static class ActionForms
 
     static bool Numeric(ArgSpec s) => s.Kind is ArgKind.Number or ArgKind.StopDist;
 
-    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b)) && (!Numeric(a) || a.Unit == b.Unit);
+    /// <summary>입력 조건 칸(<c>IN( … )</c> 만 / <c>AND( … )</c> 도)은 같은 조건 칸이다.</summary>
+    static bool CondLike(ArgSpec s) => s.Kind is ArgKind.InCond or ArgKind.AndCond;
+
+    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit);
 
     /// <summary>옮길 인자가 새 칸에 맞는가: 낱말 칸은 그 낱말, 숫자 칸에 거리 FL 은 안 맞다.</summary>
     static bool Fits(Node n, ArgSpec spec) => spec.Kind switch
     {
         ArgKind.Word => n is NameNode w && spec.Words!.Contains(w.Name),
         ArgKind.Number => n is not NameNode { Name: "FL" },
+        ArgKind.InCond => n is not CallNode { Name: "AND" },
         _ => true,
     };
 }

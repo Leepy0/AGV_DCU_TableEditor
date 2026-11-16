@@ -46,7 +46,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
     {
         var fields = FieldsOf(entry, args);
-        var forms = ActionForms.Of(entry);
+        var forms = ActionForms.Of(entry, names.NewDsl);
         if (forms.Count < 2) return fields;
         var form = FormField(entry, forms, a, args);
         form = form with { Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)) };
@@ -59,7 +59,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     static FieldInfo FormField(GrammarEntry entry, IReadOnlyList<GrammarEntry> forms, Arg a, IReadOnlyList<Arg> args)
     {
         var label = ActionForms.FieldLabel(forms);
-        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = label };
+        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).Distinct().ToList()) { Label = label };
         return new FieldInfo(label, a, spec)
         {
             Value = WordOf(entry),
@@ -74,7 +74,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         var entry = Facts.Fit(GrammarTable.Find(st.Name, place), st.Args);
         if (entry == null) return RawBlock(st.Text, null, MarkOf(st, null), index);
         var fields = FieldsOf(entry, st.Args);
-        var forms = ActionForms.Of(entry);
+        var forms = ActionForms.Of(entry, names.NewDsl);
         if (forms.Count > 1 && st.Args.Count > 0) // 형식 칸: 맨 앞. 인자가 없는 형식은 칸이 없다
             fields = [FormField(entry, forms, st.Args[0], st.Args), .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
         return new BlockVm
@@ -117,9 +117,10 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return name switch
         {
             "IN" => args.Select(x => ChipOf(x, Place.InputCond)).ToList(),
+            "AND" => args.Select(x => ChipOf(x, Place.StateCond, Place.InputCond)).ToList(),
             "ON" or "OFF" or "ANY_ON" => [ChipOf(cond, Place.InputCond)],
-            "KEY" when args.Count == 1 => [new Chip("키", [new(null, Collapse(args[0].Text), null)])],
-            "NO_IN" => [new Chip("없음", [])],
+            "KEY" when args.Count == 1 => [new Chip("키 눌림", [new(null, Collapse(args[0].Text), null)])],
+            "NO_IN" => [new Chip("조건 없음", [])],
             _ => [new Chip(Collapse(cond.Text), [])],
         };
     }
@@ -162,6 +163,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         var (name, args) = Split(cond.Node);
         return name switch
         {
+            "AND" => args.Select(x => ChipOf(x, Place.StateCond, Place.InputCond)).ToList(),
             "IF_X" or "IF_X2" => args.Select(x => ChipOf(x, Place.ExtCond)).ToList(),
             "IF_IN" => [ChipOf(args[0], Place.InputCond)],
             "IF_X_IN" or "IF_X2_IN" => args.SkipLast(1).Select(x => ChipOf(x, Place.ExtCond)).Append(ChipOf(args[^1], Place.InputCond)).ToList(),
@@ -169,10 +171,10 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         };
     }
 
-    Chip ChipOf(Arg a, Place place)
+    Chip ChipOf(Arg a, params Place[] places)
     {
         var (name, args) = Split(a.Node);
-        var entry = name == null ? null : Inner(name, args, place);
+        var entry = name == null ? null : Inner(name, args, places);
         return entry == null ? new Chip(Collapse(a.Text), []) : new Chip(entry.Head, PartsOf(entry, args, false));
     }
 
@@ -287,22 +289,24 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
 
     // ---- 문법 줄 고르기 ----
 
-    static GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, Place place) =>
-        Facts.Fit(GrammarTable.Find(name, place).Where(r => r.Role != Role.Statement), args);
+    static GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, params Place[] places) =>
+        Facts.Fit(GrammarTable.Find(name).Where(r => places.Contains(r.Place) && r.Role != Role.Statement), args);
 
     static GrammarEntry? InnerFor(ArgKind kind, string name, IReadOnlyList<Arg> args)
     {
-        Place? place = kind switch
+        Place[]? places = kind switch
         {
-            ArgKind.XCond => Place.ExtCond,
-            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 => Place.InputCond,
-            ArgKind.FromSensor => Place.TagAction,
-            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber => Place.Step,
-            ArgKind.Timeout => Place.InputCond,
-            ArgKind.LoadSensors => Place.Frame,
+            ArgKind.XCond => [Place.ExtCond],
+            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 or ArgKind.AndCond or ArgKind.ParamTime => [Place.InputCond],
+            ArgKind.AndItem => [Place.InputCond, Place.StateCond],
+            ArgKind.StateCond => [Place.StateCond],
+            ArgKind.FromSensor => [Place.TagAction],
+            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.OutMask => [Place.Step],
+            ArgKind.Timeout => [Place.InputCond],
+            ArgKind.LoadSensors => [Place.Frame],
             _ => null,
         };
-        return place is { } p && Facts.Allowed(kind, Area.Tag).Contains(name) ? Inner(name, args, p) : null;
+        return places != null && Facts.Allowed(kind, Area.Tag).Contains(name) ? Inner(name, args, places) : null;
     }
 
     static (string? Name, IReadOnlyList<Arg> Args) Split(Node n) => n switch

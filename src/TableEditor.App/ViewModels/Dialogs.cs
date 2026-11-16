@@ -123,10 +123,15 @@ public sealed class AddVm : DialogVm
 
 // ---- 조건 ----
 
-/// <summary>확장 조건 한 줄: 종류 드롭다운 + 칸들.</summary>
+/// <summary>상태 조건 한 줄: 종류 드롭다운 + 칸들. 새 코어(v0.58.0 이상)는 상태 낱말(<c>FORWARD</c> …), 옛 코어는 확장 조건(<c>X_FORWARD</c> …).</summary>
 public sealed class XRowVm : Observable
 {
     public static readonly IReadOnlyList<GrammarEntry> Kinds = GrammarTable.Rows.Where(r => r.Place == Place.ExtCond).ToList();
+
+    public static readonly IReadOnlyList<GrammarEntry> StateKinds = GrammarTable.Rows.Where(r => r.Place == Place.StateCond).ToList();
+
+    /// <summary>이 줄이 고를 수 있는 종류(드롭다운).</summary>
+    public IReadOnlyList<GrammarEntry> Items { get; }
 
     GrammarEntry kind;
     public GrammarEntry Kind
@@ -142,8 +147,9 @@ public sealed class XRowVm : Observable
 
     public IReadOnlyList<ArgBox> Args { get; private set; }
 
-    public XRowVm(GrammarEntry kind, IReadOnlyList<string> args)
+    public XRowVm(GrammarEntry kind, IReadOnlyList<string> args, IReadOnlyList<GrammarEntry>? items = null)
     {
+        Items = items ?? Kinds;
         this.kind = kind;
         Args = kind.Args.Select((a, i) => new ArgBox(a.Label, i < args.Count ? args[i] : "0")).ToList();
     }
@@ -260,7 +266,8 @@ public sealed class CondVm : DialogVm
 {
     public override string Title => "조건";
     public ObservableCollection<XRowVm> XRows { get; } = [];
-    public IReadOnlyList<GrammarEntry> XKinds => XRowVm.Kinds;
+    /// <summary>드롭다운 종류: 새 코어는 상태 낱말, 옛 코어는 확장 조건. 고치는 규칙에 옛 <c>X_…</c> 가 남아 있으면(옮길 수 없는 것) 그 종류도 든다.</summary>
+    public IReadOnlyList<GrammarEntry> XKinds { get; }
     public InputVm In { get; }
 
     public ObservableCollection<GroupVm> Groups => In.Groups;
@@ -272,11 +279,17 @@ public sealed class CondVm : DialogVm
     public CondVm(TagRule rule, NameDict names)
     {
         var read = TagEdit.ReadCondition(rule);
-        foreach (var x in read?.X ?? [])
-            if (XRowVm.Kinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args));
-        var node = read?.Input != null && rule.Cond is { } c ? (c.Node as CallNode)?.Args[^1].Node : null;
-        In = new InputVm("입력", node, read?.Input, names, wrap: false);
-        AddX = new Command(() => XRows.Add(new XRowVm(XRowVm.Kinds.First(k => k.Name == "X_FORWARD"), [])), () => XRows.Count < 2);
+        var xs = (read?.X ?? []).Select(x => names.NewDsl ? StateWords.ToState(x) ?? x : x).ToList();
+        var kinds = names.NewDsl ? XRowVm.StateKinds : XRowVm.Kinds;
+        // 새 코어에서 옮길 수 없는 옛 조건(X_STATION_RUNNING)은 그 종류를 남긴다: 안 그러면 줄이 사라진다
+        XKinds = [.. kinds, .. xs.Where(x => kinds.All(k => k.Name != x.Name)).Select(x => XRowVm.Kinds.FirstOrDefault(k => k.Name == x.Name)).OfType<GrammarEntry>()];
+        foreach (var x in xs)
+            if (XKinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args, XKinds));
+        // 입력 조건 글은 읽는 쪽(ReadCondition)이 새 형식·옛 형식 모두 IN( … ) 하나나 묶음 하나로 돌려준다
+        var text = read?.Input;
+        var node = text != null ? Expr.Parse(text) : null;
+        In = new InputVm("입력", node, text, names, wrap: false);
+        AddX = new Command(() => XRows.Add(new XRowVm(XKinds.First(k => k.Name == (names.NewDsl ? "FORWARD" : "X_FORWARD")), [], XKinds)), () => XRows.Count < 2);
         RemoveX = new Command(p => { if (p is XRowVm x) XRows.Remove(x); });
         Ok = new Command(() => Close("ok"));
     }
@@ -382,8 +395,8 @@ public sealed class StepVm : DialogVm
 
     /// <summary>시퀀스 스텝용. drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
     public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview,
-        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)
-        : this(title, okText, Group(SeqEdit.StepRows(act), null), GrammarTable.StepPalette, current, preview, drops, comment) { }
+        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null, bool newDsl = false)
+        : this(title, okText, Group(SeqEdit.StepRows(act, newDsl), null), GrammarTable.StepPalette, current, preview, drops, comment) { }
 
     public StepVm(string title, string okText, IReadOnlyList<StepChoice> all, IReadOnlyList<string> palette, GrammarEntry? current,
         Func<GrammarEntry, string> preview, Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)

@@ -252,7 +252,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="확장" Style="{StaticResource FrowLabel}" VerticalAlignment="Top" Margin="{StaticResource Gap.T8}"/>
+                    <TextBlock Text="차량 상태" Style="{StaticResource FrowLabel}" VerticalAlignment="Top" Margin="{StaticResource Gap.T8}"/>
                     <StackPanel Grid.Column="2" Margin="{StaticResource Gap.B16}">
                         <ItemsControl ItemsSource="{Binding XRows}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -262,7 +262,7 @@
                                                 Command="{Binding DataContext.RemoveX, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         <StackPanel Orientation="Horizontal">
                                             <ComboBox Style="{StaticResource Drop}" MinWidth="{StaticResource ProfileBoxWidth}" Margin="{StaticResource Gap.R8}" VerticalAlignment="Bottom"
-                                                      ItemsSource="{Binding Source={x:Static vm:XRowVm.Kinds}}" SelectedItem="{Binding Kind}" AutomationProperties.Name="확장 조건">
+                                                      ItemsSource="{Binding Items}" SelectedItem="{Binding Kind}" AutomationProperties.Name="차량 상태">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate DataType="{x:Type gr:GrammarEntry}">
                                                         <TextBlock Text="{Binding Head}"/>
@@ -288,7 +288,7 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Button Content="확장 추가" Style="{StaticResource Btn.Small}" HorizontalAlignment="Left" Command="{Binding AddX}"/>
+                        <Button Content="상태 추가" Style="{StaticResource Btn.Small}" HorizontalAlignment="Left" Command="{Binding AddX}"/>
                     </StackPanel>
 
                     <TextBlock Grid.Row="1" Text="입력" Style="{StaticResource FrowLabel}" VerticalAlignment="Top" Margin="{StaticResource Gap.T8}"/>

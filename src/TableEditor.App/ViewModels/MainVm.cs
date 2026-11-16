@@ -155,15 +155,15 @@ public sealed partial class MainVm : Observable
         await RefreshGitAsync();
     }
 
-    /// <summary>사이트 폴더만 연다(저장소 없이).</summary>
-    public Task OpenSiteAsync(string folder)
+    /// <summary>사이트 폴더만 연다(저장소 없이). core 를 주면 그 폴더의 VERSION 등을 본다(자체 시험).</summary>
+    public Task OpenSiteAsync(string folder, string? core = null)
     {
         Repo = null;
         var full = Path.GetFullPath(folder);
         Sites = [Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar))];
         siteName = Sites[0];
         Raise(nameof(SiteName));
-        return OpenAsync(full, null);
+        return OpenAsync(full, core);
     }
 
     EditHistory? history;

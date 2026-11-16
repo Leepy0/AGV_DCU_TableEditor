@@ -343,7 +343,7 @@ public sealed class SeqVm : BlockHost
     public async Task AddStepAsync()
     {
         if (Zone is not { } z) return;
-        var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names));
+        var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names), newDsl: Site.NewDsl);
         if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
         var e = d.Command.Entry;
         List<NewStatement> items = [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())];
@@ -369,7 +369,7 @@ public sealed class SeqVm : BlockHost
         var from = SeqEdit.EntryOf(st);
         string Preview(GrammarEntry to) => from == null ? Choices.DefaultText(to, Site.Names) : ActionForms.Convert(to, from, st.Args, Fill);
         IReadOnlyList<string> Drops(GrammarEntry to) => from == null ? [] : ActionForms.Dropped(to, from, st.Args);
-        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment));
+        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment), Site.NewDsl);
         if (await Main.Show(d) != "ok" || d.Command.Entry.Family == from?.Family && d.Command.Entry.Place == from.Place) return; // 같은 무리의 형식은 형식 칸으로
         var r = SeqEdit.Change(Site, st, d.Command.Entry, Fill);
         if (r.Ok && st.TailComment.Length > 0 && r.Touched.FirstOrDefault() is { } changed) commentCheck.Add(changed.Text);
@@ -402,7 +402,7 @@ public sealed class SeqVm : BlockHost
             await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(At)], OkOnly));
             return;
         }
-        // 짝 표지(분기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
+        // 짝 표지(고르기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
         List<Piece> pieces = [row.Piece];
         List<string>? ask = null;
         if (row.Piece is Statement { Name: "SELECT_BEGIN" or "SELECT_END" } sel)
@@ -410,7 +410,7 @@ public sealed class SeqVm : BlockHost
             if (SeqEdit.SelectPartner(z, sel) is { } other)
             {
                 pieces.Add(other);
-                ask = [$"분기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
+                ask = [$"고르기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
             }
             else ask = [$"{row.Block.Head} · 짝 없음 · {row.Ordinal}줄"];
         }
