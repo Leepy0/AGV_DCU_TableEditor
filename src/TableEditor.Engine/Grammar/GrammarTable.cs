@@ -267,7 +267,7 @@ public static class GrammarTable
         // ---- 4.4 시퀀스·ACT 스텝 (62) ----
         // 라벨·분기(12)
         E("L", S, St, "L( 라벨 )", "라벨", "분기", Lb),
-        E("GOTO", S, St, "GOTO( 라벨 )", "가기", "분기", Lb),
+        E("GOTO", S, St, "GOTO( 라벨 )", "GOTO", "분기", Lb),
         E("SELECT_BEGIN", S, St, "SELECT_BEGIN", "분기 시작", "분기"),
         E("WHEN", S, St, "WHEN( 조건, 라벨 )", "만약", "분기", Cond, Lb),
         E("WHEN_STATE", S, St, "WHEN_STATE( 상태, 값, 라벨 )", "만약 상태", "분기", A(ArgKind.State), U16, Lb),

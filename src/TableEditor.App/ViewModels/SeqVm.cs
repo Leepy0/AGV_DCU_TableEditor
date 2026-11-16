@@ -32,6 +32,7 @@ public sealed class TreeItemVm(int level, string text, string? table, string? no
 public sealed class StepRowVm : Observable
 {
     public Piece Piece { get; init; } = null!;
+    public SeqVm Owner { get; init; } = null!;
     public int Ordinal { get; init; }
     public string OrdinalText => Ordinal > 0 ? Ordinal.ToString() : "";
     public int Level { get; init; }
@@ -247,7 +248,7 @@ public sealed class SeqVm : BlockHost
             var worst = findings.Where(f => ReferenceEquals(f.Piece, p)).OrderBy(f => f.Severity).FirstOrDefault();
             list.Add(new StepRowVm
             {
-                Piece = p, Ordinal = st != null ? zone.Ordinal(st) : 0, Level = label || !underLabel ? 0 : 1,
+                Piece = p, Owner = this, Ordinal = st != null ? zone.Ordinal(st) : 0, Level = label || !underLabel ? 0 : 1,
                 Label = label && st!.Args.Count > 0 ? BlockBuilder.Collapse(st.Args[0].Text) : null,
                 InSelect = inSpan, SelectTop = inSpan && span.From == i, SelectBottom = inSpan && span.To == i,
                 Block = st != null ? b.Statement(st, Place.Step) : BlockBuilder.RawBlock(p.Text),
@@ -285,6 +286,13 @@ public sealed class SeqVm : BlockHost
         RaiseCode();
         CommandManager.InvalidateRequerySuggested();
         if (scroll && r != null) ScrollTo?.Invoke(r);
+    }
+
+    /// <summary>라벨 인자 더블클릭: 같은 표의 그 L 줄을 고르고 스크롤. 없으면 알림.</summary>
+    public void GoLabel(string name)
+    {
+        if (Steps.FirstOrDefault(r => r.Label == name) is { } row) SelectStep(row, true);
+        else Main.Notify($"없는 라벨 {name}");
     }
 
     public string DetailTitle => SelectedStep == null ? "" : $"{SelectedStep.OrdinalText}줄 · {selectedTable} · ";

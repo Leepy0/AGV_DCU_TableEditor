@@ -27,6 +27,13 @@ public partial class BlockView : UserControl
 
     void OnDouble(MouseButtonEventArgs e)
     {
+        if (DataContext is BlockVm { Row: StepRowVm sr } && (e.OriginalSource as FrameworkElement)?.DataContext is Part { IsLabel: true } lp)
+        {
+            e.Handled = true;
+            down = false;
+            sr.Owner.GoLabel(lp.Value);
+            return;
+        }
         if (DataContext is not BlockVm { Row: TagRowVm row }) return;
         if ((e.OriginalSource as FrameworkElement)?.DataContext is Part { Seq: { } seq })
         {

@@ -11,6 +11,9 @@ public sealed record Part(string? Label, string Value, string? Small)
 {
     public string? Seq { get; init; }
 
+    /// <summary>라벨 종류 인자(<see cref="ArgKind.Label"/>): L 줄 이름표와 같은 양식, 두 번 누르면 그 라벨 줄로.</summary>
+    public bool IsLabel { get; init; }
+
     /// <summary>켬/끔 칸(<see cref="ArgSpec.Switch"/>)이면 ON = true, OFF = false. 그 밖은 null.</summary>
     public bool? On { get; init; }
 

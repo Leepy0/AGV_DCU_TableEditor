@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using TableEditor.App.Blocks;
 using TableEditor.App.ViewModels;
 using TableEditor.App.Views;
 using TableEditor.Engine.Grammar;
@@ -401,9 +402,16 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         S.SelectStep(delay, true);
         await Idle();
         Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].Small == "1.00", $"시간 칸·초 ({S.Fields.Count}, {S.Fields.FirstOrDefault()?.Small})");
-        var label = S.Steps.First(r => r.Block.Head == "가기");
+        var label = S.Steps.First(r => r.Block.Head == "GOTO");
         S.SelectStep(label, false);
         Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].IsList, "라벨 칸 드롭다운(시퀀스 칸 모두 고침)");
+        var lp = label.Block.Parts.FirstOrDefault(x => x.IsLabel);
+        Check(lp != null && lp.Value == BlockBuilder.Collapse(((Statement)label.Piece).Args[0].Text), $"GOTO 라벨 인자 IsLabel ({lp?.Value})");
+        S.GoLabel(lp!.Value);
+        Check(S.SelectedStep is { IsLabel: true } && S.SelectedStep.Label == lp.Value, $"라벨 더블클릭 → L 줄 ({S.SelectedStep?.Label})");
+        S.GoLabel("NO_SUCH_LABEL");
+        Check(vm.Notice == "없는 라벨 NO_SUCH_LABEL", $"없는 라벨 알림 ({vm.Notice})");
+        vm.ClearNotice();
         S.SelectStep(S.Steps.First(r => r.Block.Head == "지연"), false);
         S.Fields[0].Text = "250";
         S.Fields[0].Commit();
