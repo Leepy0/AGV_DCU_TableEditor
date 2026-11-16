@@ -80,8 +80,8 @@ public static partial class TagEdit
         foreach (var p in pfs)
             if (!IsAny(p) && site.Names.Find(p) is not { Kind: NameKind.Profile }) return Bad($"없는 프로파일 · {p}");
 
-        var cond = template?.CondText ?? "";
-        var rules = site.TagRules.Select(r => (Rule: r, First: site.Num(r.FirstArg), Last: site.Num(r.LastArg))).ToList();
+        var cond = template == null ? CondKey([], null) : CondKey(template);
+        var rules = site.TagRules.Select(r => (Rule: r, First: site.Num(r.FirstArg), Last: site.Num(r.LastArg), Key: CondKey(r))).ToList();
         var rows = new List<TagAddRow>();
         var lines = new List<TagAddLine>();
         foreach (var p in pfs)
@@ -96,7 +96,7 @@ public static partial class TagEdit
             }
             foreach (var t in list)
             {
-                bool exists = rules.Any(x => x.First <= t && t <= x.Last && SameProfile(x.Rule, p) && x.Rule.CondText == cond);
+                bool exists = rules.Any(x => x.First <= t && t <= x.Last && SameProfile(x.Rule, p) && x.Key == cond);
                 rows.Add(new(t, p, exists));
                 if (exists || runEnd != null && runEnd + 1 != t) Flush();
                 if (exists) continue;
@@ -259,29 +259,160 @@ public static partial class TagEdit
     /// <summary>줄임 꼴이 있는 확장 조건(사양 5.4절 태그 조건 꼴 고르기): X_ 를 뗀 이름.</summary>
     static readonly HashSet<string> Short = ["FORWARD", "BACKWARD", "FORBACK_MODE", "LOW_BATTERY", "ID", "STATION", "STATION_RUNNING", "STATION_MOD", "STATION_DIV", "TAG_NUM", "PARAM"];
 
-    static readonly HashSet<string> XNames = GrammarTable.Rows.Where(r => r.Place == Place.ExtCond).Select(r => r.Name).ToHashSet();
+    static readonly HashSet<string> XNames = GrammarTable.Rows.Where(r => r.Place is Place.ExtCond or Place.StateCond).Select(r => r.Name).ToHashSet();
 
-    /// <summary>조건 칸 글자(사양 5.4절 표). 확장·입력이 모두 없으면 null.</summary>
-    public static string? CondText(IReadOnlyList<XCond> x, string? input)
+    /// <summary>
+    /// 입력 조건 글 → <c>AND( … )</c> 안 항목 글자들. <c>IN( … )</c> 은 묶음마다, <c>NO_IN</c> 은 없음, 풀 수 없는 글은 한 항목으로 그대로.
+    /// <c>ANY_ON</c> 은 <c>ANY</c> 하나로 합친다: 코어는 AND 안의 ANY 둘째를 칸마다 막고, 옛 <c>IN( ANY_ON, ANY_ON )</c> 도 한 묶음(하나라도 켜짐)으로 합쳐 읽는다.
+    /// 합친 ANY 가 코어 한계(16)를 넘으면 null: 옛 형식으로 쓴다.
+    /// </summary>
+    static IReadOnlyList<string>? AndItems(string? input, int fixedItems = 0)
+    {
+        if (input == null) return [];
+        var items = new List<string>();
+        var anys = new List<string>();
+        int anyAt = -1;
+        void One(Node n, string text)
+        {
+            if (n is CallNode { Name: "ANY_ON" } c)
+            {
+                if (anyAt < 0) { anyAt = items.Count; items.Add(""); }
+                anys.AddRange(c.Args.Select(a => a.Text));
+            }
+            else items.Add(text);
+        }
+        switch (Reader.ParseArg(input))
+        {
+            case NameNode { Name: "NO_IN" }: return [];
+            case CallNode { Name: "IN" } c: foreach (var a in c.Args) One(a.Node, a.Text); break;
+            case CallNode { Name: "ON" or "OFF" or "ANY_ON" } c: One(c, input); break;
+            default: items.Add(input); break;
+        }
+        if (anyAt >= 0)
+        {
+            var merged = anys.Distinct().ToList();
+            if (merged.Count > AnyLimit) return null;
+            items[anyAt] = Form.Call("ANY", merged);
+        }
+        if (fixedItems + items.Count > AndLimit) items = MergeOnOff(items); // 같은 종류 묶음을 합쳐 줄인다: ON(a), ON(b) → ON(a, b)
+        return fixedItems + items.Count > AndLimit ? null : items;
+    }
+
+    /// <summary><c>AND</c> 한 개의 항목 개수 한계(코어 <c>DSL_ANDM7</c>).</summary>
+    const int AndLimit = 7;
+
+    /// <summary>항목 글 가운데 <c>ON(…)</c> 끼리, <c>OFF(…)</c> 끼리 첫 자리에 하나로 합친다(합친 신호가 16 넘으면 그대로).</summary>
+    static List<string> MergeOnOff(List<string> items)
+    {
+        var list = new List<string>(items);
+        foreach (var name in new[] { "ON", "OFF" })
+        {
+            var at = Enumerable.Range(0, list.Count).Where(i => Reader.ParseArg(list[i]) is CallNode c && c.Name == name).ToList();
+            if (at.Count < 2) continue;
+            var args = at.SelectMany(i => ((CallNode)Reader.ParseArg(list[i])!).Args.Select(a => a.Text)).Distinct().ToList();
+            if (args.Count > AnyLimit) continue;
+            list[at[0]] = Form.Call(name, args);
+            foreach (var i in at.Skip(1).Reverse()) list.RemoveAt(i);
+        }
+        return list;
+    }
+
+    /// <summary><c>ANY( … )</c> 신호 개수 한계(코어 <c>DSL_MASK16</c>).</summary>
+    const int AnyLimit = 16;
+
+    /// <summary>
+    /// 조건 칸 글자(사양 5.4절 표). 확장·입력이 모두 없으면 null.
+    /// newDsl(코어 v0.58.0 이상)이면 <c>AND( 상태 낱말…, 입력 항목… )</c> 하나로 쓴다(옛 <c>X_…</c> 는 새 낱말로 옮김).
+    /// 옮길 수 없는 항목(<c>X_STATION_RUNNING</c>)이 하나라도 있으면 줄 전체를 옛 형식으로 쓰고 모든 상태 낱말을 <c>X_…</c> 로 되돌린다(한 줄에 두 낱말을 섞지 않는다).
+    /// </summary>
+    public static string? CondText(IReadOnlyList<XCond> x, string? input, bool newDsl = false)
     {
         input = string.IsNullOrWhiteSpace(input) ? null : input.Trim();
-        return (x.Count, input) switch
+        if (newDsl)
+        {
+            var states = x.Select(StateWords.ToState).ToList();
+            if (states.All(s => s != null) && AndItems(input, states.Count) is { } andItems)
+            {
+                var items = states.Select(s => s!.Text).Concat(andItems).ToList();
+                var and = items.Count == 0 ? null : Form.Call("AND", items);
+                if (and == null || !IsMixed(and)) return and;
+            }
+        }
+        var old = x.Select(c => StateWords.ToLegacy(c) ?? c).ToList();
+        return (old.Count, input) switch
         {
             (0, null) => null,
-            (1, null) when x[0].Name.StartsWith("X_", StringComparison.Ordinal) && Short.Contains(x[0].Name[2..]) => Form.Call("IF_" + x[0].Name[2..], x[0].Args),
-            (1, null) => Form.Call("IF_X", [x[0].Text]),
-            (2, null) => Form.Call("IF_X2", [x[0].Text, x[1].Text]),
+            (1, null) when old[0].Name.StartsWith("X_", StringComparison.Ordinal) && Short.Contains(old[0].Name[2..]) => Form.Call("IF_" + old[0].Name[2..], old[0].Args),
+            (1, null) => Form.Call("IF_X", [old[0].Text]),
+            (2, null) => Form.Call("IF_X2", [old[0].Text, old[1].Text]),
             (0, _) => Form.Call("IF_IN", [input!]),
-            (1, _) => Form.Call("IF_X_IN", [x[0].Text, input!]),
-            _ => Form.Call("IF_X2_IN", [x[0].Text, x[1].Text, input!]),
+            (1, _) => Form.Call("IF_X_IN", [old[0].Text, input!]),
+            _ => Form.Call("IF_X2_IN", [old[0].Text, old[1].Text, input!]),
         };
     }
+
+    /// <summary>
+    /// 조건 글이 옛·새 낱말을 섞었는가: <c>AND( … )</c> 안에 <c>X_…</c> 가 있거나, 옛 형식(<c>IF_…</c>)에 새 상태 낱말이 있다. 코어가 컴파일하지 못하는 줄이다.
+    /// </summary>
+    public static bool IsMixed(string cond)
+    {
+        static IEnumerable<string> Names(Node n) => n switch
+        {
+            CallNode c => c.Args.SelectMany(a => Names(a.Node)).Prepend(c.Name),
+            NameNode m => [m.Name],
+            _ => [],
+        };
+        if (Reader.ParseArg(cond) is not { } node) return false;
+        var names = Names(node).ToList();
+        return node is CallNode { Name: "AND" }
+            ? names.Any(n => n.StartsWith("X_", StringComparison.Ordinal) && XNames.Contains(n))
+            : names.Skip(1).Any(StateWords.IsWord);
+    }
+
+    static string Sq(string s) => string.Concat(s.Where(c => !char.IsWhiteSpace(c)));
+
+    /// <summary>
+    /// 조건의 같은 뜻 열쇠: 상태 낱말 집합(옛 <c>X_…</c> 는 새 낱말로 옮겨 견준다)과 입력 묶음(켬·끔 신호 집합, 하나라도 켜짐 신호 집합).
+    /// 옛 형식·새 형식으로 같은 뜻을 쓴 규칙이 같은 열쇠를 갖는다(죽은 줄·이미 있음 판정, 조건을 안 바꾼 확인).
+    /// </summary>
+    public static string CondKey(IReadOnlyList<XCond> x, string? input)
+    {
+        var states = x.Select(c => Sq((StateWords.ToState(c) ?? c).Text)).Distinct().Order(StringComparer.Ordinal);
+        SortedSet<string> on = [], off = [], any = [], other = [];
+        void One(Node n, string text)
+        {
+            switch (n)
+            {
+                case CallNode { Name: "IN" } c: foreach (var a in c.Args) One(a.Node, a.Text); break;
+                case CallNode { Name: "ON" } c: on.UnionWith(c.Args.Select(a => Sq(a.Text))); break;
+                case CallNode { Name: "OFF" } c: off.UnionWith(c.Args.Select(a => Sq(a.Text))); break;
+                case CallNode { Name: "ANY_ON" or "ANY" } c: any.UnionWith(c.Args.Select(a => Sq(a.Text))); break;
+                case NameNode { Name: "NO_IN" }: break;
+                default: other.Add(Sq(text)); break;
+            }
+        }
+        if (input != null) One(Reader.ParseArg(input) ?? new NameNode(input), input);
+        return string.Join("|", string.Join(",", states), string.Join(",", on), string.Join(",", off), string.Join(",", any), string.Join(",", other));
+    }
+
+    /// <summary>규칙의 조건 열쇠(<see cref="CondKey(IReadOnlyList{XCond}, string?)"/>). 모르는 꼴이면 글자(공백 뺀)로 견준다.</summary>
+    public static string CondKey(TagRule rule) =>
+        ReadCondition(rule) is { } c ? CondKey(c.X, c.Input) : "?" + Sq(rule.CondText);
 
     /// <summary>규칙의 조건을 (확장 조건들, 입력 조건 글자)로 푼다. 조건 없음 = ([], null). 모르는 꼴이면 null.</summary>
     public static (IReadOnlyList<XCond> X, string? Input)? ReadCondition(TagRule rule)
     {
         if (rule.Cond == null) return ([], null);
         var n = rule.Cond.Node;
+        if (n is CallNode { Name: "AND" } ac)
+        {
+            // 새 형식: 상태 낱말은 확장 조건 칸으로, 나머지(ON·OFF·ANY·IN)는 입력 조건으로(ANY → ANY_ON, IN 은 묶음마다 풀어 IN( … ) 하나로)
+            var states = ac.Args.Where(a => XCond.FromNode(a.Node) is { } xc && StateWords.IsWord(xc.Name)).ToList();
+            var rest = ac.Args.Except(states).ToList();
+            var groups = rest.SelectMany(a => a.Node is CallNode { Name: "IN" } c ? c.Args.Select(g => g.Text) : [a.Node is CallNode { Name: "ANY" } y ? Form.Call("ANY_ON", y.Args.Select(g => g.Text).ToList()) : a.Text]).ToList();
+            string? input = groups.Count == 0 ? null : groups.Count == 1 ? groups[0] : Form.Call("IN", groups);
+            return (states.Select(a => XCond.FromNode(a.Node)!).ToList(), input);
+        }
         string name = n is CallNode c0 ? c0.Name : n is NameNode m0 ? m0.Name : "";
         var a = n is CallNode c ? c.Args : [];
         XCond? X(int i) => XCond.FromNode(a[i].Node);
@@ -300,11 +431,14 @@ public static partial class TagEdit
     /// <summary>조건 바꾸기. 꼴은 사양 5.4절 표로 고른다(TAG ↔ TAG_IF, TAG_RANGE ↔ TAG_RANGE_IF). 확장 조건 2개까지.</summary>
     public static EditResult SetCondition(Site site, TagRule rule, IReadOnlyList<XCond> x, string? input)
     {
+        bool newDsl = site.NewDsl;
         if (x.Count > 2) return EditResult.Fail("확장 조건 2개까지");
         input = string.IsNullOrWhiteSpace(input) ? null : input;
         if (x.FirstOrDefault(c => !XNames.Contains(c.Name)) is { } bad) return EditResult.Fail($"확장 조건 아님 · {bad.Name}");
         if (x.SelectMany(c => c.Args).Concat(input == null ? [] : [input]).FirstOrDefault(t => Form.BadText(t) != null) is { } bt) return EditResult.Fail($"{Form.BadText(bt)} · {bt}");
-        var cond = CondText(x, input);
+        if (CondKey(x, input) == CondKey(rule)) return new EditResult(site, null, []); // 뜻이 같으면 줄을 쓰지 않는다(옛 형식을 새 형식으로 몰래 바꾸지 않는다)
+        var cond = CondText(x, input, newDsl);
+        if (cond != null && IsMixed(cond)) return EditResult.Fail("한 줄에 못 씀 · 옛·새 낱말 섞임");
         var st = rule.St;
         var baseName = rule.IsRange ? "TAG_RANGE" : "TAG";
         var name = cond == null ? baseName : baseName + "_IF";
@@ -324,7 +458,9 @@ public static partial class TagEdit
 
     /// <summary>동작 하나를 넣는다. index = 동작 순번(0부터, 끝이면 동작 수).</summary>
     public static EditResult InsertAction(Site site, TagRule rule, int index, string text) =>
-        index < 0 || index > rule.Actions.Count ? EditResult.Fail("자리 틀림") : SiteEdit.InsertArg(site, rule.St, rule.ActionStart + index, text);
+        index < 0 || index > rule.Actions.Count ? EditResult.Fail("자리 틀림")
+        : rule.Actions.Count >= 4 ? EditResult.Fail("동작 칸 넘침 · 4칸")
+        : SiteEdit.InsertArg(site, rule.St, rule.ActionStart + index, text);
 
     /// <summary>동작 하나를 지운다. 마지막 동작은 지우지 않는다.</summary>
     public static EditResult DeleteAction(Site site, TagRule rule, int index) =>

@@ -40,11 +40,15 @@
                         <ColumnDefinition Width="{StaticResource Col.FRule}"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Image x:Name="Ico" Style="{StaticResource Icon}" Source="{StaticResource IconWarn}" HorizontalAlignment="Left"/>
                     <TextBlock Grid.Column="1" Text="{Binding Rule}" Style="{StaticResource T.Faint}" FontFamily="{StaticResource Mono}"/>
                     <TextBlock Grid.Column="2" Text="{Binding Text}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Grid.Column="3" Text="{Binding At}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.L12}"/>
+                    <Button Grid.Column="4" Content="바꾸기" Style="{StaticResource Btn.Small}" Margin="{StaticResource Gap.L12}" VerticalAlignment="Center"
+                            Command="{Binding DataContext.Fix, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
+                            Visibility="{Binding CanFix, Converter={StaticResource Shown}}"/>
                 </Grid>
             </Grid>
             <DataTemplate.Triggers>

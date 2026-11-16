@@ -144,6 +144,30 @@ static class OpsTests
         var all = ToolProbe.ProbeAllAsync(none, Path.Combine(Path.GetTempPath(), "tedit_no_such_dir", "cl2000.exe")).GetAwaiter().GetResult();
         check(all.Count == 4 && all.Select(x => x.Name).SequenceEqual(["cl2000", "git", "powershell", "gcc"]), "ToolProbe 4개 도구");
 
+        var fake = Path.Combine(Path.GetTempPath(), "tedit_probe_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fake);
+        try
+        {
+            var fast = Path.Combine(fake, "fast.cmd");
+            File.WriteAllText(fast, "@echo off\r\necho 18.12.2\r\n");
+            var f = ToolProbe.Cl2000Async(fast).GetAwaiter().GetResult();
+            check(f.Found && !f.Slow && f.Version == "v18.12.2", $"ToolProbe cl2000 출력 18.12.2 읽기 ({f.Version})");
+            var slow = Path.Combine(fake, "slow.cmd");
+            File.WriteAllText(slow, "@echo off\r\nping -n 10 127.0.0.1 >nul\r\necho 18.12.2\r\n");
+            var sl = ToolProbe.Cl2000Async(slow, default, TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+            check(sl.Found && sl.Slow, "ToolProbe cl2000 제한 초과 = 느림 경고(실패 아님)");
+
+            check(SiteBuild.CgtOf(@"C:\ti\cgt\bin\cl2000.exe") == @"C:\ti\cgt" && SiteBuild.CgtOf(null) == null && SiteBuild.CgtOf(@"C:\x\cl2000.exe") == null, "Cgt 폴더 = bin 의 상위");
+            Directory.CreateDirectory(Path.Combine(fake, "tools"));
+            File.WriteAllText(Path.Combine(fake, "tools", "check.ps1"), "param([string]$Site)\n");
+            check(!SiteBuild.ScriptArgs(fake, "T900_DEMO", "n", false, @"C:\ti\cgt\bin\cl2000.exe").Contains("-Cgt"), "스크립트가 -Cgt 를 모르면 안 넘김");
+            File.WriteAllText(Path.Combine(fake, "tools", "check.ps1"), "param([string]$Site, [string]$Cgt = 'x')\n");
+            var a1 = SiteBuild.ScriptArgs(fake, "T900_DEMO", "n", true, @"C:\ti\cgt\bin\cl2000.exe");
+            check(a1.SkipWhile(x => x != "-Cgt").Skip(1).FirstOrDefault() == @"C:\ti\cgt" && a1.Contains("-Field"), "스크립트가 알고 설정이 있으면 -Cgt 넘김");
+            check(!SiteBuild.ScriptArgs(fake, "T900_DEMO", "n", false, null).Contains("-Cgt"), "설정이 비면 안 넘김");
+        }
+        finally { Directory.Delete(fake, true); }
+
         var dir = Path.Combine(Path.GetTempPath(), "tedit_ops_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try

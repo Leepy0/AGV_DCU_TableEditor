@@ -74,6 +74,15 @@ public static class CoreConstants
         new(281, "장애물"), new(285, "교차로 대기"), new(286, "교차로 ACK 없음"), new(290, "일시 정지·표 오류·사용자 함수 실패"),
     ];
 
+    /// <summary>v0.58.0 에서 이름이 바뀐 코어 파라미터(<c>P_STOP_LEN_MM</c> → <c>P_STOP_LEN_CM</c> 등, 옛 이름은 <c>#define</c> 로 남았다): (새 이름, 번호).</summary>
+    public static readonly IReadOnlyList<(string Name, int Number)> ParamAliases = [("P_STOP_LEN_CM", 19), ("P_STOP_LEN_FWD_CM", 32)];
+
+    /// <summary>화면 이름표가 있는 FND 이름(사양 C절): <c>FL(전진 정지 거리)</c>, <c>SL(정지 거리)</c>.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ParamLabels = new Dictionary<string, string> { ["FL"] = "FL(전진 정지 거리)", ["SL"] = "SL(정지 거리)" };
+
+    /// <summary>한 자리만 보는 FND 이름(<c>DSL_PRM_TFB_1</c>). <c>PARAM_MIN</c>·<c>PARAM_MAX</c>·<c>PARAM_TIME</c> 은 이 이름을 못 받는다.</summary>
+    public static readonly IReadOnlySet<string> PlacedParams = new HashSet<string>(["TFB_1", "TFB_10"], StringComparer.Ordinal);
+
     /// <summary>파라미터(번호 = EEPROM 주소). 화면에는 FND 이름만 보인다.</summary>
     public static readonly IReadOnlyList<ParamDef> Params =
     [

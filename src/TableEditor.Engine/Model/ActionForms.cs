@@ -10,9 +10,17 @@ namespace TableEditor.Engine.Model;
 /// </summary>
 public static class ActionForms
 {
-    /// <summary>같은 이름·자리의 꼴(태그 칸을 차지하는 것). 한 개면 바꿀 꼴이 없다.</summary>
-    public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e) =>
-        GrammarTable.Find(e.Name, e.Place).Where(r => r.TagCells > 0 || e.Place != Place.TagAction).ToList();
+    /// <summary>
+    /// 같은 무리(<see cref="GrammarEntry.Family"/>)·자리의 형식(태그 칸을 차지하는 것). 한 개면 바꿀 형식이 없다.
+    /// newDsl 을 주면 그 코어 형식에 맞는 줄만(<see cref="GrammarTable.Fits"/>) + 고른 줄 자신: 새 코어는 옛 별칭 줄을 빼고, 옛 코어는 새 줄을 뺀다.
+    /// </summary>
+    public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e, bool? newDsl = null) =>
+        GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)
+            && (newDsl is not bool nd || ReferenceEquals(r, e) || GrammarTable.Fits(r, nd))).ToList();
+
+    /// <summary>형식 칸의 이름: 태그 동작이 한 이름 안의 변형(TAPE·cm)이면 위치, 그 밖은 형식.</summary>
+    public static string FieldLabel(IReadOnlyList<GrammarEntry> forms) =>
+        forms[0].Place == Place.TagAction && forms.All(f => f.Name == forms[0].Name) ? "위치" : "형식";
 
     /// <summary>
     /// 꼴을 가르는 낱말: 같은 이름의 모든 꼴에 있는 칸은 빼고 남은 칸마다 고정 낱말 하나(TAPE), 단위(cm), 센서, 아니면 칸 라벨.
@@ -20,6 +28,7 @@ public static class ActionForms
     /// </summary>
     public static string Word(GrammarEntry e)
     {
+        if (e.FormName.Length > 0) return e.FormName;
         var forms = Of(e);
         static string Key(ArgSpec a) => $"{a.Kind}|{a.Unit}|{string.Join(",", a.Words ?? [])}";
         var shared = forms.Count < 2 ? [] : forms.Select(f => f.Args.Select(Key).ToHashSet()).Aggregate((x, y) => { x.IntersectWith(y); return x; });
@@ -49,27 +58,56 @@ public static class ActionForms
         var specs = Facts.Expand(from, args.Count) ?? [];
         var left = args.Select((a, i) => (Arg: a, Spec: i < specs.Count ? specs[i] : null)).ToList();
         var outArgs = new List<string>();
+        var extra = new List<string>();
+        bool inputOnly = to.Args.Any(a => a.Kind == ArgKind.ParamTime); // PARAM_TIME 형식의 조건 칸은 입력만 받는다(코어가 상태·둘째 ANY 를 막는다)
         foreach (var spec in to.Args)
             for (int k = 0; k < spec.Most; k++)
             {
                 int i = left.FindIndex(x => x.Spec != null && Same(x.Spec, spec) && Fits(x.Arg.Node, spec));
-                if (i >= 0) { outArgs.Add(left[i].Arg.Text.Trim()); left.RemoveAt(i); }
+                if (i >= 0)
+                {
+                    var arg = left[i].Arg;
+                    if (inputOnly && CondLike(spec) && arg.Node is CallNode { Name: "AND" } and) { var (text, drop) = InputOnly(and); outArgs.Add(text); extra.AddRange(drop); }
+                    else outArgs.Add(arg.Text.Trim());
+                    left.RemoveAt(i);
+                }
                 else if (k < spec.Least) outArgs.Add(fill(spec));
                 else break;
             }
-        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).ToList();
+        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).Concat(extra).ToList();
         return (Form.Call(to.Name, outArgs), dropped);
+    }
+
+    /// <summary><c>AND( … )</c> 에서 입력 항목만 남긴다: 상태 낱말(<c>ALWAYS</c> 는 상태가 아니다)과 둘째 이후 <c>ANY</c> 는 버린다. 남은 것이 없으면 <c>NO_IN</c>.</summary>
+    static (string Text, List<string> Dropped) InputOnly(CallNode and)
+    {
+        var keep = new List<string>();
+        var drop = new List<string>();
+        bool anyKept = false;
+        foreach (var a in and.Args)
+        {
+            string name = a.Node switch { CallNode c => c.Name, NameNode m => m.Name, _ => "" };
+            bool state = name != "ALWAYS" && Facts.StateWords.Contains(name);
+            bool second = name == "ANY" && anyKept;
+            if (name == "ANY") anyKept = true;
+            (state || second ? drop : keep).Add(a.Text.Trim());
+        }
+        return (keep.Count == 0 ? "NO_IN" : Form.Call("AND", keep), drop);
     }
 
     static bool Numeric(ArgSpec s) => s.Kind is ArgKind.Number or ArgKind.StopDist;
 
-    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b)) && (!Numeric(a) || a.Unit == b.Unit);
+    /// <summary>입력 조건 칸(<c>IN( … )</c> 만 / <c>AND( … )</c> 도)은 같은 조건 칸이다.</summary>
+    static bool CondLike(ArgSpec s) => s.Kind is ArgKind.InCond or ArgKind.AndCond;
+
+    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit);
 
     /// <summary>옮길 인자가 새 칸에 맞는가: 낱말 칸은 그 낱말, 숫자 칸에 거리 FL 은 안 맞다.</summary>
     static bool Fits(Node n, ArgSpec spec) => spec.Kind switch
     {
         ArgKind.Word => n is NameNode w && spec.Words!.Contains(w.Name),
         ArgKind.Number => n is not NameNode { Name: "FL" },
+        ArgKind.InCond => n is not CallNode { Name: "AND" },
         _ => true,
     };
 }

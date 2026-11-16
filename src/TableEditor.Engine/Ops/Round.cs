@@ -20,13 +20,13 @@ public sealed record RoundResult(GitOutcome Outcome, string? Reason, string? Num
 public static class Round
 {
     /// <summary>기본 빌드: SitePack(7.2절 3·3b) → SiteBuild 개발 → SiteBuild 현장.</summary>
-    public static ImageBuilder DefaultBuilder(string? gccPath = null) => async (app, site, onLine, ct) =>
+    public static ImageBuilder DefaultBuilder(string? gccPath = null, string? cl2000Path = null) => async (app, site, onLine, ct) =>
     {
         var pk = await SitePack.RunAsync(app, site, gccPath, onLine, ct);
         if (!pk.Ok) return new(false, null, null, $"압축 · {pk.Step} · {pk.Reason}", []);
-        var dev = await SiteBuild.RunAsync(app, site, null, false, onLine, ct);
+        var dev = await SiteBuild.RunAsync(app, site, null, false, onLine, ct, cl2000Path);
         if (!dev.Ok) return new(false, null, null, "개발 빌드 · " + dev.Reason, dev.Errors);
-        var field = await SiteBuild.RunAsync(app, site, null, true, onLine, ct);
+        var field = await SiteBuild.RunAsync(app, site, null, true, onLine, ct, cl2000Path);
         if (!field.Ok) return new(false, dev.OutPath, null, "현장 빌드 · " + field.Reason, field.Errors);
         return new(true, dev.OutPath, field.OutPath, null, []);
     };

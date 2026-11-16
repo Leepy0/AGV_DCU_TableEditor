@@ -9,9 +9,11 @@ namespace TableEditor.App.ViewModels;
 public enum StageState { Wait, Run, Pass, Fail, Cancel }
 
 /// <summary>빌드 단계 하나(검사 · 압축 · 개발 · 현장): 아이콘 + 낱말.</summary>
-public sealed class StageVm(string name) : Observable
+public sealed class StageVm(string name, int weight) : Observable
 {
     public string Name { get; } = name;
+    /// <summary>진행 막대에서 차지하는 비중(%). 처음 값, 실측 뒤 조정.</summary>
+    public int Weight { get; } = weight;
     StageState state;
     public StageState State
     {
@@ -34,10 +36,11 @@ public sealed class BuildVm : Observable
     readonly MainVm main;
     CancellationTokenSource? cts;
 
-    public StageVm Check { get; } = new("검사");
-    public StageVm Pack { get; } = new("압축");
-    public StageVm Dev { get; } = new("개발");
-    public StageVm Field { get; } = new("현장");
+    public const int ToolsWeight = 5;
+    public StageVm Check { get; } = new("검사", 5);
+    public StageVm Pack { get; } = new("압축", 15);
+    public StageVm Dev { get; } = new("개발", 35);
+    public StageVm Field { get; } = new("현장", 40);
     public IReadOnlyList<StageVm> Stages { get; }
     public ObservableCollection<string> Lines { get; } = [];
 
@@ -65,6 +68,13 @@ public sealed class BuildVm : Observable
     public bool Running { get => running; private set { if (Set(ref running, value)) CommandManager.InvalidateRequerySuggested(); } }
     /// <summary>한 번이라도 돌았다(빈 화면 아님).</summary>
     public bool Started { get => started; private set => Set(ref started, value); }
+
+    bool toolsDone = true;
+    /// <summary>진행 막대 0~100: 도구 확인 + 끝난 단계 비중(컴파일 줄 단위는 안 본다).</summary>
+    public int Progress => (toolsDone ? ToolsWeight : 0) + Stages.Where(s => s.State == StageState.Pass).Sum(s => s.Weight);
+
+    /// <summary>도구 확인 중(false) / 끝(true).</summary>
+    public void ToolsChecked(bool done) { toolsDone = done; Raise(nameof(Progress)); }
 
     public CancellationToken Token => cts?.Token ?? CancellationToken.None;
     public bool Cancelled => cts?.IsCancellationRequested == true;
@@ -114,6 +124,8 @@ public sealed class BuildVm : Observable
         ReadmeLine = null;
         ReadmePath = null;
         ResultLine = null;
+        toolsDone = true;
+        Raise(nameof(Progress));
         Started = true;
         Running = true;
         var p = new Progress<OutputLine>(Add);
@@ -134,7 +146,11 @@ public sealed class BuildVm : Observable
     }
 
     /// <summary>단계 끝. 실패면 취소였는지 본다.</summary>
-    public void End(StageVm s, bool ok) => s.State = ok ? StageState.Pass : Cancelled ? StageState.Cancel : StageState.Fail;
+    public void End(StageVm s, bool ok)
+    {
+        s.State = ok ? StageState.Pass : Cancelled ? StageState.Cancel : StageState.Fail;
+        Raise(nameof(Progress));
+    }
 
     /// <summary>도는 중인 단계를 실패(또는 취소)로 둔다.</summary>
     public void FailRunning()
@@ -146,5 +162,6 @@ public sealed class BuildVm : Observable
     {
         FailRunning();
         Running = false;
+        if (Stages.All(s => s.State == StageState.Pass)) { toolsDone = true; Raise(nameof(Progress)); }
     }
 }

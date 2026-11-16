@@ -54,6 +54,9 @@
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Padding" Value="0"/>
             </DataTrigger>
+            <DataTrigger Binding="{Binding IsLabel}" Value="True">
+                <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            </DataTrigger>
         </Style.Triggers>
     </Style>
     <!-- 인자 값. 켬/끔 칸은 ON = 초록 굵게, OFF = 흐리게 -->
@@ -68,6 +71,12 @@
             <DataTrigger Binding="{Binding On}" Value="False">
                 <Setter Property="Foreground" Value="{StaticResource Text3}"/>
                 <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding IsLabel}" Value="True">
+                <Setter Property="FontFamily" Value="{StaticResource Mono}"/>
+                <Setter Property="FontSize" Value="{StaticResource Fs.Small}"/>
+                <Setter Property="FontWeight" Value="{StaticResource Semi}"/>
+                <Setter Property="Foreground" Value="{StaticResource Accent}"/>
             </DataTrigger>
             <DataTrigger Binding="{Binding DataContext.Raw, RelativeSource={RelativeSource AncestorType=v:BlockView}}" Value="True">
                 <Setter Property="FontFamily" Value="{StaticResource Mono}"/>

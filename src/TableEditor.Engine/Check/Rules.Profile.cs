@@ -82,13 +82,30 @@ public static partial class Checker
     /// <summary>I-1: 조건·출력에 쓴 신호 ID 가 0~31 밖.</summary>
     static IEnumerable<Finding> I1(Facts f) => FromProblems(f, "I-1", p => p.Kind == "range" && IsPin(p.Use.Spec.Kind));
 
-    /// <summary>조건 칸(IN( … ), 묶음 하나, 수동 표 조건)의 묶음들.</summary>
+    /// <summary>조건 칸(IN( … ), 묶음 하나, 수동 표 조건, AND( … ))의 묶음들. AND 는 상태 낱말을 빼고 입력 항목만(<c>ANY</c> 는 첫째만 <c>ANY_ON</c> 묶음으로, 상태 낱말은 건너뜀).</summary>
     static IEnumerable<(Use Use, IReadOnlyList<CallNode> Groups)> Conditions(Facts f) =>
-        f.Uses.Where(u => u.Spec.Kind is ArgKind.InCond or ArgKind.OutCond or ArgKind.ManCond && u.Node is CallNode)
-            .Select(u => (u, (IReadOnlyList<CallNode>)(u.Node is CallNode { Name: "IN" } c
+        f.Uses.Where(u => u.Spec.Kind is ArgKind.InCond or ArgKind.OutCond or ArgKind.ManCond or ArgKind.AndCond or ArgKind.TagCond && u.Node is CallNode)
+            .Select(u => (u, (IReadOnlyList<CallNode>)(u.Node is CallNode { Name: "AND" } ac
+                ? AndGroups(ac)
+                : u.Node is CallNode { Name: "IN" } c
                 ? c.Args.Select(a => a.Node).OfType<CallNode>().ToList()
                 : [(CallNode)u.Node])))
             .Where(x => x.Item2.All(g => g.Name is "ON" or "OFF" or "ANY_ON"));
+
+    static List<CallNode> AndGroups(CallNode and)
+    {
+        var list = new List<CallNode>();
+        bool anyOn = HasAnyOn(and);
+        bool first = true;
+        foreach (var n in Items(and).OfType<CallNode>())
+            switch (n.Name)
+            {
+                case "ON" or "OFF" or "ANY_ON": list.Add(n); break;
+                case "IN": list.AddRange(n.Args.Select(a => a.Node).OfType<CallNode>()); break;
+                case "ANY" when first && !anyOn: list.Add(new CallNode("ANY_ON", n.Gap, n.Args)); first = false; break; // 첫째 ANY 만 입력 조건 안으로 접힌다
+            }
+        return list;
+    }
 
     /// <summary>I-2: 한 조건에서 같은 핀을 반대 뜻으로 겹쳐 썼다(ANY_ON 묶음의 핀을 다른 묶음에 또 씀 포함).</summary>
     static IEnumerable<Finding> I2(Facts f)

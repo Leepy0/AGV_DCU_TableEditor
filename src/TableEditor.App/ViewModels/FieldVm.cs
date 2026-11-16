@@ -23,6 +23,9 @@ public sealed class FieldVm : Observable
     public string Label => Info.Label;
     public FieldEditor Editor { get; }
 
+    /// <summary>상태 칸인데 사이트에 <c>ST_</c> 이름이 없다: 숫자(0~15)를 직접 쓴다.</summary>
+    public bool NoStates { get; }
+
     /// <summary>읽기 전용 칸(시퀀스의 이름·낱말·라벨 칸): 상자 모양 글만.</summary>
     public bool Locked { get; }
     public bool Mono => Editor is FieldEditor.Number or FieldEditor.Text;
@@ -46,6 +49,7 @@ public sealed class FieldVm : Observable
         Index = index;
         Locked = locked;
         Editor = Choices.EditorOf(info.Spec);
+        if (info.Spec.Kind == ArgKind.State && Choices.For(info.Spec, names).Count == 0) { Editor = FieldEditor.Number; NoStates = true; } // 상태 목록이 비면 숫자 직접 입력
         text = Original;
         CommitCmd = new Command(Commit);
         RevertCmd = new Command(Revert);
@@ -107,6 +111,7 @@ public sealed class FieldVm : Observable
             if (Editor != FieldEditor.Number) return false;
             if (Value() is not long v) return true;
             var s = Info.Spec;
+            if (NoStates) return v < 0 || v > 15;
             return s.Max > s.Min && (v < s.Min || v > s.Max) || s.Unit == "도" && v % 5 != 0 && owner.IsTagArea;
         }
     }
@@ -117,7 +122,7 @@ public sealed class FieldVm : Observable
         "도" => "°",
         "틱" => Value() is long v ? (v / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) : null,
         "cm" or "초" or "m/min" => Info.Spec.Unit,
-        _ => null,
+        _ => NoStates ? "상태 없음" : null,
     };
 
     /// <summary>포커스: 이 칸만 강조.</summary>

@@ -32,6 +32,7 @@ public sealed class TreeItemVm(int level, string text, string? table, string? no
 public sealed class StepRowVm : Observable
 {
     public Piece Piece { get; init; } = null!;
+    public SeqVm Owner { get; init; } = null!;
     public int Ordinal { get; init; }
     public string OrdinalText => Ordinal > 0 ? Ordinal.ToString() : "";
     public int Level { get; init; }
@@ -247,7 +248,7 @@ public sealed class SeqVm : BlockHost
             var worst = findings.Where(f => ReferenceEquals(f.Piece, p)).OrderBy(f => f.Severity).FirstOrDefault();
             list.Add(new StepRowVm
             {
-                Piece = p, Ordinal = st != null ? zone.Ordinal(st) : 0, Level = label || !underLabel ? 0 : 1,
+                Piece = p, Owner = this, Ordinal = st != null ? zone.Ordinal(st) : 0, Level = label || !underLabel ? 0 : 1,
                 Label = label && st!.Args.Count > 0 ? BlockBuilder.Collapse(st.Args[0].Text) : null,
                 InSelect = inSpan, SelectTop = inSpan && span.From == i, SelectBottom = inSpan && span.To == i,
                 Block = st != null ? b.Statement(st, Place.Step) : BlockBuilder.RawBlock(p.Text),
@@ -285,6 +286,13 @@ public sealed class SeqVm : BlockHost
         RaiseCode();
         CommandManager.InvalidateRequerySuggested();
         if (scroll && r != null) ScrollTo?.Invoke(r);
+    }
+
+    /// <summary>라벨 인자 더블클릭: 같은 표의 그 L 줄을 고르고 스크롤. 없으면 알림.</summary>
+    public void GoLabel(string name)
+    {
+        if (Steps.FirstOrDefault(r => r.Label == name) is { } row) SelectStep(row, true);
+        else Main.Notify($"없는 라벨 {name}");
     }
 
     public string DetailTitle => SelectedStep == null ? "" : $"{SelectedStep.OrdinalText}줄 · {selectedTable} · ";
@@ -335,7 +343,7 @@ public sealed class SeqVm : BlockHost
     public async Task AddStepAsync()
     {
         if (Zone is not { } z) return;
-        var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names));
+        var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names), newDsl: Site.NewDsl);
         if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
         var e = d.Command.Entry;
         List<NewStatement> items = [new NewStatement(e.Name, e.Args.Where(a => a.Least > 0).Select(Fill).ToList())];
@@ -361,11 +369,28 @@ public sealed class SeqVm : BlockHost
         var from = SeqEdit.EntryOf(st);
         string Preview(GrammarEntry to) => from == null ? Choices.DefaultText(to, Site.Names) : ActionForms.Convert(to, from, st.Args, Fill);
         IReadOnlyList<string> Drops(GrammarEntry to) => from == null ? [] : ActionForms.Dropped(to, from, st.Args);
-        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment));
-        if (await Main.Show(d) != "ok" || d.Command.Entry == from) return;
+        var d = new StepVm("명령 바꾸기", "바꾸기", z.Open == "ACT_BEGIN", from, Preview, Drops, Strip(st.TailComment), Site.NewDsl);
+        if (await Main.Show(d) != "ok" || d.Command.Entry.Family == from?.Family && d.Command.Entry.Place == from.Place) return; // 같은 무리의 형식은 형식 칸으로
         var r = SeqEdit.Change(Site, st, d.Command.Entry, Fill);
         if (r.Ok && st.TailComment.Length > 0 && r.Touched.FirstOrDefault() is { } changed) commentCheck.Add(changed.Text);
         Main.Apply(r);
+    }
+
+    /// <summary>형식 칸(<see cref="FieldInfo.To"/>)은 줄 전체를 그 형식으로 다시 쓴다. 버려지는 인자가 있으면 확인 팝업 뒤에만. 그 밖의 칸은 인자 바꾸기.</summary>
+    public override void SetField(FieldVm f, string text)
+    {
+        if (f.Info.To is not { } to) { base.SetField(f, text); return; }
+        _ = ChangeFormAsync(f, to(text), f.Info.Drops?.Invoke(text) ?? []);
+    }
+
+    async Task ChangeFormAsync(FieldVm f, GrammarEntry to, IReadOnlyList<string> drops)
+    {
+        if (drops.Count > 0)
+        {
+            var ask = new AskVm("값 버림", ["버릴 인자", .. drops], [new AskButton("cancel", "취소", Default: true), new AskButton("ok", "바꾸기", Primary: true)]);
+            if (await Main.Show(ask) != "ok") { f.Revert(); return; }
+        }
+        if (SelectedStep?.Piece is Statement st && Site.Files.Any(x => x.Pieces.Any(p => ReferenceEquals(p, st)))) Main.Apply(SeqEdit.Change(Site, st, to, Fill));
     }
 
     /// <summary>[삭제]·Del: 고른 스텝. 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.</summary>
@@ -377,7 +402,7 @@ public sealed class SeqVm : BlockHost
             await Main.Show(new AskVm("지울 수 없음", [$"라벨 {row.Label} · 쓰는 줄 {uses.Count}", .. uses.Select(At)], OkOnly));
             return;
         }
-        // 짝 표지(분기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
+        // 짝 표지(고르기 시작·끝)는 짝째, 끝 줄·원문 줄은 확인 팝업(기본 취소) 뒤에만
         List<Piece> pieces = [row.Piece];
         List<string>? ask = null;
         if (row.Piece is Statement { Name: "SELECT_BEGIN" or "SELECT_END" } sel)
@@ -385,7 +410,7 @@ public sealed class SeqVm : BlockHost
             if (SeqEdit.SelectPartner(z, sel) is { } other)
             {
                 pieces.Add(other);
-                ask = [$"분기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
+                ask = [$"고르기 시작·끝 짝 · {Math.Min(z.Ordinal(sel), z.Ordinal(other))}줄 · {Math.Max(z.Ordinal(sel), z.Ordinal(other))}줄"];
             }
             else ask = [$"{row.Block.Head} · 짝 없음 · {row.Ordinal}줄"];
         }

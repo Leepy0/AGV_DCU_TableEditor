@@ -20,7 +20,7 @@ public sealed class SettingsVm : Observable
         this.s = s;
         this.main = main;
         PickRepo = new Command(() => main.PickRepoRequested?.Invoke());
-        Probe = new Command(() => _ = ProbeAsync());
+        Probe = new Command(() => _ = ProbeAsync(), () => !IsProbing);
     }
 
     void Save([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
@@ -46,7 +46,18 @@ public sealed class SettingsVm : Observable
     public ObservableCollection<ToolRow> Tools { get; } = [];
 
     bool probing;
-    public bool IsProbing { get => probing; private set => Set(ref probing, value); }
+    public bool IsProbing
+    {
+        get => probing;
+        private set { if (Set(ref probing, value)) { Raise(nameof(ProbeText)); CommandManager.InvalidateRequerySuggested(); } }
+    }
+
+    /// <summary>[다시 확인] 글: 확인 중에는 "확인 중"(버튼은 흐림).</summary>
+    public string ProbeText => IsProbing ? "확인 중" : "다시 확인";
+
+    string? probedAt;
+    /// <summary>마지막으로 확인이 끝난 시각(시:분:초). 아직 없으면 null.</summary>
+    public string? ProbedAt { get => probedAt; private set => Set(ref probedAt, value); }
 
     public ICommand PickRepo { get; }
     public ICommand Probe { get; }
@@ -59,10 +70,11 @@ public sealed class SettingsVm : Observable
         IsProbing = true;
         try
         {
-            var list = await ToolProbe.ProbeAllAsync(s.GccPath, s.Cl2000Path ?? ToolProbe.Cl2000Default, cts.Token);
+            var list = await main.Probe(cts.Token); // 빌드의 도구 확인과 같은 길(시험은 갈아 끼운다)
             if (cts.IsCancellationRequested) return;
+            ProbedAt = DateTime.Now.ToString("HH:mm:ss");
             Tools.Clear();
-            foreach (var t in list) Tools.Add(new ToolRow(t.Name, t.Found, t.Found ? $"{t.Version} · {t.Path}" : t.Detail ?? t.Path ?? ""));
+            foreach (var t in list) Tools.Add(new ToolRow(t.Name, t.Found, t.Found ? (t.Slow ? $"느림 · {t.Path}" : $"{t.Version} · {t.Path}") : t.Detail ?? t.Path ?? ""));
         }
         catch (OperationCanceledException) { }
         finally { if (ReferenceEquals(probe, cts)) IsProbing = false; }

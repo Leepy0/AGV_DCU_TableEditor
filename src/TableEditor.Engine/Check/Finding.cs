@@ -17,6 +17,9 @@ public sealed record Finding(
         : Cell == null ? Piece.StartLine
         : Piece.StartLine + Piece.Text.AsSpan(0, Math.Min(Cell.Offset, Piece.Text.Length)).Count('\n');
 
+    /// <summary>빠른 고침: 인자 맨 앞 이름을 이 낱말로 바꾼다(자리가 틀린 <c>X_…</c>↔<c>IF_…</c>). 없으면 null.</summary>
+    public string? Replace { get; init; }
+
     public string Grade => Severity == Severity.Error ? "오류" : "경고";
 
     /// <summary>명령줄 한 줄: <c>등급 규칙 파일:줄 글</c>.</summary>

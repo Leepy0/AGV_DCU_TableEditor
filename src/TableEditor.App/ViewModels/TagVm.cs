@@ -12,8 +12,6 @@ namespace TableEditor.App.ViewModels;
 /// <summary>태그 보기 한 줄: 프로파일 하나에 맞는 줄(조건 있는 줄은 조건별, 사양 9.2절 태그 보기).</summary>
 public sealed record LookRow(string Profile, bool IsAny, bool IsGroupStart, IReadOnlyList<Chip> Chips, string OrdinalText, IReadOnlyList<BlockVm> Blocks, bool None);
 
-/// <summary>추가 메뉴 항목: 분류 → 동작. Enabled = 칸이 남는가.</summary>
-public sealed record ActionChoice(string Palette, string Text, GrammarEntry Entry, bool Enabled);
 
 /// <summary>
 /// 태그 화면: 거르기, 줄 표, 줄 안 편집(태그·프로파일·주석), 선택 줄 칸(칸 편집기, C 글자), 동작 넣기·지우기·옮기기,
@@ -300,14 +298,20 @@ public sealed class TagVm : BlockHost
 
     // ---- 동작 ----
 
-    /// <summary>줄 끝 [+] 메뉴: 팔레트 분류 → 동작. 칸이 모자라면 흐리게.</summary>
-    public IReadOnlyList<ActionChoice> ActionChoices(TagRowVm row)
+    /// <summary>줄 끝 [+] 팝업의 명령: 무리마다 하나(형식은 칸에서 고른다). 칸이 모자라면 흐리게.</summary>
+    public IReadOnlyList<StepChoice> ActionChoices(TagRowVm row)
     {
         int left = 4 - row.CellCount;
-        return GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0)
-            .OrderBy(r => GrammarTable.TagPalette.ToList().IndexOf(r.Palette))
-            .Select(r => new ActionChoice(r.Palette, Choices.MenuText(r), r, r.TagCells <= left))
-            .ToList();
+        return StepVm.Group(GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0 && GrammarTable.Fits(r, site.NewDsl))
+            .OrderBy(r => GrammarTable.TagPalette.ToList().IndexOf(r.Palette)), r => r.TagCells <= left);
+    }
+
+    /// <summary>줄 끝 [+]: 분류 버튼·검색·인자 설명이 있는 팝업(스텝 추가와 같은 것) 뒤 동작 하나 더함.</summary>
+    public async Task AddActionAsync(TagRowVm row)
+    {
+        if (row.Rule == null) return;
+        var d = new StepVm("동작 추가", "추가", ActionChoices(row), GrammarTable.TagPalette, null, e => Choices.DefaultText(e, site.Names));
+        if (await main.Show(d) == "ok") AddAction(row, d.Command.Entry);
     }
 
     public void AddAction(TagRowVm row, GrammarEntry e)
@@ -401,8 +405,8 @@ public sealed class TagVm : BlockHost
     IReadOnlyList<LookRow> lookRows = [];
     public IReadOnlyList<LookRow> LookRows { get => lookRows; private set => Set(ref lookRows, value); }
 
-    /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그.</summary>
-    public long? LookTag => Filter.Number ?? Selected?.First;
+    /// <summary>보기의 태그 번호: 거르기 칸의 번호, 없으면 선택 줄의 태그, 그것도 없으면 보이는 첫 줄의 태그.</summary>
+    public long? LookTag => Filter.Number ?? Selected?.First ?? Rows.FirstOrDefault(r => r.Rule != null)?.First;
 
     public string LookTitle => LookTag is long t ? $"태그 {t}" : "태그 —";
 

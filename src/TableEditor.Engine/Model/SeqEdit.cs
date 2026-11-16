@@ -11,8 +11,8 @@ namespace TableEditor.Engine.Model;
 public static class SeqEdit
 {
     /// <summary>시퀀스 표에 넣을 수 있는 스텝 문법 줄(ACT 표면 ACT 금지 줄을 뺀다).</summary>
-    public static IEnumerable<GrammarEntry> StepRows(bool act) =>
-        GrammarTable.Rows.Where(r => r.Place == Place.Step && r.Role == Role.Statement && !(act && r.ActForbidden));
+    public static IEnumerable<GrammarEntry> StepRows(bool act, bool newDsl = false) =>
+        GrammarTable.Rows.Where(r => r.Place == Place.Step && r.Role == Role.Statement && !(act && r.ActForbidden) && GrammarTable.Fits(r, newDsl));
 
     /// <summary>스텝 문장의 문법 줄(모르면 null).</summary>
     public static GrammarEntry? EntryOf(Statement st) => Facts.Fit(GrammarTable.Find(st.Name, Place.Step).Where(r => r.Role == Role.Statement), st.Args);

@@ -11,6 +11,9 @@ public sealed record Part(string? Label, string Value, string? Small)
 {
     public string? Seq { get; init; }
 
+    /// <summary>라벨 종류 인자(<see cref="ArgKind.Label"/>): L 줄 이름표와 같은 양식, 두 번 누르면 그 라벨 줄로.</summary>
+    public bool IsLabel { get; init; }
+
     /// <summary>켬/끔 칸(<see cref="ArgSpec.Switch"/>)이면 ON = true, OFF = false. 그 밖은 null.</summary>
     public bool? On { get; init; }
 
@@ -28,6 +31,9 @@ public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec)
 
     /// <summary>고른 낱말로 바꾸면 버려지는 인자 글(꼴 칸). 있으면 확인 팝업.</summary>
     public Func<string, IReadOnlyList<string>>? Drops { get; init; }
+
+    /// <summary>시퀀스 스텝의 형식 칸: 고른 낱말 → 그 형식의 문법 줄(줄 전체를 다시 쓴다, <see cref="TableEditor.Engine.Model.SeqEdit.Change"/>).</summary>
+    public Func<string, GrammarEntry>? To { get; init; }
 }
 
 /// <summary>조건 칩: 머리 + 값들. Text = 값을 한 줄로(칸이 좁으면 말줄임), Full = 머리 + 값(툴팁).</summary>

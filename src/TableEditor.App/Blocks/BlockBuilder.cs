@@ -36,7 +36,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         };
     }
 
-    /// <summary>꼴 칸 낱말(꼴 낱말이 빈 꼴).</summary>
+    /// <summary>형식 칸 낱말(형식 낱말이 빈 형식).</summary>
     public const string Bare = "바로";
 
     /// <summary>
@@ -46,17 +46,26 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
     {
         var fields = FieldsOf(entry, args);
-        var forms = ActionForms.Of(entry);
+        var forms = ActionForms.Of(entry, names.NewDsl);
         if (forms.Count < 2) return fields;
-        string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
-        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).ToList()) { Label = "위치" };
-        var form = new FieldInfo("위치", a, spec)
+        var form = FormField(entry, forms, a, args);
+        form = form with { Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)) };
+        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
+    }
+
+    static string WordOf(GrammarEntry e) => ActionForms.Word(e) is { Length: > 0 } w ? w : Bare;
+
+    /// <summary>형식 칸(<see cref="ActionForms"/>): 값 = 지금 형식 낱말, 고르면 그 형식으로. 버려지는 인자는 <see cref="FieldInfo.Drops"/>.</summary>
+    static FieldInfo FormField(GrammarEntry entry, IReadOnlyList<GrammarEntry> forms, Arg a, IReadOnlyList<Arg> args)
+    {
+        var label = ActionForms.FieldLabel(forms);
+        var spec = new ArgSpec(ArgKind.Word, Words: forms.Select(WordOf).Distinct().ToList()) { Label = label };
+        return new FieldInfo(label, a, spec)
         {
             Value = WordOf(entry),
-            Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)),
+            To = w => forms.First(e => WordOf(e) == w),
             Drops = w => ActionForms.Dropped(forms.First(e => WordOf(e) == w), entry, args),
         };
-        return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }
 
     /// <summary>문장 하나 = 블록 하나(시퀀스 스텝, 수동 입력 줄). 문법 표의 그 자리 줄로 칸을 만든다. 모르면 원문 블록.</summary>
@@ -64,10 +73,14 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     {
         var entry = Facts.Fit(GrammarTable.Find(st.Name, place), st.Args);
         if (entry == null) return RawBlock(st.Text, null, MarkOf(st, null), index);
+        var fields = FieldsOf(entry, st.Args);
+        var forms = ActionForms.Of(entry, names.NewDsl);
+        if (forms.Count > 1 && st.Args.Count > 0) // 형식 칸: 맨 앞. 인자가 없는 형식은 칸이 없다
+            fields = [FormField(entry, forms, st.Args[0], st.Args), .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
         return new BlockVm
         {
             Head = entry.Head, Cat = entry.Palette.Length > 0 ? entry.Palette : entry.Category, Parts = PartsOf(entry, st.Args, true),
-            Fields = FieldsOf(entry, st.Args), Cells = 0, Mark = MarkOf(st, null), Index = index,
+            Fields = fields, Cells = 0, Mark = MarkOf(st, null), Index = index,
         };
     }
 
@@ -104,9 +117,10 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return name switch
         {
             "IN" => args.Select(x => ChipOf(x, Place.InputCond)).ToList(),
+            "AND" => args.Select(x => ChipOf(x, Place.StateCond, Place.InputCond)).ToList(),
             "ON" or "OFF" or "ANY_ON" => [ChipOf(cond, Place.InputCond)],
-            "KEY" when args.Count == 1 => [new Chip("키", [new(null, Collapse(args[0].Text), null)])],
-            "NO_IN" => [new Chip("없음", [])],
+            "KEY" when args.Count == 1 => [new Chip("키 눌림", [new(null, Collapse(args[0].Text), null)])],
+            "NO_IN" => [new Chip("조건 없음", [])],
             _ => [new Chip(Collapse(cond.Text), [])],
         };
     }
@@ -149,6 +163,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         var (name, args) = Split(cond.Node);
         return name switch
         {
+            "AND" => args.Select(x => ChipOf(x, Place.StateCond, Place.InputCond)).ToList(),
             "IF_X" or "IF_X2" => args.Select(x => ChipOf(x, Place.ExtCond)).ToList(),
             "IF_IN" => [ChipOf(args[0], Place.InputCond)],
             "IF_X_IN" or "IF_X2_IN" => args.SkipLast(1).Select(x => ChipOf(x, Place.ExtCond)).Append(ChipOf(args[^1], Place.InputCond)).ToList(),
@@ -156,10 +171,10 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         };
     }
 
-    Chip ChipOf(Arg a, Place place)
+    Chip ChipOf(Arg a, params Place[] places)
     {
         var (name, args) = Split(a.Node);
-        var entry = name == null ? null : Inner(name, args, place);
+        var entry = name == null ? null : Inner(name, args, places);
         return entry == null ? new Chip(Collapse(a.Text), []) : new Chip(entry.Head, PartsOf(entry, args, false));
     }
 
@@ -218,24 +233,43 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             else if (spec.Kind is ArgKind.Number && a.Node is NumberNode && numbers > 1) parts.Add(new(Short(specs, i), text, null));
             else if (SuffixUnits.Contains(spec.Unit) && a.Node is NumberNode) parts.Add(new(null, text, spec.Unit));
             else if (spec.Kind == ArgKind.SeqShort && a.Node is NameNode) parts.Add(new(null, text, null) { Seq = text });
-            else parts.Add(new(null, text, null));
+            else parts.Add(new(null, text, null) { IsLabel = spec.Kind == ArgKind.Label });
         }
         return parts;
     }
 
-    /// <summary>선택 줄 칸: 인자마다 하나. 안쪽 묶음(센서 등)은 그 칸들로 편다.</summary>
-    List<FieldInfo> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args)
+    /// <summary>선택 줄 칸: 인자마다 하나. 안쪽 묶음(센서 등)은 그 칸들로 편다. 출력 조건(WAIT_OUT) 안 신호는 출력 이름에서 고른다.</summary>
+    List<FieldInfo> FieldsOf(GrammarEntry e, IReadOnlyList<Arg> args, bool outs = false)
     {
         var specs = Facts.Expand(e, args.Count) ?? [];
         var list = new List<FieldInfo>();
         for (int i = 0; i < args.Count && i < specs.Count; i++)
         {
             var (name, inner) = Split(args[i].Node);
-            if (args[i].Node is CallNode && name != null && InnerFor(specs[i].Kind, name, inner) is { } ie && ie.Args.Count > 0)
-                list.AddRange(FieldsOf(ie, inner));
-            else list.Add(SwitchField(specs[i], args[i]) ?? new(specs[i].Label, args[i], specs[i]));
+            var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
+            if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
+            if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
+                list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
+            else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
+            else if (name != "NO_IN") list.Add(new(spec.Label, args[i], spec));
         }
         return list;
+    }
+
+    public const string OutNone = "없음", OutOn = "켜짐", OutOff = "꺼짐";
+
+    /// <summary>출력 조건 칸의 켬·끔 고르기: 없음(<c>NO_IN</c>) / 켜짐 / 꺼짐. 고르면 <c>IN( ON( 출력 ) )</c> 로 다시 쓴다(있던 출력은 그대로).</summary>
+    FieldInfo OutKind(Arg a, ArgSpec spec)
+    {
+        var (name, inner) = Split(a.Node);
+        var (group, sigs) = name == "IN" && inner.Count == 1 ? Split(inner[0].Node) : (null, []);
+        var shown = name == "NO_IN" ? OutNone : group == "ON" ? OutOn : group == "OFF" ? OutOff : Collapse(a.Text);
+        var sig = sigs.Count > 0 ? string.Join(", ", sigs.Select(x => Collapse(x.Text))) : Choices.For(new ArgSpec(ArgKind.Output), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "OUT_EXT_1";
+        return new FieldInfo("켬·끔", a, new ArgSpec(ArgKind.Word, Words: [OutNone, OutOn, OutOff]) { Label = "켬·끔" })
+        {
+            Value = shown,
+            Write = w => w == OutNone ? "NO_IN" : $"IN( {(w == OutOn ? "ON" : "OFF")}({sig}) )",
+        };
     }
 
     /// <summary>켬/끔 칸(값 1·0): ON·OFF 드롭다운. 고르면 원문에 1·0 을 쓴다. 다른 값이면 null(숫자 칸 그대로).</summary>
@@ -255,22 +289,24 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
 
     // ---- 문법 줄 고르기 ----
 
-    static GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, Place place) =>
-        Facts.Fit(GrammarTable.Find(name, place).Where(r => r.Role != Role.Statement), args);
+    static GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, params Place[] places) =>
+        Facts.Fit(GrammarTable.Find(name).Where(r => places.Contains(r.Place) && r.Role != Role.Statement), args);
 
     static GrammarEntry? InnerFor(ArgKind kind, string name, IReadOnlyList<Arg> args)
     {
-        Place? place = kind switch
+        Place[]? places = kind switch
         {
-            ArgKind.XCond => Place.ExtCond,
-            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 => Place.InputCond,
-            ArgKind.FromSensor => Place.TagAction,
-            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber => Place.Step,
-            ArgKind.Timeout => Place.InputCond,
-            ArgKind.LoadSensors => Place.Frame,
+            ArgKind.XCond => [Place.ExtCond],
+            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 or ArgKind.AndCond or ArgKind.ParamTime => [Place.InputCond],
+            ArgKind.AndItem => [Place.InputCond, Place.StateCond],
+            ArgKind.StateCond => [Place.StateCond],
+            ArgKind.FromSensor => [Place.TagAction],
+            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.OutMask => [Place.Step],
+            ArgKind.Timeout => [Place.InputCond],
+            ArgKind.LoadSensors => [Place.Frame],
             _ => null,
         };
-        return place is { } p && Facts.Allowed(kind, Area.Tag).Contains(name) ? Inner(name, args, p) : null;
+        return places != null && Facts.Allowed(kind, Area.Tag).Contains(name) ? Inner(name, args, places) : null;
     }
 
     static (string? Name, IReadOnlyList<Arg> Args) Split(Node n) => n switch

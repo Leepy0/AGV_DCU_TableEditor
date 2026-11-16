@@ -40,7 +40,7 @@ public sealed partial class SelfTest
         await Idle();
         Check(Row(40, "PF_BELT").Rule!.St.Text.Contains("SEQ_START( TAPE, LOAD ), AGV_FORBACK( TOGGLE )"), "SEQ_START( TAPE, LOAD )");
         Check(Diff(start, TagText) == (1, 1) && vm.ErrorCount == 0, $"한 줄·오류 0 {Diff(start, TagText)}");
-        Check(Tag.Picked?.Head == "시퀀스" && Tag.Fields[0].Text == "TAPE" && Tag.Fields.Count == 2, $"같은 블록·칸 TAPE ({string.Join("/", Tag.Fields.Select(f => f.Label + "=" + f.Text))})");
+        Check(Tag.Picked?.Head == "정지·시퀀스" && Tag.Fields[0].Text == "TAPE" && Tag.Fields.Count == 2, $"같은 블록·칸 TAPE ({string.Join("/", Tag.Fields.Select(f => f.Label + "=" + f.Text))})");
         Tag.Fields[0].Picked = Tag.Fields[0].Items!.Cast<Choice>().First(c => c.Name == "TAPE_GD");
         await Idle();
         Check(Row(40, "PF_BELT").Rule!.St.Text.Contains("SEQ_START( TAPE_GD, LOAD )") && vm.ErrorCount == 0, "TAPE_GD");
@@ -204,7 +204,7 @@ public sealed partial class SelfTest
         Check(S.SelectedStep?.Piece.Text.Trim() == "WAIT_STABLE( NO_IN, 100 )" && vm.ErrorCount == 0, $"바꿈 ({S.SelectedStep?.Piece.Text.Trim()})");
         S.MoveStep(S.SelectedStep!, null);
         await Idle();
-        Check(S.Steps.Last(r => r.Ordinal > 0).Block.Head == "안정 대기" && S.SelectedStep?.Block.Head == "안정 대기", "끝으로 끌기");
+        Check(S.Steps.Last(r => r.Ordinal > 0).Block.Head == "유지 대기" && S.SelectedStep?.Block.Head == "유지 대기", "끝으로 끌기");
         S.SelectStep(S.Steps.First(r => r.Label == "RUN"), true);
         var (ask, askDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(ask.Title == "지울 수 없음" && ask.Lines.Count == 2, $"라벨 RUN 막힘 ({ask.Title})");
@@ -339,18 +339,18 @@ public sealed partial class SelfTest
         S.MoveStep(mover, raw);
         await Idle();
         var moved = S.Steps.First(r => r.Piece.Text.Contains("AGV_FORBACK"));
-        Check(vm.ChangeCount == c0 + 1 && moved.Ordinal == nextAfterRaw && S.Steps.Last(r => r.Ordinal > 0).Block.Head == "끝 재출발",
+        Check(vm.ChangeCount == c0 + 1 && moved.Ordinal == nextAfterRaw && S.Steps.Last(r => r.Ordinal > 0).Block.Head == "끝·재출발",
             $"원문 줄 위에 놓으면 다음 문장 앞 ({moved.Ordinal}, {nextAfterRaw})");
 
-        Step("지우기 팝업: 분기 시작·끝 짝째, 끝 줄, 원문 줄");
-        S.SelectStep(S.Steps.First(r => r.Block.Head == "분기 시작"), true);
+        Step("지우기 팝업: 고르기 시작·끝 짝째, 끝 줄, 원문 줄");
+        S.SelectStep(S.Steps.First(r => r.Block.Head == "고르기 시작(대기)"), true);
         var (pair, pairDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(pair.Title == "스텝 삭제" && pair.Lines[0].Contains("짝") && pair.Buttons.First(b => b.Default).Key == "cancel", $"짝 팝업 ({pair.Lines[0]})");
         await Shot("seq_pair_delete.png");
         pair.Close("delete");
         await pairDone;
         await Idle();
-        Check(!S.Steps.Any(r => r.Block.Head is "분기 시작" or "분기 끝") && vm.ErrorCount == 0, $"짝 둘 다 지움·오류 0 ({vm.ErrorCount})");
+        Check(!S.Steps.Any(r => r.Block.Head is "고르기 시작(대기)" or "고르기 끝") && vm.ErrorCount == 0, $"짝 둘 다 지움·오류 0 ({vm.ErrorCount})");
         S.SelectStep(S.Steps.Last(r => r.Ordinal > 0), true);
         var (endAsk, endDone) = await Open<AskVm>(() => S.DeleteStepAsync());
         Check(endAsk.Lines[0].StartsWith("끝 줄", StringComparison.Ordinal), "끝 줄 팝업");
@@ -363,6 +363,72 @@ public sealed partial class SelfTest
         rawAsk.Close("cancel");
         await rawDone;
         Check(vm.ChangeCount == c1, "취소면 그대로");
+        Step("A4 형식 칸: 대기 제한 시간 → 파라미터(버림 팝업·취소) → 없음 → 시간, 인자 보존·원문 바이트");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        S.SelectTable("belt_load");
+        var formBase = Text("seq_table.c");
+        S.SelectStep(S.Steps.First(r => r.Piece.Text.Contains("WAIT_TO( IN( ON(DEMO_IF_IN1) ), 3000, ERR )")), true);
+        await Idle();
+        var form = S.Fields[0];
+        Check(form.Label == "형식" && form.Info.Value == "시간" && form.Info.Spec.Words!.SequenceEqual(["없음", "시간", "상태", "상태·시간", "상태·입력", "상태·입력·시간", "하나라도 2", "하나라도 2·시간", "파라미터"]), $"형식 칸 {form.Label} {form.Info.Value} {string.Join("/", form.Info.Spec.Words!)}");
+        var (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "파라미터"); return Task.CompletedTask; });
+        Check(fAsk.Title == "값 버림" && fAsk.Lines.Contains("3000"), $"시간 값 버림 팝업 ({string.Join(" / ", fAsk.Lines)})");
+        fAsk.Close("cancel");
+        await fAskDone;
+        await Idle();
+        Check(Text("seq_table.c") == formBase && S.Fields[0].Text == "시간", "취소면 그대로·칸 시간");
+        form = S.Fields[0];
+        (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "파라미터"); return Task.CompletedTask; });
+        fAsk.Close("ok");
+        await fAskDone;
+        await Idle();
+        var fNow = S.SelectedStep!.Piece.Text.Trim();
+        Check(fNow.StartsWith("WAIT_TO_PARAM( IN( ON(DEMO_IF_IN1) ), ", StringComparison.Ordinal) && fNow.EndsWith(", ERR )", StringComparison.Ordinal) && vm.ErrorCount == 0 && Diff(formBase, Text("seq_table.c")) == (1, 1),
+            $"조건·라벨 보존, 그 줄만 바뀜 ({fNow}, {Diff(formBase, Text("seq_table.c"))}, {vm.ErrorCount})");
+        form = S.Fields[0];
+        (fAsk, fAskDone) = await Open<AskVm>(() => { form.Picked = form.Items!.Cast<Choice>().First(c => c.Name == "없음"); return Task.CompletedTask; });
+        Check(fAsk.Lines.Count == 4 && fAsk.Lines.Contains("ERR"), $"파라미터·단위·라벨 버림 ({string.Join(" / ", fAsk.Lines)})");
+        fAsk.Close("ok");
+        await fAskDone;
+        await Idle();
+        Check(S.SelectedStep!.Piece.Text.Trim() == "WAIT( IN( ON(DEMO_IF_IN1) ) )", $"없음 ({S.SelectedStep.Piece.Text.Trim()})");
+        S.Fields[0].Picked = S.Fields[0].Items!.Cast<Choice>().First(c => c.Name == "시간");
+        await Idle();
+        Check(S.SelectedStep!.Piece.Text.Trim().StartsWith("WAIT_TO( IN( ON(DEMO_IF_IN1) ), ", StringComparison.Ordinal) && Diff(formBase, Text("seq_table.c")).Added == 1, $"버릴 것 없으면 팝업 없이 시간 ({S.SelectedStep.Piece.Text.Trim()})");
+
+        Step("A5·A6 스텝 추가 팝업: 무리마다 하나·인자 설명·검색");
+        var (add2, add2Done) = await Open<StepVm>(() => S.AddStepAsync());
+        add2.Category = "대기";
+        Check(add2.Commands.Select(c => c.Entry.Family).Distinct().Count() == add2.Commands.Count, "무리마다 하나");
+        Check(add2.Commands.Any(c => c.Entry.Name == "WAIT") && !add2.Commands.Any(c => c.Entry.Name is "WAIT_TO" or "WAIT_TO_PARAM" or "DELAY_PARAM" or "WAIT_STABLE_TO"), "대기 목록에 형식 변형 없음");
+        add2.Command = add2.Commands.First(c => c.Entry.Name == "DELAY");
+        Check(add2.Note == "시간 틱 0~65535", $"인자 설명 ({add2.Note})");
+        await Shot("seq_add.png");
+        add2.Search = "대기";
+        Check(add2.IsSearching && add2.Commands.Any(c => c.Entry.Name == "WAIT") && add2.Commands.Any(c => c.Entry.Name == "WAIT_STABLE") && add2.Commands.Any(c => c.Entry.Name == "WAIT_BELTS")
+            && !add2.Commands.Any(c => c.Entry.Name is "OUT_ON" or "L"), $"검색 대기 ({add2.Commands.Count})");
+        add2.Search = "WAIT_TO";
+        Check(add2.Commands.Count == 1 && add2.Commands[0].Entry.Family == "WAIT", $"검색 WAIT_TO → 그 무리 ({string.Join(",", add2.Commands.Select(c => c.Entry.Name))})");
+        add2.Search = "분기";
+        Check(add2.Commands.Any(c => c.Entry.Name == "WHEN") && add2.Commands.Any(c => c.Entry.Name == "GOTO") && add2.Commands.All(c => c.Family!.Any(e => e.Palette == "분기" || e.Head.Contains("분기") || e.Note.Contains("분기"))), $"검색 분류 이름 ({add2.Commands.Count})");
+        add2.Search = "";
+        Check(!add2.IsSearching && add2.Commands.All(c => (c.Entry.Palette.Length > 0 ? c.Entry.Palette : "기타") == add2.Category), "검색어 지우면 분류");
+        add2.Close(null);
+        await add2Done;
+
+        Step("A5·A6 태그 동작 추가 팝업(메뉴 대신)");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        var (tadd, taddDone) = await Open<StepVm>(() => Tag.AddActionAsync(Row(28)));
+        Check(tadd.Categories.Count == 8 && tadd.Categories.SequenceEqual(TableEditor.Engine.Grammar.GrammarTable.TagPalette), $"태그 분류 {string.Join("/", tadd.Categories)}");
+        tadd.Category = "정지";
+        Check(tadd.Commands.Count(c => c.Entry.Name == "AGV_STOP") == 1 && tadd.Commands[0].Entry.Name == "AGV_STOP" && tadd.Note.Length == 0, $"정지 무리 하나 ({tadd.Commands.Count})");
+        tadd.Category = "속도·방향";
+        tadd.Command = tadd.Commands.First(c => c.Entry.Name == "AGV_SPEED");
+        Check(tadd.Note == "단계 HIGH·LOW·LLOW·MIN", $"속도 설명 ({tadd.Note})");
+        await Shot("tag_action_add.png");
+        tadd.Close(null);
+        await taddDone;
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
         while (vm.ChangeCount > changes && vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
     }
 

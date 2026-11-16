@@ -88,13 +88,13 @@ public static partial class Checker
             if (n is not CallNode c) return;
             switch (c.Name)
             {
-                case "IF_ID" or "X_ID" when c.Args.Count == 2 && Val(f, c.Args[0]) is long a && Val(f, c.Args[1]) is long b:
+                case "IF_ID" or "X_ID" or "ID" when c.Args.Count == 2 && Val(f, c.Args[0]) is long a && Val(f, c.Args[1]) is long b:
                     list.Add(("ID", a, b));
                     break;
-                case "IF_STATION" or "X_STATION" when c.Args.Count == 3 && Val(f, c.Args[0]) is long k && Val(f, c.Args[1]) is long lo && Val(f, c.Args[2]) is long hi:
+                case "IF_STATION" or "X_STATION" or "STATION" when c.Args.Count == 3 && Val(f, c.Args[0]) is long k && Val(f, c.Args[1]) is long lo && Val(f, c.Args[2]) is long hi:
                     list.Add(("ST " + k, lo, hi));
                     break;
-                case "IF_X" or "IF_X2" or "IF_X_IN" or "IF_X2_IN":
+                case "IF_X" or "IF_X2" or "IF_X_IN" or "IF_X2_IN" or "AND":
                     foreach (var a2 in c.Args) Add(a2.Node);
                     break;
             }
@@ -117,10 +117,11 @@ public static partial class Checker
         Val(f, hider.FirstArg) is long a && Val(f, hider.LastArg) is long b && Val(f, r.FirstArg) is long c && Val(f, r.LastArg) is long d
         && a <= c && d <= b && (hider.AnyProfile || hider.Profile == r.Profile);
 
-    static bool HidesT10(Facts f, TagRule e, TagRule r) => Covers(f, e, r) && (!e.HasCond || e.CondText == r.CondText);
+    static bool HidesT10(Facts f, TagRule e, TagRule r) => Covers(f, e, r) && (!e.HasCond || TagEdit.CondKey(e) == TagEdit.CondKey(r));
 
     static bool HidesT11(Facts f, TagRule e, TagRule r) =>
-        Covers(f, e, r) && e.Cond?.Node is CallNode { Name: "IF_ID" or "IF_STATION" }
+        Covers(f, e, r) && (e.Cond?.Node is CallNode { Name: "IF_ID" or "IF_STATION" }
+            || e.Cond?.Node is CallNode { Name: "AND", Args: [{ Node: CallNode { Name: "ID" or "STATION" } }] })
         && Atoms(f, e.Cond.Node) is [var x] && Atoms(f, r.Cond?.Node).Any(m => m.Kind == x.Kind && x.Lo <= m.Lo && m.Hi <= x.Hi);
 
     /// <summary>앞 규칙 e 가 뒤 규칙 r 을 죽은 줄로 만드는가(T-10·T-11 과 같은 판정). 편집의 넣는 자리 계산이 쓴다.</summary>
@@ -199,6 +200,10 @@ public static partial class Checker
                 switch (name)
                 {
                     case "IF_IN": inp.Add(Squash(args[0].Text)); break;
+                    case "AND":
+                        foreach (var a in args.Where(a => IsState(a.Node))) x.Add(Squash(a.Text));
+                        if (args.Any(a => !IsState(a.Node))) inp.Add(Squash(string.Join(",", args.Where(a => !IsState(a.Node)).Select(a => a.Text))));
+                        break;
                     case "IF_X" or "IF_X2": foreach (var a in args) x.Add(Squash(a.Text)); break;
                     case "IF_X_IN" or "IF_X2_IN":
                         foreach (var a in args.SkipLast(1)) x.Add(Squash(a.Text));

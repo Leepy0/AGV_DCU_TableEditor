@@ -21,7 +21,7 @@ public static class Choices
         ArgKind.Number or ArgKind.Time or ArgKind.Timeout => FieldEditor.Number,
         ArgKind.Profile or ArgKind.Input or ArgKind.CoreInput or ArgKind.Signal or ArgKind.Output or ArgKind.Belt or ArgKind.LoadIf
             or ArgKind.SeqId or ArgKind.SeqShort or ArgKind.SeqTable or ArgKind.Label or ArgKind.ActId or ArgKind.ActTable
-            or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam or ArgKind.FndParam => FieldEditor.Names,
+            or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam or ArgKind.FndParam or ArgKind.ParamAny => FieldEditor.Names,
         _ => FieldEditor.Text,
     };
 
@@ -30,6 +30,7 @@ public static class Choices
     {
         IEnumerable<NameDef> Of(params NameKind[] kinds) => names.All.Where(d => kinds.Contains(d.Kind) && !d.Weak);
         Choice C(NameDef d, string? name = null) => new(name ?? d.Name, d.Value?.ToString(), d.Core ? "코어" : "사이트");
+        Choice Labeled(NameDef d) => CoreConstants.ParamLabels.TryGetValue(d.Name, out var label) ? new(d.Name, label, "코어") : C(d);
         IEnumerable<Choice> list = s.Kind switch
         {
             ArgKind.Profile => (s.Min == 0 ? [new Choice("ANY_PROFILE", "0", "전체")] : Array.Empty<Choice>())
@@ -48,7 +49,8 @@ public static class Choices
             ArgKind.State => Of(NameKind.State).Select(d => C(d)),
             ArgKind.CallNo => Of(NameKind.CallNo).Select(d => C(d)),
             ArgKind.CoreParam => Of(NameKind.CoreParam).Select(d => C(d)),
-            ArgKind.FndParam => Of(NameKind.FndParam).Select(d => C(d)),
+            ArgKind.FndParam => Of(NameKind.FndParam).Select(d => Labeled(d)),
+            ArgKind.ParamAny => Of(NameKind.FndParam).Where(d => !CoreConstants.PlacedParams.Contains(d.Name)).Select(d => Labeled(d)).Concat(Of(NameKind.CoreParam).Select(d => C(d))),
             ArgKind.Word => (s.Words ?? []).Select(w => new Choice(w, null, "")),
             _ => [],
         };
@@ -75,8 +77,14 @@ public static class Choices
                 return "0";
             case ArgKind.FromSensor:
                 return $"FROM_SENSOR( {FirstInput(names)}, 100 )";
-            case ArgKind.InCond or ArgKind.OutCond:
+            case ArgKind.InCond or ArgKind.OutCond or ArgKind.AndCond:
                 return "NO_IN";
+            case ArgKind.ParamTime:
+                return "PARAM_TIME( AS, SEC )";
+            case ArgKind.ParamAny:
+                return "AS";
+            case ArgKind.OutMask:
+                return "NO_OUT";
             case ArgKind.XCond:
                 return "X_ALWAYS";
             case ArgKind.Until:
@@ -84,7 +92,7 @@ public static class Choices
             case ArgKind.Any2:
                 return $"ANY2_ON({FirstInput(names)})";
             case ArgKind.AcsSource:
-                return "STATION0";
+                return names.NewDsl ? "STATION(0)" : "STATION0";
             case ArgKind.StationExpr:
                 return "STATION(0)";
             default:
@@ -93,11 +101,4 @@ public static class Choices
     }
 
     static string FirstInput(NameDict names) => For(new ArgSpec(ArgKind.Input), names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
-
-    /// <summary>추가 메뉴 낱말: 머리 이름. 같은 이름에 꼴이 여럿이면 꼴을 가르는 낱말을 붙인다(<see cref="ActionForms.Word"/>).</summary>
-    public static string MenuText(GrammarEntry e)
-    {
-        var word = ActionForms.Of(e).Count < 2 ? "" : ActionForms.Word(e);
-        return word.Length == 0 ? e.Head : $"{e.Head} {word}";
-    }
 }

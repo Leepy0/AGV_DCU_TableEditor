@@ -15,6 +15,7 @@ public partial class ProfileView : UserControl
     public ProfileView()
     {
         InitializeComponent();
+        RowMenu.Attach(Rows, _ => vm == null ? [] : [new("추가", vm.Add), new("삭제", vm.Delete), new("이름 바꾸기", vm.Rename), new("프로파일 삭제", vm.DeleteProfile), new("적재", vm.EditLoad)]);
         drag = new(this, (a, b) => vm?.MoveRow(a, b));
         DataContextChanged += (_, _) =>
         {

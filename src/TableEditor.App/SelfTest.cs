@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using TableEditor.App.Blocks;
 using TableEditor.App.ViewModels;
 using TableEditor.App.Views;
 using TableEditor.Engine.Grammar;
@@ -32,6 +33,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
     {
         steps++;
         log.Add($"-- {steps}. {name}");
+        try { Directory.CreateDirectory(work); File.WriteAllLines(Path.Combine(work, "selftest.log"), log); } catch (IOException) { } // 멈춰도 어디까지 갔는지 남는다
     }
 
     static string RepoRoot()
@@ -311,6 +313,8 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await Idle();
         await Tables();
         await Ux();
+        await V021();
+        await V058();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
@@ -400,16 +404,23 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         var delay = S.Steps.First(r => r.Block.Head == "지연");
         S.SelectStep(delay, true);
         await Idle();
-        Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].Small == "1.00", $"시간 칸·초 ({S.Fields.Count}, {S.Fields.FirstOrDefault()?.Small})");
-        var label = S.Steps.First(r => r.Block.Head == "가기");
+        Check(S.Fields.Count == 2 && S.Fields[0].Label == "형식" && S.Fields[0].Info.Value == "틱" && !S.Fields[1].Locked && S.Fields[1].Small == "1.00", $"형식 칸 + 시간 칸·초 ({S.Fields.Count}, {S.Fields.LastOrDefault()?.Small})");
+        var label = S.Steps.First(r => r.Block.Head == "GOTO");
         S.SelectStep(label, false);
         Check(S.Fields.Count == 1 && !S.Fields[0].Locked && S.Fields[0].IsList, "라벨 칸 드롭다운(시퀀스 칸 모두 고침)");
+        var lp = label.Block.Parts.FirstOrDefault(x => x.IsLabel);
+        Check(lp != null && lp.Value == BlockBuilder.Collapse(((Statement)label.Piece).Args[0].Text), $"GOTO 라벨 인자 IsLabel ({lp?.Value})");
+        S.GoLabel(lp!.Value);
+        Check(S.SelectedStep is { IsLabel: true } && S.SelectedStep.Label == lp.Value, $"라벨 더블클릭 → L 줄 ({S.SelectedStep?.Label})");
+        S.GoLabel("NO_SUCH_LABEL");
+        Check(vm.Notice == "없는 라벨 NO_SUCH_LABEL", $"없는 라벨 알림 ({vm.Notice})");
+        vm.ClearNotice();
         S.SelectStep(S.Steps.First(r => r.Block.Head == "지연"), false);
-        S.Fields[0].Text = "250";
-        S.Fields[0].Commit();
+        S.Fields[1].Text = "250";
+        S.Fields[1].Commit();
         await Idle();
         Check(Diff(files["seq_table.c"], Text("seq_table.c")) == (1, 1) && Text("seq_table.c").Contains("DELAY(250)"), $"한 줄 {Diff(files["seq_table.c"], Text("seq_table.c"))}");
-        Check(S.SelectedStep?.Block.Head == "지연" && S.Fields[0].IsHot && S.Fields[0].Small == "2.50", "같은 스텝·칸, 2.50");
+        Check(S.SelectedStep?.Block.Head == "지연" && S.Fields[1].IsHot && S.Fields[1].Small == "2.50", "같은 스텝·칸, 2.50");
         Check(S.Steps.Any(r => r.IsLabel) && S.Steps.Any(r => r.InSelect && r.SelectTop) && S.Steps.Any(r => r.Level == 1), "라벨·묶음·들여쓰기");
         await Shot("seq.png");
 

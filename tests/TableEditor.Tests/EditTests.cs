@@ -215,7 +215,7 @@ static class EditTests
         var a = TagEdit.InsertAction(s, r6, 2, "OBS_ON");
         var b = TagEdit.InsertAction(a.Site!, Rule(a.Site!, "TAG ( 6,"), 3, "OBS_OFF");
         check(b.Ok, "동작 넷 " + b.Error);
-        Blocked(TagEdit.InsertAction(b.Site!, Rule(b.Site!, "TAG ( 6,"), 4, "STATION_RESET"), "문장으로 읽히지 않음", "동작 다섯");
+        Blocked(TagEdit.InsertAction(b.Site!, Rule(b.Site!, "TAG ( 6,"), 4, "STATION_RESET"), "동작 칸 넘침", "동작 다섯");
     }
 
     static void Conditions()

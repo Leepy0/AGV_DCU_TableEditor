@@ -17,6 +17,12 @@ public sealed partial class Site
     /// <summary><c>core/VERSION</c> 첫 칸. 코어 폴더가 없으면 null.</summary>
     public string? CoreVersion { get; }
 
+    /// <summary>
+    /// 코어 <c>VERSION</c> 이 v0.58.0 이상이다: 새 DSL 형식(<c>AND( … )</c>·<c>AGV_SPEED( m/min )</c> 등)으로 새 줄을 쓰고 새 규칙(D-*)을 건다.
+    /// 코어 폴더가 없거나 버전을 모르면 옛 형식이다.
+    /// </summary>
+    public bool NewDsl => GrammarTable.IsNew(CoreVersion);
+
     public IReadOnlyList<ZoneBlock> Zones { get; }
     public IReadOnlyList<ProfileDef> Profiles { get; }
     public IReadOnlyList<ProfileRow> ProfileRows { get; }
@@ -91,6 +97,7 @@ public sealed partial class Site
         }
 
         Zones = files.SelectMany(BlocksOf).ToList();
+        Names.NewDsl = NewDsl;
         BuildNames();
 
         Profiles = Names.Of(NameKind.Profile).Where(d => !d.Core && d.Def is Statement)
@@ -192,6 +199,7 @@ public sealed partial class Site
             Names.Add(new(p.Core, NameKind.CoreParam, p.Number, null, null));
             foreach (var t in p.TableNames) Names.Add(new(t, NameKind.FndParam, p.Number, null, null));
         }
+        foreach (var (alias, number) in CoreConstants.ParamAliases) Names.Add(new(alias, NameKind.CoreParam, number, null, null));
         Names.Add(new("SEQ_SITE_BASE", NameKind.Constant, CoreConstants.SeqSiteBase, null, null));
         Names.Add(new("SEQ_MAX", NameKind.Constant, CoreConstants.SeqMax, null, null));
         Names.Add(new("ANY_PROFILE", NameKind.Profile, 0, null, null));
@@ -303,7 +311,7 @@ public sealed partial class Site
     NameDef Classify(Statement st, SourceFile f)
     {
         var node = st.Args[0].Node;
-        if (node is CallNode { Name: "IN_ACTIVE_HIGH", Args.Count: 1 } h)
+        if (node is CallNode { Name: "IN_ACTIVE_HIGH" or "IN_INVERTED", Args.Count: 1 } h)
             return new(st.Name, NameKind.InputHigh, Names.Value(h.Args[0].Node), f, st);
         if (node is NameNode n && Names.Find(n.Name) is { } target)
         {

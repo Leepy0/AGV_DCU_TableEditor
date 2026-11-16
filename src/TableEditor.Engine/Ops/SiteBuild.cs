@@ -17,14 +17,65 @@ public static class SiteBuild
         return m.Success ? "agv_" + m.Groups[1].Value : "agv_" + site;
     }
 
-    public static async Task<BuildResult> RunAsync(string appRoot, string site, string? name = null, bool field = false, Action<OutputLine>? onLine = null, CancellationToken ct = default)
+    /// <summary>설정의 cl2000 경로(<c>…/bin/cl2000.exe</c>)에서 Cgt 폴더(bin 의 상위). 비었거나 bin 아래가 아니면 null.</summary>
+    public static string? CgtOf(string? cl2000Path)
+    {
+        if (string.IsNullOrWhiteSpace(cl2000Path)) return null;
+        var bin = Path.GetDirectoryName(cl2000Path.Trim());
+        return bin != null && Path.GetFileName(bin).Equals("bin", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(bin) : null;
+    }
+
+    /// <summary>앱의 tools/check.ps1 가 <c>$Cgt</c> 인자를 아는가(모르는 인자를 넘기면 스크립트가 실패한다). <c>param( … )</c> 블록 안의 매개변수만 인정한다(지역 변수·주석의 글자는 아니다).</summary>
+    public static bool KnowsCgt(string appRoot)
+    {
+        try { return Regex.IsMatch(ParamBlock(File.ReadAllText(Path.Combine(appRoot, "tools", "check.ps1"))), @"\$Cgt\b", RegexOptions.IgnoreCase); }
+        catch (IOException) { return false; }
+    }
+
+    /// <summary>스크립트의 첫 <c>param( … )</c> 안쪽 글. 괄호 짝을 읽고, 따옴표 글·<c># 주석</c>·<c>&lt;# … #&gt;</c> 는 공백으로 바꿔 돌려준다. 없으면 빈 글.</summary>
+    static string ParamBlock(string script)
+    {
+        var m = Regex.Match(script, @"^[ \t]*param\s*\(", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        if (!m.Success) return "";
+        var sb = new System.Text.StringBuilder();
+        int depth = 1;
+        for (int i = m.Index + m.Length; i < script.Length; i++)
+        {
+            char c = script[i];
+            int skipTo;
+            if (c is '\'' or '"') skipTo = script.IndexOf(c, i + 1);
+            else if (c == '<' && i + 1 < script.Length && script[i + 1] == '#') { int e = script.IndexOf("#>", i + 2, StringComparison.Ordinal); skipTo = e < 0 ? -1 : e + 1; }
+            else if (c == '#') { int e = script.IndexOf('\n', i); skipTo = e < 0 ? script.Length - 1 : e; }
+            else
+            {
+                if (c == '(') depth++;
+                else if (c == ')' && --depth == 0) return sb.ToString();
+                sb.Append(c);
+                continue;
+            }
+            if (skipTo < 0) return "";
+            i = skipTo;
+            sb.Append(' ');
+        }
+        return "";
+    }
+
+    /// <summary>powershell 인자. cl2000 경로가 있고 스크립트가 <c>-Cgt</c> 를 알 때만 <c>-Cgt</c> 를 넘긴다.</summary>
+    public static string[] ScriptArgs(string appRoot, string site, string name, bool field, string? cl2000Path = null)
+    {
+        var cgt = CgtOf(cl2000Path);
+        return ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/check.ps1", "-Site", site, "-Name", name, "-BuildOnly",
+            .. field ? new[] { "-Field" } : [], .. cgt != null && KnowsCgt(appRoot) ? new[] { "-Cgt", cgt } : []];
+    }
+
+    public static async Task<BuildResult> RunAsync(string appRoot, string site, string? name = null, bool field = false, Action<OutputLine>? onLine = null, CancellationToken ct = default, string? cl2000Path = null)
     {
         if (site.Length == 0 || site.IndexOfAny(['/', '\\', ':']) >= 0 || site == "..") return Fail("사이트 이름이 잘못됨: " + site);
         if (!File.Exists(Path.Combine(appRoot, "tools", "check.ps1"))) return Fail("tools/check.ps1 없음: " + appRoot);
         if (ToolProbe.Which("powershell") == null) return Fail("powershell 없음(PATH)");
         name ??= DefaultName(site);
         if (field) name += "_field";
-        string[] args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/check.ps1", "-Site", site, "-Name", name, "-BuildOnly", .. field ? new[] { "-Field" } : []];
+        var args = ScriptArgs(appRoot, site, name, field, cl2000Path);
         var r = await ProcessRunner.RunAsync(new ProcessSpec("powershell", args, appRoot, TimeSpan.FromMinutes(10), ProcessRunner.Oem()), onLine, ct);
         var texts = r.Texts.ToList();
         var errors = BuildErrors.Parse(texts, Path.Combine(appRoot, "site", site));
