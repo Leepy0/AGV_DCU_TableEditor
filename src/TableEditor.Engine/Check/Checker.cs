@@ -7,6 +7,7 @@ namespace TableEditor.Engine.Check;
 /// <summary>
 /// 사이트 전체 검사(사양 6절). 규칙 하나 = 함수 하나, 번호는 사양 그대로.
 /// 넣지 않은 규칙: R-3(저장 때), N-6(이름 바꾸기·지우기 때), C-1·C-1b·C-1c(빌드 단계에서 압축 표를 다시 만든다).
+/// D-1~D-6 은 코어 v0.58.0 이상 사이트에만 건다(새 DSL 형식의 컴파일 오류를 저장 전에 잡는다).
 /// </summary>
 public static partial class Checker
 {
@@ -24,6 +25,7 @@ public static partial class Checker
         ("S-16", S16), ("S-16b", S16b), ("S-17", S17), ("S-18", S18),
         ("M-1", M1), ("M-2", M2), ("M-3", M3), ("M-4", M4), ("M-5", M5), ("M-6", M6), ("M-7", M7),
         ("C-2", C2), ("C-3", C3),
+        ("D-1", D1), ("D-2", D2), ("D-3", D3), ("D-4", D4), ("D-5", D5), ("D-6", D6),
     ];
 
     public static IReadOnlyList<Finding> Run(Site site)
@@ -73,7 +75,7 @@ public static partial class Checker
                 if (st.Name.StartsWith("PROFILE", StringComparison.Ordinal) && st.Args.Count >= 4 && Bad(st.Args[2], st.Args[3]))
                     yield return f.Error(rule, st, $"처음 > 끝 {st.Args[2].Text} {st.Args[3].Text}", st.Args[2]);
                 foreach (var (loc, c) in Calls(st))
-                    if (c.Name is "X_ID" or "IF_ID" && c.Args.Count == 2 && Bad(c.Args[0], c.Args[1]))
+                    if (c.Name is "X_ID" or "IF_ID" or "ID" && c.Args.Count == 2 && Bad(c.Args[0], c.Args[1]))
                         yield return f.Error(rule, st, $"처음 > 끝 {c.Name}( {c.Args[0].Text}, {c.Args[1].Text} )", loc);
             }
 
