@@ -242,14 +242,23 @@ public sealed class GroupVm : Observable
     public string KindText { get => KindList.First(k => k.Name == kind).Text; set => Set(ref kind, KindList.First(k => k.Text == value).Name); }
     public string KindName => kind;
 
-    public IReadOnlyList<SignalVm> Signals { get; }
+    public IReadOnlyList<SignalVm> Signals { get; private set; } = [];
 
     public GroupVm(string kind, IReadOnlyList<Choice> inputs, IEnumerable<string> on)
     {
         this.kind = kind;
-        var set = on.ToHashSet();
-        Signals = inputs.Select(c => new SignalVm(c.Name, c.Note, set.Contains(c.Name))).ToList();
+        SetChoices(inputs, on.ToHashSet());
     }
+
+    /// <summary>목록을 다시 만든다(걸러 보기 토글). 켜 둔 신호는 그대로 둔다.</summary>
+    public void SetChoices(IReadOnlyList<Choice> inputs, ISet<string>? on = null)
+    {
+        var set = on ?? Signals.Where(s => s.On).Select(s => s.Name).ToHashSet();
+        Signals = inputs.Select(c => new SignalVm(c.Name, c.Note, set.Contains(c.Name))).ToList();
+        Raise(nameof(Signals));
+    }
+
+    public bool IsOn(string name) => Signals.Any(s => s.On && s.Name == name);
 
     public string? Text
     {
@@ -275,8 +284,11 @@ public sealed class SignalVm(string name, string? note, bool on) : Observable
 /// </summary>
 public sealed class InputVm : Observable
 {
-    readonly IReadOnlyList<Choice> inputs;
+    IReadOnlyList<Choice> inputs;
     readonly bool wrap;
+    readonly NameDict names;
+    readonly SignalScope? scope;
+    readonly string? raw;
 
     public string Label { get; }
     public ObservableCollection<GroupVm> Groups { get; } = [];
@@ -288,17 +300,42 @@ public sealed class InputVm : Observable
     public ICommand AddGroup { get; }
     public ICommand RemoveGroup { get; }
 
-    public InputVm(string label, Arg? arg, NameDict names, bool wrap) : this(label, arg?.Node, arg?.Text, names, wrap) { }
+    public InputVm(string label, Arg? arg, NameDict names, bool wrap, SignalScope? scope = null) : this(label, arg?.Node, arg?.Text, names, wrap, scope) { }
 
-    public InputVm(string label, Node? node, string? raw, NameDict names, bool wrap)
+    public InputVm(string label, Node? node, string? raw, NameDict names, bool wrap, SignalScope? scope = null)
     {
         Label = label;
         this.wrap = wrap;
-        // 조건에는 논리 입력 ID 32 이상(IN_AMP_*)·IO_NONE 을 못 쓴다: 이미 쓴 것만 남긴다
-        inputs = Choices.For(new ArgSpec(ArgKind.Input), names).Where(c => !(long.TryParse(c.Note, out var id) && id >= 32) || raw?.Contains(c.Name) == true).ToList();
+        this.names = names;
+        this.scope = scope;
+        this.raw = raw;
+        inputs = Build();
         if (node != null && !ReadGroups(node)) RawInput = raw;
         AddGroup = new Command(() => Groups.Add(new GroupVm("ON", inputs, [])), () => RawInput == null);
         RemoveGroup = new Command(p => { if (p is GroupVm g) Groups.Remove(g); });
+    }
+
+    /// <summary>
+    /// 고를 입력: 조건에는 논리 입력 ID 32 이상(IN_AMP_*)·IO_NONE 을 못 쓴다(이미 쓴 것만 남긴다).
+    /// 그 줄 프로파일에 맞는 신호 + 지정 없는 신호만(이미 쓴 것은 남긴다).
+    /// </summary>
+    IReadOnlyList<Choice> Build() =>
+        Choices.For(new ArgSpec(ArgKind.Input), names, scope, n => raw?.Contains(n) == true || Groups.Any(g => g.IsOn(n)))
+            .Where(c => !(long.TryParse(c.Note, out var id) && id >= 32) || raw?.Contains(c.Name) == true).ToList();
+
+    /// <summary>"전체" 토글(끄면 걸러 보기, 켜면 전부). 가려질 신호가 없으면 토글을 보이지 않는다.</summary>
+    public bool CanToggle => scope?.CanToggle == true;
+    public bool ShowAll
+    {
+        get => SignalScope.ShowAll;
+        set
+        {
+            if (SignalScope.ShowAll == value) return;
+            SignalScope.ShowAll = value;
+            inputs = Build();
+            foreach (var g in Groups) g.SetChoices(inputs);
+            Raise();
+        }
     }
 
     bool ReadGroups(Node n)
@@ -343,7 +380,7 @@ public sealed class CondVm : DialogVm
     public ICommand AddGroup => In.AddGroup;
     public ICommand Ok { get; }
 
-    public CondVm(TagRule rule, NameDict names)
+    public CondVm(TagRule rule, NameDict names, SignalScope? scope = null)
     {
         var read = TagEdit.ReadCondition(rule);
         var xs = (read?.X ?? []).Select(x => names.NewDsl ? StateWords.ToState(x) ?? x : x)
@@ -356,7 +393,7 @@ public sealed class CondVm : DialogVm
         // 입력 조건 글은 읽는 쪽(ReadCondition)이 새 형식·옛 형식 모두 IN( … ) 하나나 묶음 하나로 돌려준다
         var text = read?.Input;
         var node = text != null ? Expr.Parse(text) : null;
-        In = new InputVm("입력", node, text, names, wrap: false);
+        In = new InputVm("입력", node, text, names, wrap: false, scope);
         AddX = new Command(() => XRows.Add(new XRowVm(XKinds.First(k => k.Name == (names.NewDsl ? "FORWARD" : "X_FORWARD")), [], XKinds, names)), () => XRows.Count < 2);
         RemoveX = new Command(p => { if (p is XRowVm x) XRows.Remove(x); });
         Ok = new Command(() => Close("ok"), () => XRows.All(r => r.Valid));
@@ -374,11 +411,11 @@ public sealed class CondVm : DialogVm
 /// <summary>적재 조건 팝업(<c>LOAD_IF( 이름, 조건 1[, 조건 2] )</c>): 조건 둘, 둘째는 없어도 된다.</summary>
 public sealed class LoadVm : DialogVm
 {
-    public LoadVm(Statement st, NameDict names)
+    public LoadVm(Statement st, NameDict names, SignalScope? scope = null)
     {
         Name = st.Args[0].Text;
-        First = new InputVm("조건 1", st.Args.Count > 1 ? st.Args[1] : null, names, wrap: true);
-        Second = new InputVm("조건 2", st.Args.Count > 2 ? st.Args[2] : null, names, wrap: true);
+        First = new InputVm("조건 1", st.Args.Count > 1 ? st.Args[1] : null, names, wrap: true, scope);
+        Second = new InputVm("조건 2", st.Args.Count > 2 ? st.Args[2] : null, names, wrap: true, scope);
         Ok = new Command(() => Close("ok"), () => First.Groups.Any(g => g.Text != null) || First.RawInput != null);
     }
 
@@ -394,12 +431,12 @@ public sealed class ManCondVm : DialogVm
 {
     public static readonly IReadOnlyList<string> Keys = CoreConstants.Keys;
 
-    public ManCondVm(Arg cond, NameDict names)
+    public ManCondVm(Arg cond, NameDict names, SignalScope? scope = null)
     {
         var n = cond.Node;
         if (n is CallNode { Name: "KEY", Args.Count: 1 } k) { mode = 1; key = k.Args[0].Text.Trim(); }
         else if (n is NameNode { Name: "NO_IN" }) mode = 2;
-        In = new InputVm("입력", mode == 0 ? cond : null, names, wrap: true);
+        In = new InputVm("입력", mode == 0 ? cond : null, names, wrap: true, scope);
         Ok = new Command(() => Close("ok"));
     }
 
@@ -425,6 +462,38 @@ public sealed class ManCondVm : DialogVm
 
     /// <summary>조건 칸 글: <c>IN( … )</c> / <c>KEY( 키 )</c> / <c>NO_IN</c>(입력 묶음이 없어도).</summary>
     public string Text => mode switch { 1 => $"KEY( {key} )", 2 => "NO_IN", _ => In.Text() ?? "NO_IN" };
+}
+
+/// <summary>IO 맵 신호가 쓰는 프로파일 고르기(토큰). 비면 모두.</summary>
+public sealed class PfPickVm : DialogVm
+{
+    public PfPickVm(string title, IReadOnlyList<string> choices, IEnumerable<string> current)
+    {
+        this.title = title;
+        ProfileChoices = choices;
+        foreach (var p in current) Profiles.Add(p);
+        Profiles.CollectionChanged += (_, _) => Raise(nameof(IsAll));
+        RemoveProfile = new Command(p => { if (p is string s) Profiles.Remove(s); });
+        Ok = new Command(() => Close("ok"));
+    }
+
+    readonly string title;
+    public override string Title => title;
+    public ObservableCollection<string> Profiles { get; } = [];
+    public IReadOnlyList<string> ProfileChoices { get; }
+    public ICommand RemoveProfile { get; }
+    public ICommand Ok { get; }
+
+    /// <summary>고른 것이 없다 = 모든 프로파일.</summary>
+    public bool IsAll => Profiles.Count == 0;
+
+    public string? AddPick
+    {
+        get => null;
+        set { if (value != null && !Profiles.Contains(value)) Profiles.Add(value); Raise(); }
+    }
+
+    public List<string> List => Profiles.ToList();
 }
 
 /// <summary>이름 하나 받기(새 프로파일, 이름 바꾸기).</summary>

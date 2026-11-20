@@ -87,6 +87,12 @@ public sealed class ManualVm : BlockHost
 
     protected override Piece? CodePiece => Selected?.St;
 
+    protected override SignalScope? ScopeFor() => ScopeOf(Site, Selected?.St);
+
+    /// <summary>MAN·MAN_ELSE 줄은 그 프로파일, 그 밖은 전부.</summary>
+    public static SignalScope ScopeOf(Site s, Statement? st) =>
+        SignalScope.Of(s, st is { Name: "MAN" or "MAN_ELSE", Args.Count: > 0 } ? st.Args[0].Text : null);
+
     IReadOnlyList<CardVm> all = [];
     public IReadOnlyList<CardVm> Cards { get; private set; } = [];
     public IReadOnlyList<ManRowVm> Inputs { get; private set; } = [];
@@ -272,7 +278,7 @@ public sealed class ManualVm : BlockHost
     async Task EditCondAsync(ManRowVm r)
     {
         if (r.St.Name != "MAN" || r.St.Args.Count < 3) return;
-        var vm = new ManCondVm(r.St.Args[2], Site.Names);
+        var vm = new ManCondVm(r.St.Args[2], Site.Names, ScopeOf(Site, r.St));
         if (await Main.Show(vm) != "ok") return;
         Main.Apply(SiteEdit.SetArg(Site, r.St, r.St.Args[2], vm.Text));
     }

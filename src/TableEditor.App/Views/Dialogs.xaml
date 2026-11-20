@@ -230,7 +230,11 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <Button Content="묶음 추가" Style="{StaticResource Btn.Small}" HorizontalAlignment="Left" Command="{Binding AddGroup}"/>
+            <StackPanel Orientation="Horizontal">
+                <Button Content="묶음 추가" Style="{StaticResource Btn.Small}" Command="{Binding AddGroup}"/>
+                <ToggleButton Content="전체" Style="{StaticResource TokToggle}" IsChecked="{Binding ShowAll}" Margin="{StaticResource Gap.L12}"
+                              Visibility="{Binding CanToggle, Converter={StaticResource Shown}}" AutomationProperties.Name="전체"/>
+            </StackPanel>
         </StackPanel>
     </DataTemplate>
 
@@ -575,6 +579,54 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
                         <Button Content="추가" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- IO 맵 신호의 프로파일 -->
+    <DataTemplate DataType="{x:Type vm:PfPickVm}">
+        <Border Style="{StaticResource DialogCard}">
+            <StackPanel>
+                <Border Height="{StaticResource DialogHeadHeight}" Padding="{StaticResource Pad.DialogHead}">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource DialogTitle}" FontFamily="{StaticResource Mono}"/>
+                </Border>
+                <Grid Margin="{StaticResource Pad.DialogBody}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource Frow.Label}"/>
+                        <ColumnDefinition Width="{StaticResource Frow.Gap}"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="프로파일" Style="{StaticResource FrowLabel}"/>
+                    <Border Grid.Column="2" Style="{StaticResource TokBox}">
+                        <WrapPanel>
+                            <TextBlock Text="모두" Style="{StaticResource T.Faint}" VerticalAlignment="Center" Margin="{StaticResource Gap.R16}"
+                                       Visibility="{Binding IsAll, Converter={StaticResource Shown}}"/>
+                            <ItemsControl ItemsSource="{Binding Profiles}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource Tok}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                                                <Button Content="✕" Style="{StaticResource TokX}" AutomationProperties.Name="삭제"
+                                                        Command="{Binding DataContext.RemoveProfile, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ComboBox Style="{StaticResource TokAdd}" ItemsSource="{Binding ProfileChoices}" SelectedItem="{Binding AddPick}" AutomationProperties.Name="프로파일 더하기"/>
+                        </WrapPanel>
+                    </Border>
+                </Grid>
+                <Border Style="{StaticResource DialogFoot}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="취소" Style="{StaticResource Btn.Dialog}" Command="{Binding Cancel}"/>
+                        <Button Content="바꾸기" Style="{StaticResource Btn.DialogPrimary}" Command="{Binding Ok}" Tag="{StaticResource True}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

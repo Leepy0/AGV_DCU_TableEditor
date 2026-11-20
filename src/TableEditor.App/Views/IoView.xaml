@@ -7,12 +7,18 @@
     <UserControl.Resources>
         <!-- 별칭 칩: 이름 + (핀 1) + 쓰인 곳 수 -->
         <DataTemplate x:Key="AliasT" DataType="vm:AliasVm">
-            <Border x:Name="B" Style="{StaticResource Tok}" ToolTip="{Binding Tip}" BorderThickness="{StaticResource Bd.1}" BorderBrush="Transparent">
+            <Border x:Name="B" Style="{StaticResource Tok}" ToolTip="{Binding Tip}" BorderThickness="{StaticResource Bd.1}" BorderBrush="Transparent" Cursor="Hand">
+                <Border.InputBindings>
+                    <MouseBinding MouseAction="LeftClick" Command="{Binding DataContext.EditPf, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                </Border.InputBindings>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
                     <TextBlock Text="반대 극성" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" Foreground="{StaticResource Accent}"
                                Visibility="{Binding High, Converter={StaticResource Shown}}"/>
                     <TextBlock Text="{Binding UsesText}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L4}" ToolTip="쓰인 곳"/>
+                    <!-- 프로파일 칸: 눌러 고른다. 비면 모두 -->
+                    <TextBlock Text="{Binding PfText}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L12}"
+                               AutomationProperties.Name="프로파일" ToolTip="프로파일"/>
                 </StackPanel>
             </Border>
             <DataTemplate.Triggers>

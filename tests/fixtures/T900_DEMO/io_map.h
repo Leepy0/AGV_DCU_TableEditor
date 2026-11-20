@@ -9,18 +9,18 @@
 #define DEMO_SEN_2      IN_EXT_2
 #define DEMO_SEN_3      IN_EXT_3
 #define DEMO_SEN_4      IN_EXT_4
-#define DEMO_SENH_1     IN_ACTIVE_HIGH( IN_EXT_5 )      /* 핀 1 활성 */
-#define DEMO_LIFT_TOP   IN_EXT_6
-#define DEMO_LIFT_BOT   IN_EXT_7
+#define DEMO_SENH_1     IN_ACTIVE_HIGH( IN_EXT_5 )      /* 핀 1 활성 */ /* pf: PF_BELT PF_CART */
+#define DEMO_LIFT_TOP   IN_EXT_6    /* pf: PF_LIFT */
+#define DEMO_LIFT_BOT   IN_EXT_7    /* pf: PF_LIFT */
 #define DEMO_IF_IN1     IN_EXT_8
 #define DEMO_SPARE_IN   IO_NONE                         /* 미연결 */
 
 /* ---- 출력 ---- */
 #define DEMO_CV1_PWR    OUT_EXT_1
 #define DEMO_CV1_DIR    OUT_EXT_2
-#define DEMO_CV2_PWR    OUT_EXT_3
-#define DEMO_LIFT_UP    OUT_EXT_4
-#define DEMO_LIFT_DOWN  OUT_EXT_5
+#define DEMO_CV2_PWR    OUT_EXT_3    /* pf: PF_BELT */
+#define DEMO_LIFT_UP    OUT_EXT_4    /* pf: PF_LIFT */
+#define DEMO_LIFT_DOWN  OUT_EXT_5    /* pf: PF_LIFT */
 #define DEMO_IF_OUT1    OUT_EXT_6
 #define DEMO_LAMP       OUT_LAMP_Y
 

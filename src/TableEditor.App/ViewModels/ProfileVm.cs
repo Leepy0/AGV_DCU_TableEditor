@@ -152,6 +152,8 @@ public sealed class ProfileVm : BlockHost
 
     protected override Piece? CodePiece => Selected?.Piece;
 
+    protected override SignalScope? ScopeFor() => SignalScope.Of(Site, Selected?.Row?.Profile);
+
     public IReadOnlyList<ProfileRowVm> Rows { get; private set; } = [];
     public IReadOnlyList<MapCellVm> Cells { get; private set; } = [];
     public bool IsEmpty => Rows.Count == 0;
@@ -387,7 +389,7 @@ public sealed class ProfileVm : BlockHost
         if (Selected is not { IsLoadIf: true } r) return;
         var def = Site.Names.Find(r.LoadText);
         if (def?.Def is not Statement st || st.Name != "LOAD_IF") { Main.Notify("적재 조건 없음 · " + r.LoadText); return; }
-        var vm = new LoadVm(st, Site.Names);
+        var vm = new LoadVm(st, Site.Names, SignalScope.Of(Site, Selected?.Row?.Profile));
         if (await Main.Show(vm) != "ok") return;
         Main.Apply(ProfileEdit.SetLoadIf(Site, st, vm.First.Text(), vm.Second.Text()));
     }

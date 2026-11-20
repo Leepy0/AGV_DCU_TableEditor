@@ -22,7 +22,10 @@ public sealed record NameDef(string Name, NameKind Kind, long? Value, SourceFile
     public bool Core => File == null;
 
     /// <summary>정의 줄의 꼬리 주석(쓰는 호기 등).</summary>
-    public string Comment => (Def as Statement)?.TailComment ?? "";
+    public string Comment => IoProfile.StripComment((Def as Statement)?.TailComment ?? "");
+
+    /// <summary>IO 맵 신호가 쓰는 프로파일(<c>/* pf: … */</c>). 주석이 없으면 null = 모두.</summary>
+    public IReadOnlyList<string>? Profiles => Def is Statement { Shape: StatementShape.Define } st ? IoProfile.Of(st) : null;
 }
 
 /// <summary>벨트 n: <c>BELT&lt;n&gt;_CW</c>·<c>_CCW</c> 정의. 없는 쪽은 null, <c>NO_OUT</c> 쪽은 출력 목록이 비었다.</summary>

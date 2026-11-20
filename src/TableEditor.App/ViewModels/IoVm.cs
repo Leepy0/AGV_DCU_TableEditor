@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using TableEditor.App.Blocks;
 using TableEditor.App.Mvvm;
 using TableEditor.Engine.Check;
@@ -8,10 +9,14 @@ using TableEditor.Engine.Text;
 namespace TableEditor.App.ViewModels;
 
 /// <summary>별칭 하나: 이름, 핀 1 활성, 쓰인 곳 수, 주석, 검사 결과.</summary>
-public sealed record AliasVm(string Name, bool High, int Uses, string Comment, Severity? Mark)
+public sealed record AliasVm(string Name, bool High, int Uses, string Comment, Severity? Mark, Statement? Def = null, IReadOnlyList<string>? Profiles = null)
 {
     public string UsesText => Uses.ToString();
     public string Tip => Comment.Length == 0 ? Name : $"{Name} · {Comment}";
+
+    /// <summary>프로파일 칸 글. 지정이 없으면 "모두".</summary>
+    public string PfText => Profiles == null ? "모두" : string.Join(" ", Profiles);
+    public bool HasPf => Profiles != null;
 }
 
 /// <summary>IO 한 줄: 코어 ID, 코어 이름, 별칭들, 주석(별칭 주석을 잇는다).</summary>
@@ -32,8 +37,21 @@ public sealed class IoRowVm(int id, string core, IReadOnlyList<AliasVm> aliases)
 public sealed record BeltRowVm(string Name, string Cw, string Ccw);
 
 /// <summary>IO 맵 화면(사양 9.2절, 1차 읽기 전용): 입력 32줄·출력 32줄, 미연결 별칭, 벨트 표.</summary>
-public sealed class IoVm : Observable
+public sealed class IoVm(MainVm main) : Observable
 {
+    Site? current;
+
+    /// <summary>신호의 프로파일 고르기(토큰 팝업) → <c>/* pf: … */</c> 쓰기.</summary>
+    public ICommand EditPf => new Command(p => _ = EditPfAsync(p as AliasVm), p => main.CanEdit && p is AliasVm { Def: not null });
+
+    public async Task EditPfAsync(AliasVm? a)
+    {
+        if (a?.Def == null || current == null) return;
+        var s = current;
+        var vm = new PfPickVm(a.Name, s.Profiles.Select(p => p.Name).Union(a.Profiles ?? []).ToList(), a.Profiles ?? []);
+        if (await main.Show(vm) == "ok") main.Apply(IoProfile.Set(s, a.Def, vm.List));
+    }
+
     public IReadOnlyList<IoRowVm> Inputs { get; private set; } = [];
     public IReadOnlyList<IoRowVm> Outputs { get; private set; } = [];
     public IReadOnlyList<AliasVm> Unwired { get; private set; } = [];
@@ -46,6 +64,7 @@ public sealed class IoVm : Observable
 
     public void Reload(Site s, IReadOnlyList<Finding> findings)
     {
+        current = s;
         // 쓰인 곳: 인자에 그 이름이 나오는 문장 수(벨트 정의 포함, 자기 정의 줄 빼고)
         var uses = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var f in s.Files)
@@ -56,7 +75,7 @@ public sealed class IoVm : Observable
         AliasVm Alias(NameDef d)
         {
             var mark = findings.Where(x => ReferenceEquals(x.Piece, d.Def)).OrderBy(x => x.Severity).FirstOrDefault()?.Severity;
-            return new(d.Name, d.Kind == NameKind.InputHigh, uses.GetValueOrDefault(d.Name), BlockHost.Strip(d.Comment), mark);
+            return new(d.Name, d.Kind == NameKind.InputHigh, uses.GetValueOrDefault(d.Name), BlockHost.Strip(d.Comment), mark, d.Def as Statement, d.Profiles);
         }
         var site = s.Names.All.Where(d => !d.Core && !d.Weak && d.File != null && AliasFiles.Contains(d.File.Name) && d.Def is Statement { Shape: StatementShape.Define }).ToList();
 

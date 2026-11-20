@@ -161,6 +161,15 @@ public static partial class Checker
     /// <summary>I-6: 미연결(IO_NONE) 별칭을 조건에 썼다.</summary>
     static IEnumerable<Finding> I6(Facts f) => FromProblems(f, "I-6", p => p.Kind == "ionone", warn: true);
 
+    /// <summary>I-7: IO 맵 줄 끝 <c>/* pf: … */</c> 의 프로파일 이름이 사이트 프로파일 목록에 없다.</summary>
+    static IEnumerable<Finding> I7(Facts f)
+    {
+        var known = f.Site.Profiles.Select(p => p.Name).ToHashSet();
+        foreach (var d in f.Names.All.Where(d => !d.Core && !d.Weak && d.Def is Statement { Shape: StatementShape.Define }))
+            foreach (var n in (d.Profiles ?? []).Where(n => !known.Contains(n)))
+                yield return f.Warn("I-7", d.Def!, $"프로파일 없음 {n}");
+    }
+
     // ---- 수동 표 ----
 
     static bool ManualRaw(Facts f) => f.Site.ZonesOf("MANUAL_BEGIN").Any(z => z.HasRaw);

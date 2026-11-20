@@ -26,9 +26,10 @@ public static class Choices
     };
 
     /// <summary>이름 칸의 항목. 사이트 이름 먼저, 코어 이름은 뒤에 따로 묶는다. 값이 있으면 작은 글로.</summary>
-    public static IReadOnlyList<Choice> For(ArgSpec s, NameDict names)
+    public static IReadOnlyList<Choice> For(ArgSpec s, NameDict names, SignalScope? scope = null, Func<string, bool>? keep = null)
     {
-        IEnumerable<NameDef> Of(params NameKind[] kinds) => names.All.Where(d => kinds.Contains(d.Kind) && !d.Weak);
+        // 신호는 그 줄 프로파일에 맞는 것 + 지정 없는 것만(이미 쓴 것은 남긴다)
+        IEnumerable<NameDef> Of(params NameKind[] kinds) => names.All.Where(d => kinds.Contains(d.Kind) && !d.Weak && (scope == null || !scope.Hides(d) || keep?.Invoke(d.Name) == true));
         Choice C(NameDef d, string? name = null) => new(name ?? d.Name, d.Value?.ToString(), d.Core ? "코어" : "사이트");
         Choice Labeled(NameDef d) => CoreConstants.ParamLabels.TryGetValue(d.Name, out var label) ? new(d.Name, label, "코어") : C(d);
         IEnumerable<Choice> list = s.Kind switch

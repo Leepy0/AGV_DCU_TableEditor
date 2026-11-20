@@ -76,6 +76,16 @@ public sealed class SeqVm : BlockHost
 
     protected override Piece? CodePiece => SelectedStep?.Piece;
 
+    protected override SignalScope? ScopeFor() => ScopeOf(Site, SelectedTable);
+
+    /// <summary>그 표를 쓰는 프로파일들(합집합). 대응표에 없거나 전체 줄이 있으면 전부.</summary>
+    public static SignalScope ScopeOf(Site s, string? table)
+    {
+        var rows = table == null ? [] : s.SeqMap.Concat(s.ActMap).Where(m => m.Table == table).ToList();
+        if (rows.Count == 0 || rows.Any(m => m.AnyProfile)) return SignalScope.All(s);
+        return new(s, rows.Select(m => SignalScope.Of(s, m.Profile)).SelectMany(x => x.Profiles ?? new HashSet<string>()).ToHashSet());
+    }
+
     /// <summary>새로 정하는 이름 칸만 읽기 전용(이름 바꾸기는 묶음 명령의 몫).</summary>
     protected override bool Locks(FieldInfo f) => f.Spec.Kind == ArgKind.Ident;
 

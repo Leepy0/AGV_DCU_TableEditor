@@ -256,6 +256,7 @@ var tests = new (string Name, Action Run)[]
     ("새 DSL 형식 v0.58.0(B)", () => DslTests.Run(Check, RepoRoot())),
     ("v0.2.1 검토 10건 재현", () => DslReviewTests.Run(Check)),
     ("편집·저장(작업 2)", () => EditTests.Run(Check, RepoRoot())),
+    ("IO 맵 프로파일(v0.2.2)", () => IoProfileTests.Run(Check, RepoRoot())),
     ("검토 결함: 읽기·편집·저장(작업 8)", () => ReviewTests.Run(Check, RepoRoot())),
     ("화면 손질: 꼴 바꾸기·거르기·칸 고치기", () => UxTests.Run(Check, RepoRoot())),
     ("깃·회차·코어 버전 변경(작업 6)", () => GitTests.Run(Check)),
