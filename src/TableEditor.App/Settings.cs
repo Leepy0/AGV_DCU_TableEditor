@@ -28,6 +28,8 @@ public sealed class Settings
     public bool UpdateAuto { get; set; } = true;
     /// <summary>되돌린 버전: 자동 확인으로 다시 알리지 않는다.</summary>
     public string? UpdateSkip { get; set; }
+    /// <summary>업데이트 확인·받기가 마지막에 된 길(Proxy·Direct). 다음 확인이 이 길부터.</summary>
+    public string? UpdateRoute { get; set; }
 
     public static string FilePath => PathOf;
 

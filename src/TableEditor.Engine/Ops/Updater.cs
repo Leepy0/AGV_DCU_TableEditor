@@ -104,13 +104,25 @@ public static class Updater
     static string TrashPrefix(string install) => install + ".trash-";
 
     // 리다이렉트는 손으로 따라간다: 실패한 호스트 이름을 알리려고(자산은 다른 호스트로 넘어간다)
-    static readonly HttpClient Http = Client();
+    static readonly HttpClient Http = Client(true);
+    static readonly HttpClient HttpDirect = Client(false);
 
-    static HttpClient Client()
+    /// <summary>확인·받기 길. 시스템 프록시(자동 검색 포함)가 막히는 망은 직접 연결로만 된다.</summary>
+    public enum NetRoute { Proxy, Direct }
+
+    /// <summary>지난번에 된 길(설정에 남겨 다음 실행도 이 길부터). 확인이 되면 바뀐다.</summary>
+    public static NetRoute Route { get; set; } = NetRoute.Proxy;
+
+    internal static HttpClient ClientFor(NetRoute r) => r == NetRoute.Direct ? HttpDirect : Http;
+
+    /// <summary>받기도 확인이 된 길로.</summary>
+    internal static HttpClient DownloadClient => ClientFor(Route);
+
+    static HttpClient Client(bool useProxy)
     {
         var h = new HttpClientHandler
         {
-            UseProxy = true,
+            UseProxy = useProxy,
             DefaultProxyCredentials = CredentialCache.DefaultCredentials, // 시스템 프록시가 Windows 인증을 요구하는 망
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.All,
@@ -125,28 +137,107 @@ public static class Updater
 
     // ---- 확인 ----
 
-    /// <summary>최신 정식 릴리스. 없으면 null. 방법마다 8초, 시간 초과·실패면 다음 방법. 모두 실패하면 첫 예외.</summary>
+    /// <summary>확인 방법 하나. Run 은 마지막으로 닿은 호스트를 trail 에 적는다(실패 줄에 쓴다).</summary>
+    internal sealed record CheckMethod(string Name, Func<HttpClient, Trail, CancellationToken, Task<ReleaseInfo?>> Run);
+
+    /// <summary>지금 닿고 있는 호스트(리다이렉트를 따라간 마지막).</summary>
+    internal sealed class Trail { public string Host = "github.com"; }
+
+    static readonly CheckMethod[] Methods =
+    [
+        new("매니페스트", FromManifestAsync),
+        new("리다이렉트", FromRedirectAsync),
+        new("API", FromApiAsync),
+    ];
+
+    /// <summary>
+    /// 최신 정식 릴리스. 없으면 null. 길은 둘이다: 시스템 프록시(자동 검색 포함)와 직접 연결. 사내 PC 는 프록시 길이 시간 초과하고 직접은 된다.
+    /// 순서: 매니페스트를 지난번에 된 길로(8초) → 실패하면 다른 길로(8초) → 그 뒤 나머지 방법을 되는 길로 → 끝으로 <c>git ls-remote --tags</c>(버전만).
+    /// 된 길은 <see cref="Route"/> 에 남는다(다음 확인·받기가 그 길부터). 모두 실패하면 방법마다 한 줄(방법 · 길 · 호스트 · 까닭 · 초)을 줄바꿈으로 이은 <see cref="UpdateException"/>.
+    /// </summary>
     public static async Task<ReleaseInfo?> GetLatestAsync(CancellationToken ct)
     {
-        Exception? first = null;
-        foreach (var source in new Func<CancellationToken, Task<ReleaseInfo?>>[] { FromManifestAsync, FromRedirectAsync, FromApiAsync })
-        {
-            using var one = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            one.CancelAfter(PerMethod);
-            try
-            {
-                if (await source(one.Token) is { } r) return r;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (OperationCanceledException e) { first ??= new UpdateException("시간 초과", e); }
-            catch (Exception e) when (e is HttpRequestException or IOException or JsonException or UpdateException or InvalidOperationException) { first ??= e; }
-        }
-        return first == null ? null : throw first;
+        var (release, route) = await CheckAsync(Methods, ClientFor, Route, LsRemoteAsync, PerMethod, ct);
+        if (route is { } r) Route = r;
+        return release;
     }
 
-    static async Task<ReleaseInfo?> FromManifestAsync(CancellationToken ct)
+    internal static async Task<(ReleaseInfo? Release, NetRoute? Route)> CheckAsync(IReadOnlyList<CheckMethod> methods, Func<NetRoute, HttpClient> clientFor,
+        NetRoute preferred, Func<CancellationToken, Task<ReleaseInfo?>> lsRemote, TimeSpan perMethod, CancellationToken ct)
     {
-        using var res = await GetFollowAsync(Http, new Uri($"{Releases}/latest/download/{ManifestName}"), ct, notFoundOk: true);
+        NetRoute[] routes = [preferred, preferred == NetRoute.Proxy ? NetRoute.Direct : NetRoute.Proxy];
+        var lines = new List<string>();
+        int none = 0; // 릴리스 없음(404)으로 답한 방법 수: 실패가 아니다
+
+        // 방법 하나를 길 하나로: 성공 = 릴리스, 릴리스 없음 = (false, null), 실패 = 줄을 남기고 (false, null) + failed
+        async Task<(bool Answered, ReleaseInfo? Release)> Try(CheckMethod m, NetRoute route)
+        {
+            var trail = new Trail();
+            var clock = Stopwatch.StartNew();
+            using var one = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            one.CancelAfter(perMethod);
+            try { return (true, await m.Run(clientFor(route), trail, one.Token)); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) { lines.Add(Line(m.Name, route, trail.Host, "시간 초과", clock)); }
+            catch (Exception e) when (e is HttpRequestException or IOException or JsonException or UpdateException or InvalidOperationException)
+            { lines.Add(Line(m.Name, route, trail.Host, Reason(e), clock)); }
+            return (false, null);
+        }
+
+        NetRoute? worked = null; // 답을 준 길
+        foreach (var route in routes)
+        {
+            var (answered, r) = await Try(methods[0], route);
+            if (r != null) return (r, route);
+            if (answered) { none++; worked = route; break; }
+        }
+        foreach (var m in methods.Skip(1))
+            foreach (var route in worked is { } w ? new[] { w } : routes)
+            {
+                var (answered, r) = await Try(m, route);
+                if (r != null) return (r, route);
+                if (answered) { none++; worked ??= route; break; }
+            }
+        if (lines.Count == 0 && none > 0) return (null, worked); // 모두 릴리스 없음
+
+        var tags = Stopwatch.StartNew();
+        try
+        {
+            if (await lsRemote(ct) is { } r) return (r, null);
+            lines.Add($"깃 태그 · github.com · 태그 없음 {tags.Elapsed.TotalSeconds:0} s");
+        }
+        catch (UpdateException e) { lines.Add($"깃 태그 · github.com · {e.Message} {tags.Elapsed.TotalSeconds:0} s"); }
+        throw new UpdateException(string.Join("\n", lines));
+    }
+
+    static string Line(string method, NetRoute route, string host, string reason, Stopwatch clock) =>
+        $"{method} · {(route == NetRoute.Proxy ? "프록시" : "직접")} · {host} · {reason} {clock.Elapsed.TotalSeconds:0} s";
+    /// <summary>실패 까닭 한 낱말. UpdateException 은 "낱말 · 호스트" 꼴이라 낱말만.</summary>
+    static string Reason(Exception e) => e switch
+    {
+        UpdateException => e.Message.Split(" · ")[0],
+        HttpRequestException h => h.HttpRequestError == HttpRequestError.Unknown ? "연결 실패" : "연결 실패 " + h.HttpRequestError,
+        JsonException => "응답 해석 실패",
+        _ => e.GetType().Name,
+    };
+
+    static readonly TimeSpan GitTagsLimit = TimeSpan.FromSeconds(15);
+
+    /// <summary><c>git ls-remote --tags</c> 로 최신 정식 태그만 읽는다(파일 정보 없음: 받을 수 없고 버전만 알린다).</summary>
+    static async Task<ReleaseInfo?> LsRemoteAsync(CancellationToken ct)
+    {
+        var lines = await Git.RemoteTagLinesAsync($"https://github.com/{Repo}", GitTagsLimit, ct) ?? throw new UpdateException("깃 실패");
+        return LatestTag(lines) is { } v ? new ReleaseInfo(v, null, null, 0, $"{Releases}/tag/v{v.ToString(3)}", "", null) : null;
+    }
+
+    /// <summary>ls-remote 줄(<c>해시 TAB refs/tags/vX.Y.Z</c>)에서 가장 높은 정식 태그. <c>^{}</c> 줄·시험 태그(<c>v1.0.0-rc1</c>)는 뺀다.</summary>
+    public static Version? LatestTag(IEnumerable<string> lines) => lines
+        .Select(l => Regex.Match(l, @"^[0-9a-f]{40}\s+refs/tags/v(\d{1,9}\.\d{1,9}\.\d{1,9})$", RegexOptions.CultureInvariant))
+        .Where(m => m.Success).Select(m => Version.Parse(m.Groups[1].Value)).OrderDescending().FirstOrDefault();
+
+    static async Task<ReleaseInfo?> FromManifestAsync(HttpClient http, Trail trail, CancellationToken ct)
+    {
+        using var res = await GetFollowAsync(http, new Uri($"{Releases}/latest/download/{ManifestName}"), ct, notFoundOk: true, trail: trail);
         return res == null ? null : ParseManifest(await res.Content.ReadAsStringAsync(ct));
     }
 
@@ -169,9 +260,10 @@ public static class Updater
     }
 
     /// <summary>매니페스트가 없는 릴리스(v0.1.0): releases/latest 의 Location(…/releases/tag/vX.Y.Z)에서 버전만 읽는다.</summary>
-    static async Task<ReleaseInfo?> FromRedirectAsync(CancellationToken ct)
+    static async Task<ReleaseInfo?> FromRedirectAsync(HttpClient http, Trail trail, CancellationToken ct)
     {
-        using var res = await Http.GetAsync($"{Releases}/latest", HttpCompletionOption.ResponseHeadersRead, ct);
+        trail.Host = "github.com";
+        using var res = await http.GetAsync($"{Releases}/latest", HttpCompletionOption.ResponseHeadersRead, ct);
         if ((int)res.StatusCode is < 300 or > 399) return res.StatusCode == HttpStatusCode.NotFound ? null : throw new HttpRequestException(res.StatusCode.ToString());
         return TagFromLocation(res.Headers.Location?.ToString()) is { } v
             ? new ReleaseInfo(v, null, null, 0, $"{Releases}/tag/v{v.ToString(3)}", "", null)
@@ -188,11 +280,12 @@ public static class Updater
     }
 
     /// <summary>GitHub API. zip 자산과 GitHub 가 계산한 digest 를 쓴다.</summary>
-    static async Task<ReleaseInfo?> FromApiAsync(CancellationToken ct)
+    static async Task<ReleaseInfo?> FromApiAsync(HttpClient http, Trail trail, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
         req.Headers.Accept.ParseAdd("application/vnd.github+json");
-        using var res = await Http.SendAsync(req, ct);
+        trail.Host = "api.github.com";
+        using var res = await http.SendAsync(req, ct);
         if (res.StatusCode == HttpStatusCode.NotFound) return null;
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
@@ -216,10 +309,11 @@ public static class Updater
     }
 
     /// <summary>GET 하고 리다이렉트를 따라간다(최대 5). 실패는 그 호스트 이름을 붙인 UpdateException. notFoundOk 면 404 → null.</summary>
-    static async Task<HttpResponseMessage?> GetFollowAsync(HttpClient http, Uri url, CancellationToken ct, bool notFoundOk = false)
+    static async Task<HttpResponseMessage?> GetFollowAsync(HttpClient http, Uri url, CancellationToken ct, bool notFoundOk = false, Trail? trail = null)
     {
         for (int hop = 0; hop < 6; hop++)
         {
+            if (trail != null) trail.Host = url.Host;
             HttpResponseMessage res;
             try { res = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct); }
             catch (HttpRequestException e) { throw new UpdateException("연결 실패 · " + url.Host, e); }
@@ -257,7 +351,7 @@ public static class Updater
         try
         {
             idle.CancelAfter(Idle);
-            using var res = (await GetFollowAsync(http ?? Http, url, idle.Token))!;
+            using var res = (await GetFollowAsync(http ?? DownloadClient, url, idle.Token))!;
             url = res.RequestMessage?.RequestUri ?? url;
             long total = res.Content.Headers.ContentLength ?? r.Size;
             await using var src = await res.Content.ReadAsStreamAsync(idle.Token);

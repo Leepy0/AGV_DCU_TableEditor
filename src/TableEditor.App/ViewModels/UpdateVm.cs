@@ -33,6 +33,7 @@ public sealed class UpdateVm : Observable
 
     public UpdateVm(MainVm main, Settings s)
     {
+        if (Enum.TryParse<Updater.NetRoute>(s.UpdateRoute, out var route)) Updater.Route = route;
         this.main = main;
         this.s = s;
         hourly.Tick += (_, _) => Safe(() => CheckAsync(Origin.Tick));
@@ -95,7 +96,7 @@ public sealed class UpdateVm : Observable
         private set
         {
             if (!Set(ref state, value)) return;
-            foreach (var n in new[] { nameof(ChipText), nameof(HasChip), nameof(IsDownloading), nameof(CheckPrimary), nameof(DownloadPrimary), nameof(ApplyPrimary), nameof(ChipAccent) })
+            foreach (var n in new[] { nameof(ChipText), nameof(FailureDetail), nameof(HasChip), nameof(IsDownloading), nameof(CheckPrimary), nameof(DownloadPrimary), nameof(ApplyPrimary), nameof(ChipAccent) })
                 Raise(n);
             CommandManager.InvalidateRequerySuggested();
         }
@@ -111,9 +112,12 @@ public sealed class UpdateVm : Observable
         State.Available => $"새 버전 {latest?.Version.ToString(3)}",
         State.Downloading => $"받는 중 {Progress:0}%",
         State.Ready => $"준비됨 {pending?.ToString(3)}",
-        State.Failed => $"실패 · {failure}",
+        State.Failed => $"실패 · {failure?.Split('\n')[0]}",
         _ => checkedAt is { } t ? $"최신 · {t:HH:mm}" : "확인 안 함",
     };
+
+    /// <summary>확인 실패가 여러 줄이면(방법마다 한 줄) 첫 줄 뒤 나머지. 칩 아래에 보인다.</summary>
+    public string FailureDetail => state == State.Failed && failure is { } f && f.Contains('\n') ? f[(f.IndexOf('\n') + 1)..] : "";
 
     /// <summary>위 줄 칩: 할 일이 있을 때만.</summary>
     public bool HasChip => state is State.Available or State.Downloading or State.Ready;
@@ -235,8 +239,9 @@ public sealed class UpdateVm : Observable
         Now = State.Checking;
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(75)); // 방법 셋 + 프록시 한 번 더 + git 태그 읽기까지
             var r = await Updater.GetLatestAsync(cts.Token);
+            if (s.UpdateRoute != Updater.Route.ToString()) { s.UpdateRoute = Updater.Route.ToString(); s.Save(); }
             checkedAt = DateTime.Now;
             latest = r;
             failure = null;

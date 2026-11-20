@@ -18,6 +18,13 @@ public sealed partial class Git
             .OrderByDescending(v => Version.Parse(v[1..])).ToList();
     }
 
+    /// <summary>저장소 없이 <c>git ls-remote --tags &lt;주소&gt;</c> 출력 줄. 못 읽으면 null.</summary>
+    internal static async Task<IReadOnlyList<string>?> RemoteTagLinesAsync(string url, TimeSpan limit, CancellationToken ct)
+    {
+        var r = await ProcessRunner.RunAsync(new ProcessSpec("git", ["--no-pager", "ls-remote", "--tags", "--", url], null, limit, ProcessRunner.Utf8, Env), null, ct);
+        return r.Ok ? r.Lines.Where(l => !l.IsError).Select(l => l.Text).ToList() : null;
+    }
+
     static string[] CorePaths(string site) => ["core", .. PackedPaths(site)];
 
     /// <summary>8.6절 6: git add -- core 와 생성물 → 커밋 "코어 vX 받음". 바뀐 것이 없으면 NoChange.</summary>
