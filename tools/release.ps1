@@ -1,7 +1,7 @@
 ﻿<#
 배포 묶음을 만든다(GitHub Release 는 만들지 않는다).
   tools\release.ps1 -Version v0.2.0 [-Gcc <mingw64 폴더>] [-Out publish] [-AppRepo <앱 저장소>] [-Site <사이트 폴더 이름>] [-Notes <변경 내용>]
-차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트
+차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더, .NET 런타임은 넣지 않는다: PC 에 .NET 10 Desktop Runtime 이 있어야 한다)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트
 작업 트리가 깨끗해야 한다(커밋 하나에서 묶음).
 -AppRepo 가 없으면 5 의 (나)(다)는 건너뛴다. -Site 는 -AppRepo 와 같이 준다.
 -Notes 가 없으면 지난 태그 뒤 커밋 제목. 끝에 올리기 명령(gh release create …)을 찍기만 한다.
@@ -92,7 +92,7 @@ $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'git rev-parse 실패' }
 foreach ($p in 'TableEditor.App', 'TableEditor.Cli') {
     # BuildChannel=release: 이 묶음만 스스로 업데이트한다(dotnet build 는 local). SourceRevisionId = 정보 화면의 커밋
-    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', "-p:Version=$num", '-p:BuildChannel=release',
+    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'false', "-p:Version=$num", '-p:BuildChannel=release',
         "-p:SourceRevisionId=$commit", '-p:DebugType=none', '-p:DebugSymbols=false', '-o', $pack, '-nologo')
 }
 Get-ChildItem $pack -Recurse -Filter *.pdb | Remove-Item -Force
