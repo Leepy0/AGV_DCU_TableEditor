@@ -79,7 +79,7 @@ public sealed class ManualVm : BlockHost
         DeleteRow = new Command(DeleteSelected, () => Main.CanEdit && Selected != null && !Selected.IsElse);
         DeleteCard = new Command(DeleteSelectedCard, () => Main.CanEdit && Selected?.Card != null);
         DeleteBlock = new Command(() => DeleteOut(Picked), () => Main.CanEdit && Picked is { Index: >= 0 } && Selected is { IsInput: false, Blocks.Count: > 1 });
-        EditCond = new Command(p => { if (p is ManRowVm r) { Select(r, false); _ = EditCondAsync(r); } });
+        EditCond = new Command(p => { if (!Main.HasDialog && p is ManRowVm r) { Select(r, false); _ = EditCondAsync(r); } });
         Pick = new Command(p => { if (p is ManRowVm r) Select(r, false); });
     }
 

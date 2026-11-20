@@ -114,6 +114,81 @@ public sealed partial class SelfTest
         Check(ReferenceEquals(vm.Site, old), "되돌리면 처음 사이트");
     }
 
+    /// <summary>L1 편집을 낸 팝업 뒤 포커스 · L2 연달아 뜨는 팝업 · L3 팝업 중 명령 없는 길 · L4 미룬 탭이 마지막 편집의 줄을 고름.</summary>
+    async Task V023Leftovers()
+    {
+        Step("26 팝업 포커스 복귀(편집·연달아) · 팝업 중 이동 명령 · 미룬 탭의 줄 고르기");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var lb = FindAbove<ListBox>(w, x => x.Name == "Rows" && x.DataContext is TagVm)!;
+        var rows = Tag.Rows.Where(r => r.Rule != null).Take(2).ToList();
+        Tag.SelectOnly(rows[0]);
+        await Idle();
+        var itemA = (ListBoxItem)lb.ItemContainerGenerator.ContainerFromItem(Tag.Selected!);
+        AskVm Ask() => new("시험", ["x"], [new AskButton("ok", "닫기", Primary: true, Default: true)]);
+
+        // L2: 팝업이 닫히자마자 다음 팝업 → 둘 다 닫으면 처음 포커스 자리(선택 줄이 아닌 다른 줄에 있던 포커스)
+        var itemB = (ListBoxItem)lb.ItemContainerGenerator.ContainerFromItem(rows[1]);
+        Keyboard.Focus(itemB);
+        Check(ReferenceEquals(Keyboard.FocusedElement, itemB), "선택 줄이 아닌 줄에 포커스");
+        var (dlgA, doneTwo) = await Open<AskVm>(async () => { await vm.Show(Ask()); await vm.Show(Ask()); });
+        var second = new TaskCompletionSource<DialogVm>();
+        void OnSecond(DialogVm d) { if (!ReferenceEquals(d, dlgA)) second.TrySetResult(d); }
+        vm.DialogShown += OnSecond;
+        dlgA.Cancel.Execute(null);
+        var dlgB = await second.Task; // 닫는 쪽 복귀(Loaded)보다 먼저 이어서 뜨는 둘째
+        vm.DialogShown -= OnSecond;
+        Check(!ReferenceEquals(dlgB, dlgA), "연달아 둘째 팝업");
+        dlgB.Cancel.Execute(null);
+        await doneTwo;
+        await Idle();
+        Check(ReferenceEquals(Keyboard.FocusedElement, itemB), "연달아 팝업을 닫으면 원래 포커스 자리");
+
+        // L3: 팝업 중에는 명령 없는 이동 길이 아무것도 안 함
+        var (dlg, done) = await Open<AskVm>(async () => { await vm.Show(Ask()); });
+        var tab0 = vm.Tab;
+        vm.ClearNotice();
+        vm.Tabs.First(t => t.Name == MainVm.SeqTab).IsSelected = true;
+        vm.Update.OpenInfo.Execute(null);
+        vm.Map.GoTable.Execute(vm.Map.Rows[0]);
+        if (vm.Findings.FirstOrDefault(x => x.Tab != null && x.Tab != tab0) is { } fnd) vm.GoTo.Execute(fnd);
+        Tag.OpenSeq(rows[0], "ANY");
+        Check(!vm.GoSeq(null, "SEQ_X"), "팝업 중 GoSeq 안 함");
+        Check(ReferenceEquals(vm.Tab, tab0) && vm.Notice == null, $"팝업 중 탭 전환·열기·이동 안 함 ({vm.Tab.Name})");
+        await Idle();
+        Check(vm.Tabs.First(t => t.Name == MainVm.SeqTab).IsSelected == false, "탭 모양도 그대로(라디오 되돌림)");
+        // L1: 팝업이 편집을 내면 저장한 요소 대신 선택 줄로
+        Check(vm.Apply(SiteEdit.SetComment(vm.Site!, (Statement)rows[1].Piece, "L1")), "팝업 중 편집");
+        dlg.Cancel.Execute(null);
+        await done;
+        await Idle();
+        var fe = Keyboard.FocusedElement as FrameworkElement;
+        Check(fe is ListBoxItem && ReferenceEquals(fe.DataContext, Tag.Selected) && Tag.Selected != null, $"편집을 낸 팝업 뒤 포커스 = 선택 줄 ({fe?.GetType().Name})");
+        vm.Undo.Execute(null);
+        await Idle();
+
+        // L4: 보이지 않는 프로파일 탭이 여러 표에 걸친 편집의 줄을 보일 때 고른다
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.ProfileTab);
+        await Idle();
+        var named = vm.Profile.Rows.Where(x => x.Row != null).ToList();
+        vm.Profile.Select(named[^1], false); // 마지막 줄을 골라 둔다: 첫 줄의 이름을 바꾸면 미룬 화면이 첫 줄을 골라야 한다
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var old = named[0].Row!.Profile;
+        var r = BundleEdit.RenameProfile(vm.Site!, old, "PF_ZZ_TEST");
+        Check(r.Ok && r.Touched.Count > 0 && vm.Apply(r), $"프로파일 이름 바꾸기 ({r.Error})");
+        await Idle();
+        Check(vm.IsTagTab, "편집 뒤에도 태그 탭");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.ProfileTab);
+        await Idle();
+        Check(vm.Profile.Selected?.Piece is { } sel && r.Touched.Any(t => ReferenceEquals(t, sel)) && !ReferenceEquals(vm.Profile.Selected, vm.Profile.Rows.Where(x => x.Row != null).Last()), "미룬 프로파일 탭이 보이면 마지막 편집의 줄이 골라짐(다른 줄에서 옮겨 옴)");
+        vm.Undo.Execute(null);
+        await Idle();
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        Check(StaleViews().Count == 0, "되돌린 뒤 모든 줄 VM 이 현재 사이트");
+    }
+
     async Task V023Defer()
     {
         Step("24 편집은 안 보이는 탭을 미룸 · 보이면 지금 사이트");

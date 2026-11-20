@@ -36,7 +36,7 @@ public sealed class TagVm : BlockHost
         CommitTag = new Command(p => CommitTagText(p as TagRowVm ?? Selected));
         CancelTag = new Command(p => (p as TagRowVm ?? Selected)?.ResetDrafts());
         CommitComment = new Command(p => CommitCommentText(p as TagRowVm ?? Selected));
-        EditCond = new Command(p => { if (p is TagRowVm r) { SelectOnly(r); _ = main.EditConditionAsync(r); } });
+        EditCond = new Command(p => { if (!main.HasDialog && p is TagRowVm r) { SelectOnly(r); _ = main.EditConditionAsync(r); } });
         EditRaw = new Command(() => { if (Selected != null) _ = main.EditRawAsync(Selected.Piece); }, () => main.Settings.Advanced && Selected != null);
     }
 
@@ -358,7 +358,7 @@ public sealed class TagVm : BlockHost
     /// <summary>동작의 시퀀스 이름을 두 번 누름: 시퀀스 화면의 그 시퀀스(줄의 프로파일 대응표 먼저).</summary>
     public void OpenSeq(TagRowVm row, string seq)
     {
-        if (row.Rule == null) return;
+        if (row.Rule == null || main.HasDialog) return;
         if (!main.GoSeq(row.IsAny ? null : row.Rule.Profile, "SEQ_" + seq)) main.Notify("없는 시퀀스 " + seq);
     }
 

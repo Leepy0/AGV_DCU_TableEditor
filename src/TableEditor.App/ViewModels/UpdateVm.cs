@@ -44,7 +44,7 @@ public sealed class UpdateVm : Observable
         ApplyNow = Cmd(ApplyNowAsync, () => state == State.Ready);
         DiscardPending = Cmd(DiscardAsync, () => state == State.Ready);
         Rollback = Cmd(RollbackAsync, () => OldVersion != null && state != State.Downloading);
-        OpenInfo = new Command(() => { Toast = null; main.Tab = main.SettingsTab; });
+        OpenInfo = new Command(() => { if (main.HasDialog) return; Toast = null; main.Tab = main.SettingsTab; });
         if (Updater.CanSelfUpdate && !s.Volatile) Safe(() => { RefreshPending(); return Task.CompletedTask; });
     }
 

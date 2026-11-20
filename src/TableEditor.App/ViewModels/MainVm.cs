@@ -29,7 +29,12 @@ public sealed class TabVm(string name, int group, MainVm owner) : Observable
     public bool IsSelected
     {
         get => owner.Tab == this;
-        set { if (value) owner.Tab = this; }
+        set
+        {
+            if (!value) return;
+            if (owner.HasDialog) { System.Windows.Application.Current?.Dispatcher.BeginInvoke(Changed); return; } // 팝업 중 탭 전환(UIA)은 안 함: 라디오 모양만 되돌린다
+            owner.Tab = this;
+        }
     }
 
     internal void Changed() => Raise(nameof(IsSelected));
@@ -86,7 +91,7 @@ public sealed partial class MainVm : Observable
         Io = new IoVm(this);
         Config = new SettingsVm(settings, this);
         Update = new UpdateVm(this, settings);
-        GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
+        GoTo = new Command(p => { if (!HasDialog && p is FindingVm f) Go(f); });
         Fix = new Command(p => { if (p is FindingVm f) FixFinding(f.Finding); }, _ => CanEdit);
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
         Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);
@@ -282,7 +287,7 @@ public sealed partial class MainVm : Observable
         (staleSite, staleList) = (s, list);
         foreach (var name in TableTabNames)
         {
-            if (defer && Tab.Name != name) { stale.Add(name); continue; }
+            if (defer && Tab.Name != name) { stale.Add(name); staleTouched[name] = touched; continue; }
             stale.Remove(name);
             ReloadTab(name, s, list, touched);
         }
@@ -297,6 +302,7 @@ public sealed partial class MainVm : Observable
     static readonly string[] TableTabNames = [TagTab, ProfileTab, ManualTab, SeqTab, MapTab, IoTab];
 
     readonly HashSet<string> stale = [];
+    readonly Dictionary<string, IReadOnlyList<Piece>?> staleTouched = []; // 미룬 탭이 마지막 편집으로 골라야 할 줄(되돌리기·다시 하기는 null)
     Site? staleSite;
     IReadOnlyList<Finding> staleList = [];
 
@@ -316,7 +322,9 @@ public sealed partial class MainVm : Observable
     /// <summary>미뤄 둔 그 탭의 화면을 지금 사이트로 만든다(탭이 보이기 전·그 화면 VM 을 건드리기 전).</summary>
     public void Flush(string name)
     {
-        if (stale.Remove(name) && staleSite is { } s) ReloadTab(name, s, staleList, null);
+        if (!stale.Remove(name) || staleSite is not { } s) return;
+        staleTouched.Remove(name, out var touched);
+        ReloadTab(name, s, staleList, touched);
     }
 
     /// <summary>초안: 편집을 잠깐 묶어 쓴다. 변경이 없으면 지운다.</summary>
@@ -632,6 +640,7 @@ public sealed partial class MainVm : Observable
     /// <summary>대응표의 표 이름 → 시퀀스 화면의 그 표.</summary>
     public void GoTable(string name)
     {
+        if (HasDialog) return;
         Tab = Tabs.First(t => t.Name == SeqTab);
         Seq.SelectTable(name);
     }
@@ -639,6 +648,7 @@ public sealed partial class MainVm : Observable
     /// <summary>태그 동작의 시퀀스 → 시퀀스 화면의 그 시퀀스 ID 표. 대응표에 없으면 화면을 안 바꾸고 false.</summary>
     public bool GoSeq(string? profile, string id)
     {
+        if (HasDialog) return false;
         Flush(SeqTab);
         if (!Seq.HasSeq(id)) return false;
         Tab = Tabs.First(t => t.Name == SeqTab);

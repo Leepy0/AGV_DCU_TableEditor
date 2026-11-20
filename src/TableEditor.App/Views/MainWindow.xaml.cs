@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using TableEditor.App.ViewModels;
+using TableEditor.Engine.Model;
 
 namespace TableEditor.App.Views;
 
@@ -29,8 +30,8 @@ public partial class MainWindow : Window
         DataContext = vm;
         CommandBindings.Add(new CommandBinding(SwitchPane, (_, _) => Switch()));
         vm.Went += _ => FocusPane();
-        vm.DialogShown += _ => { focusBack.Push(Keyboard.FocusedElement); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog); };
-        vm.DialogClosed += () => { var back = focusBack.Count > 0 ? focusBack.Pop() : null; Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => RestoreFocus(back)); };
+        vm.DialogShown += _ => { focusBack.Push(BackSpot()); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog); };
+        vm.DialogClosed += OnDialogClosed;
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
         vm.Update.CloseForUpdate += () => { closeConfirmed = updateDone = true; Close(); }; // 도우미를 띄웠다
         Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
@@ -81,8 +82,25 @@ public partial class MainWindow : Window
     // 큰 영역에 IsEnabled 를 걸면 UI 자동화(UIA) 이벤트가 트리 전체로 퍼져 팝업이 0.6~0.9초 걸린다. 그래서 입력 쪽에서 막는다:
     // 마우스는 오버레이가, 키·포커스는 여기서(팝업 밖 대상이면 취소).
 
-    readonly Stack<IInputElement?> focusBack = new();
+    readonly Stack<(IInputElement? El, Site? Site)> focusBack = new();
+    (IInputElement? El, Site? Site)? returning; // 방금 닫혀 포커스 복귀를 기다리는 자리: 연달아 뜨는 팝업이 이어받는다
 
+    /// <summary>팝업이 뜰 때 돌아올 자리(요소와 그때의 사이트). 포커스가 팝업 안이거나 트리에서 떨어진 요소(앞 팝업이 닫히며 복귀 전)면 원래 자리를 이어받는다.</summary>
+    (IInputElement? El, Site? Site) BackSpot()
+    {
+        var f = Keyboard.FocusedElement;
+        bool away = f is not DependencyObject d || InDialog(d) || PresentationSource.FromDependencyObject(d) == null;
+        return away && returning is { } r ? r : (f, vm.Site);
+    }
+
+    /// <summary>팝업이 닫혔다: 원래 자리로. 팝업이 편집을 냈으면(사이트가 바뀜) 그 요소는 다시 쓰인 줄일 수 있으니 선택 줄 기준(<see cref="FocusPane"/>)으로.</summary>
+    void OnDialogClosed()
+    {
+        var back = focusBack.Count > 0 ? focusBack.Pop() : default;
+        returning = back;
+        var el = ReferenceEquals(back.Site, vm.Site) ? back.El : null;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { RestoreFocus(el); if (!vm.HasDialog) returning = null; });
+    }
     /// <summary>이 대상이 팝업 안인가. 다른 창(드롭다운·메뉴 팝업)에 있는 것은 팝업이 연 것으로 본다(밖에서 연 메뉴는 포커스를 잃으며 닫힌다).</summary>
     public bool InDialog(DependencyObject? d)
     {
