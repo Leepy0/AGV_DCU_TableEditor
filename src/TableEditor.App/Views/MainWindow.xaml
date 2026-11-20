@@ -78,7 +78,7 @@
         </Grid.RowDefinitions>
 
         <!-- 위 줄 -->
-        <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
+        <DockPanel Margin="{StaticResource Pad.Top}" LastChildFill="False" Visibility="{Binding IsEmpty, Converter={StaticResource Shown}, ConverterParameter=not}">
             <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource SiteWidth}" FontWeight="{StaticResource Semi}"
                       VerticalAlignment="Center" Margin="{StaticResource Gap.R8}" ItemsSource="{Binding Sites}" SelectedItem="{Binding SiteName}"
                       IsEnabled="{Binding IsReadOnly, Converter={StaticResource Not}}" AutomationProperties.Name="사이트"/>
@@ -171,7 +171,7 @@
             <Button DockPanel.Dock="Right" Content="받기" Style="{StaticResource Btn}" Command="{Binding Pull}" Margin="{StaticResource Gap.R8}"/>
         </DockPanel>
 
-        <Grid Grid.Row="1" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{StaticResource NavWidthLength}"/>
                 <ColumnDefinition Width="*"/>

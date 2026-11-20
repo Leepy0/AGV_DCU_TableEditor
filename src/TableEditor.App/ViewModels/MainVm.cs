@@ -436,8 +436,11 @@ public sealed partial class MainVm : Observable
         Dialog = d;
         DialogShown?.Invoke(d);
         try { return await d.Result; }
-        finally { Dialog = prev; }
+        finally { Dialog = prev; DialogClosed?.Invoke(); }
     }
+
+    /// <summary>팝업이 닫혔다(앞 팝업이 있으면 그것으로 돌아간 뒤). 창이 포커스를 돌려놓는다.</summary>
+    public event Action? DialogClosed;
 
     /// <summary>팝업이 떴다(자체 시험·캡처가 기다린다).</summary>
     public event Action<DialogVm>? DialogShown;

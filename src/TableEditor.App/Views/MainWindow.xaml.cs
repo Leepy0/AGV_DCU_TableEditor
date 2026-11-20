@@ -29,7 +29,8 @@ public partial class MainWindow : Window
         DataContext = vm;
         CommandBindings.Add(new CommandBinding(SwitchPane, (_, _) => Switch()));
         vm.Went += _ => FocusPane();
-        vm.DialogShown += _ => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog);
+        vm.DialogShown += _ => { focusBack.Push(Keyboard.FocusedElement); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog); };
+        vm.DialogClosed += () => { var back = focusBack.Count > 0 ? focusBack.Pop() : null; Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => RestoreFocus(back)); };
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
         vm.Update.CloseForUpdate += () => { closeConfirmed = updateDone = true; Close(); }; // 도우미를 띄웠다
         Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
@@ -60,7 +61,67 @@ public partial class MainWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+        if (BlockedByDialog(e)) return;
         if (HandleUndoKey(e.Key, Keyboard.Modifiers)) e.Handled = true;
+    }
+
+    protected override void OnPreviewKeyUp(KeyEventArgs e)
+    {
+        base.OnPreviewKeyUp(e);
+        BlockedByDialog(e);
+    }
+
+    protected override void OnPreviewTextInput(TextCompositionEventArgs e)
+    {
+        base.OnPreviewTextInput(e);
+        BlockedByDialog(e);
+    }
+
+    // ---- 팝업 아래로 키·포커스가 닿지 않게 ----
+    // 큰 영역에 IsEnabled 를 걸면 UI 자동화(UIA) 이벤트가 트리 전체로 퍼져 팝업이 0.6~0.9초 걸린다. 그래서 입력 쪽에서 막는다:
+    // 마우스는 오버레이가, 키·포커스는 여기서(팝업 밖 대상이면 취소).
+
+    readonly Stack<IInputElement?> focusBack = new();
+
+    /// <summary>이 대상이 팝업 안인가. 다른 창(드롭다운·메뉴 팝업)에 있는 것은 팝업이 연 것으로 본다(밖에서 연 메뉴는 포커스를 잃으며 닫힌다).</summary>
+    public bool InDialog(DependencyObject? d)
+    {
+        if (d == null) return false;
+        if (PresentationSource.FromDependencyObject(d) is { } src && !ReferenceEquals(src, PresentationSource.FromVisual(this))) return true;
+        for (; d != null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (ReferenceEquals(d, DialogHost)) return true;
+        return false;
+    }
+
+    /// <summary>팝업이 떠 있고 입력 대상이 팝업 밖이면 막는다(Esc 는 팝업 취소). 막았으면 true.</summary>
+    bool BlockedByDialog(RoutedEventArgs e)
+    {
+        if (!vm.HasDialog || InDialog(e.OriginalSource as DependencyObject)) return false;
+        e.Handled = true;
+        if (e is KeyEventArgs { Key: Key.Escape, IsDown: true }) vm.Dialog?.Cancel.Execute(null);
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, FocusDialogIfOut);
+        return true;
+    }
+
+    protected override void OnPreviewGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnPreviewGotKeyboardFocus(e);
+        if (!vm.HasDialog || e.NewFocus is not DependencyObject now || InDialog(now)) return;
+        e.Handled = true;
+        if (e.OldFocus is not DependencyObject old || !InDialog(old)) Dispatcher.BeginInvoke(DispatcherPriority.Input, FocusDialogIfOut);
+    }
+
+    void FocusDialogIfOut()
+    {
+        if (vm.HasDialog && !InDialog(Keyboard.FocusedElement as DependencyObject)) FocusDialog();
+    }
+
+    /// <summary>팝업이 닫힌 뒤 원래 자리로. 그 자리가 사라졌으면 지금 탭의 줄 목록.</summary>
+    void RestoreFocus(IInputElement? back)
+    {
+        if (vm.HasDialog) { FocusDialogIfOut(); if (back is DependencyObject b && InDialog(b) && back is UIElement { IsVisible: true } u) Keyboard.Focus(u); return; }
+        if (back is UIElement { IsVisible: true, Focusable: true, IsEnabled: true } ue && Keyboard.Focus(ue) != null) return;
+        FocusPane();
     }
 
     /// <summary>위 줄 칩(변경·바깥 변경)을 누르면 작은 메뉴.</summary>

@@ -316,6 +316,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await V021();
         await V058();
         await V022();
+        await V023();
         await Review();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
