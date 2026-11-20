@@ -32,9 +32,15 @@ $V = $null   # gcc 버전 폴더 이름(아래에서 정함)
 $dllsGcc = 'libiconv-2.dll', 'libwinpthread-1.dll'
 $dllsBin = 'libintl-8.dll', 'zlib1.dll', 'libzstd.dll', 'libwinpthread-1.dll', 'libiconv-2.dll'
 $dllsCc1 = 'libgmp-10.dll', 'libmpfr-6.dll', 'libmpc-3.dll', 'libisl-23.dll', 'libiconv-2.dll', 'libzstd.dll', 'zlib1.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll'
-$importLibs = 'mingw32', 'mingwex', 'moldname', 'msvcrt', 'ucrt', 'ucrtbase', 'kernel32', 'advapi32', 'shell32', 'user32', 'gdi32',
-    'ws2_32', 'wsock32', 'winmm', 'ole32', 'oleaut32', 'uuid', 'comdlg32', 'comctl32', 'shlwapi', 'psapi', 'bcrypt', 'ntdll', 'm', 'pthread', 'winpthread',
-    'mingwthrd', 'gmon', 'imagehlp', 'dbghelp', 'version', 'iphlpapi', 'setupapi', 'secur32', 'crypt32', 'userenv', 'shcore', 'mswsock'
+# 링크에 드는 라이브러리(기본 링크 + -lm). Windows API 용 수백 개와 디버그·옛 런타임 판은 뺀다
+$libsKeep = 'libmingw32.a', 'libmingwex.a', 'libmoldname.a', 'libmsvcrt.a', 'libucrt.a', 'libm.a', 'libpthread.a', 'libpthread.dll.a', 'libwinpthread.a', 'libwinpthread.dll.a',
+    'libkernel32.a', 'libadvapi32.a', 'libshell32.a', 'libuser32.a'
+# 컴파일에 드는 헤더(x86_64-w64-mingw32\include 바로 아래). ISO C 표준 헤더 전체가 끌어오는 것을 gcc -H 로 쟀다(C99~C2x, 확장 옵션 포함)
+$hdrKeep = 'assert.h', 'complex.h', 'ctype.h', 'errno.h', 'fenv.h', 'float.h', 'inttypes.h', 'limits.h', 'locale.h', 'malloc.h', 'math.h', 'setjmp.h', 'signal.h',
+    'stdarg.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h', 'string.h', 'time.h', 'uchar.h', 'wchar.h', 'wctype.h', 'vadefs.h', 'swprintf.inl',
+    'crtdefs.h', '_*.h', 'corecrt*.h', 'pthread_compat.h', 'pthread_signal.h', 'pthread_time.h'
+# 목록을 다시 만드는 법: 앱 저장소의 clone 에서 사이트마다 tools\*_pack_gen.c 빌드(SitePack 과 같은 인자)와 표준 헤더마다 빈 main 을
+# gcc -H -Wl,--trace 로 컴파일·링크해 나온 "." 줄(헤더)과 링크 줄(.a .o)을 모은다. 모자라면 여기에 더한다
 function GccParts {
     param($g)
     # (원본 상대 경로, 묶음 상대 경로, 글 패턴 또는 $null=폴더 통째, 뺄 하위 폴더)
@@ -42,11 +48,13 @@ function GccParts {
         @("bin", "bin", (@('gcc.exe') + $dllsGcc), $null),
         @("$T\bin", "$T\bin", (@('as.exe', 'ld.exe') + $dllsBin), $null),
         @("libexec\gcc\$T\$V", "libexec\gcc\$T\$V", (@('cc1.exe', 'collect2.exe', 'liblto_plugin.dll') + $dllsCc1), $null),
-        @("lib\gcc\$T\$V", "lib\gcc\$T\$V", @('crtbegin.o', 'crtend.o', 'libgcc.a', 'libgcc_eh.a'), $null),
+        @("lib\gcc\$T\$V", "lib\gcc\$T\$V", @('crtbegin.o', 'crtend.o', 'crtfastmath.o', 'libgcc.a', 'libgcc_eh.a'), $null),
         @("lib\gcc\$T\$V\include", "lib\gcc\$T\$V\include", $null, @()),
         @("lib\gcc\$T\$V\include-fixed", "lib\gcc\$T\$V\include-fixed", $null, @()),
-        @("$T\lib", "$T\lib", (@('*.o') + ($importLibs | ForEach-Object { "lib$_.a" })), $null),
-        @("$T\include", "$T\include", $null, @('c++', 'ddk', '*.idl'))
+        @("$T\lib", "$T\lib", (@('*.o') + $libsKeep), $null),
+        @("$T\include", "$T\include", $hdrKeep, $null),
+        @("$T\include\sec_api", "$T\include\sec_api", $null, @()),
+        @("$T\include\sys", "$T\include\sys", $null, @())
     )
 }
 # ----------------------------------------------------------------------------------------------
@@ -135,7 +143,7 @@ gcc: $gccLine
 배포판 버전 글(version_info.txt)에서, 이 폴더에 들어 있는 구성 요소:
 $($verLines -join "`n")
 
-이 폴더의 바이너리는 위 배포판에서 C 컴파일·링크에 필요한 파일만 추린 것이다(C++, Fortran, gdb, 문서, 로캘 등은 뺐다). 바이너리는 고치지 않았다.
+이 폴더의 바이너리는 위 배포판에서 C 컴파일·링크에 필요한 파일만 추린 것이다(ISO C 표준 헤더와 기본 링크 라이브러리만 두고, Windows API 헤더·라이브러리, C++, Fortran, gdb, 문서, 로캘 등은 뺐다). 바이너리는 고치지 않았다.
 
 소스를 받는 곳
   배포판 소개   https://winlibs.com/
