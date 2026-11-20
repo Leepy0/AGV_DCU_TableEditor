@@ -19,7 +19,88 @@ static class UpdaterTests
         Sha(check);
         Helper(check);
         Links(check);
+        Fallbacks(check);
     }
+
+    /// <summary>
+    /// 확인 길(시스템 프록시 / 직접 연결): 프록시 길이 시간 초과하면 매니페스트를 직접 길로(나머지 방법을 프록시로 24초 기다리지 않는다), 된 길을 기억해 다음 확인·받기가 그 길부터,
+    /// 실패 글은 방법마다 한 줄(방법 · 길 · 호스트 · 까닭 · 초), 끝으로 git ls-remote 최신 정식 태그. 가짜 방법으로 돌린다(망 없음).
+    /// </summary>
+    static void Fallbacks(Action<bool, string> check)
+    {
+        var proxy = new HttpClient();
+        var direct = new HttpClient();
+        HttpClient Pick(Updater.NetRoute r) => r == Updater.NetRoute.Proxy ? proxy : direct;
+        var rel = new ReleaseInfo(new Version(1, 2, 3), null, null, 0, "p", "", null);
+        var calls = new List<string>();
+        Updater.CheckMethod Hang(string name, string host) => new(name, async (h, t, ct) => { calls.Add(name + (ReferenceEquals(h, proxy) ? "/프록시" : "/직접")); t.Host = host; await Task.Delay(Timeout.Infinite, ct); return null; });
+        Updater.CheckMethod Fail(string name, string host, string what) => new(name, (h, t, _) => { calls.Add(name + (ReferenceEquals(h, proxy) ? "/프록시" : "/직접")); t.Host = host; throw new UpdateException(what); });
+        Updater.CheckMethod OnlyDirect(string name, ReleaseInfo? r) => new(name, async (h, t, _) =>
+        {
+            calls.Add(name + (ReferenceEquals(h, proxy) ? "/프록시" : "/직접"));
+            t.Host = "github.com";
+            if (ReferenceEquals(h, proxy)) throw new UpdateException("연결 실패 · github.com");
+            await Task.Yield();
+            return r;
+        });
+        Task<ReleaseInfo?> NoTags(CancellationToken _) => throw new UpdateException("깃 실패");
+        var ms150 = TimeSpan.FromMilliseconds(150);
+        var tick = default(CancellationToken);
+
+        // 프록시 길 시간 초과 · 직접 길 성공: 매니페스트 둘만 시도하고 나머지 방법(프록시로 24초)은 건드리지 않는다
+        Updater.CheckMethod[] sys = [new("매니페스트", async (h, t, ct) =>
+            {
+                calls.Add("매니페스트" + (ReferenceEquals(h, proxy) ? "/프록시" : "/직접"));
+                t.Host = "release-assets.githubusercontent.com";
+                if (ReferenceEquals(h, proxy)) await Task.Delay(Timeout.Infinite, ct);
+                return rel;
+            }), Fail("리다이렉트", "github.com", "연결 실패 · github.com"), Fail("API", "api.github.com", "연결 실패 · api.github.com")];
+        var (got, route) = Updater.CheckAsync(sys, Pick, Updater.NetRoute.Proxy, NoTags, ms150, tick).GetAwaiter().GetResult();
+        check(got?.Version == new Version(1, 2, 3) && route == Updater.NetRoute.Direct && string.Join(",", calls) == "매니페스트/프록시,매니페스트/직접", $"프록시 시간 초과 → 직접 매니페스트 ({string.Join(",", calls)})");
+
+        // 기억한 길부터: 직접이 된 뒤에는 직접으로 시작(프록시 시도 없음)
+        calls.Clear();
+        (got, route) = Updater.CheckAsync(sys, Pick, Updater.NetRoute.Direct, NoTags, ms150, tick).GetAwaiter().GetResult();
+        check(got != null && route == Updater.NetRoute.Direct && string.Join(",", calls) == "매니페스트/직접", "기억한 길(직접)부터 시작 · 프록시 안 건드림");
+
+        // 받기도 같은 길: 기억이 받기 클라이언트를 고른다
+        var saved = Updater.Route;
+        Updater.Route = Updater.NetRoute.Direct;
+        bool dl = ReferenceEquals(Updater.DownloadClient, Updater.ClientFor(Updater.NetRoute.Direct));
+        Updater.Route = Updater.NetRoute.Proxy;
+        dl &= ReferenceEquals(Updater.DownloadClient, Updater.ClientFor(Updater.NetRoute.Proxy)) && !ReferenceEquals(Updater.ClientFor(Updater.NetRoute.Proxy), Updater.ClientFor(Updater.NetRoute.Direct));
+        Updater.Route = saved;
+        check(dl, "받기 클라이언트 = 기억한 길 (프록시·직접은 다른 클라이언트)");
+
+        // 매니페스트가 없는 릴리스(404 = 답은 옴): 나머지 방법은 그 길로만
+        calls.Clear();
+        Updater.CheckMethod[] noManifest = [OnlyDirect("매니페스트", null), OnlyDirect("리다이렉트", rel), Fail("API", "api.github.com", "x")];
+        (got, route) = Updater.CheckAsync(noManifest, Pick, Updater.NetRoute.Proxy, NoTags, ms150, tick).GetAwaiter().GetResult();
+        check(got != null && route == Updater.NetRoute.Direct && string.Join(",", calls) == "매니페스트/프록시,매니페스트/직접,리다이렉트/직접", $"404 답을 준 길로 이어감 ({string.Join(",", calls)})");
+
+        // 모두 실패 → 방법마다 한 줄 + git 태그 줄
+        calls.Clear();
+        Updater.CheckMethod[] bad = [Hang("매니페스트", "release-assets.githubusercontent.com"), Fail("리다이렉트", "github.com", "연결 실패 · github.com"), Fail("API", "api.github.com", "HTTP 403 · api.github.com")];
+        var e1 = Catch(() => Updater.CheckAsync(bad, Pick, Updater.NetRoute.Proxy, NoTags, ms150, tick).GetAwaiter().GetResult());
+        var lines = e1?.Message.Split('\n') ?? [];
+        check(e1 is UpdateException && lines.Length == 7
+            && System.Text.RegularExpressions.Regex.IsMatch(lines[0], @"^매니페스트 · 프록시 · release-assets\.githubusercontent\.com · 시간 초과 \d+ s$")
+            && System.Text.RegularExpressions.Regex.IsMatch(lines[1], @"^매니페스트 · 직접 · release-assets\.githubusercontent\.com · 시간 초과 \d+ s$")
+            && lines[2].StartsWith("리다이렉트 · 프록시 · github.com · 연결 실패 ") && lines[3].StartsWith("리다이렉트 · 직접 · ")
+            && lines[4].StartsWith("API · 프록시 · api.github.com · HTTP 403 ") && lines[6].StartsWith("깃 태그 · github.com · 깃 실패 "),
+            "실패 글 = 방법 · 길 · 호스트 · 까닭 · 초 (" + string.Join(" / ", lines) + ")");
+
+        // 둘 다 실패 → ls-remote 로 버전만
+        var tagged = Updater.CheckAsync(bad, Pick, Updater.NetRoute.Proxy, _ => Task.FromResult<ReleaseInfo?>(rel), ms150, tick).GetAwaiter().GetResult();
+        check(tagged.Release?.Version == new Version(1, 2, 3) && tagged.Release.File == null && !tagged.Release.CanDownload && tagged.Route == null, "모든 길 실패 → git 태그로 버전만 (받기 정보 없음)");
+
+        string H(int i) => new string((char)('a' + i % 6), 40);
+        var lsLines = new[] { $"{H(1)}\trefs/tags/v0.9.0", $"{H(2)}\trefs/tags/v0.10.0", $"{H(3)}\trefs/tags/v0.10.0^{{}}", $"{H(4)}\trefs/tags/v1.0.0-rc1", $"{H(5)}\trefs/tags/v0.2.1",
+            $"{H(0)}\trefs/tags/dist-v2.0.0", $"{H(1)}\trefs/tags/v0.10.1" };
+        check(Updater.LatestTag(lsLines) == new Version(0, 10, 1), "ls-remote: 정식 태그만, 버전 정렬 (0.10.1 > 0.9.0)");
+        check(Updater.LatestTag([$"{H(1)}\trefs/tags/v1.0.0-rc1", "garbage"]) == null, "정식 태그가 없으면 null");
+    }
+
 
     /// <summary>정션(링크): .old·.new·trash 가 정션이거나 안에 정션이 있어도 대상을 따라가 옮기거나 지우지 않는다. 빈 trash 트리는 표지 없이도 지운다.</summary>
     static void Links(Action<bool, string> check)
@@ -171,6 +252,20 @@ static class UpdaterTests
             using var blocked = new HttpClient(new Fake(body, down: true));
             var e2 = Catch(() => Updater.DownloadAsync(Rel(good), dir, null, default, blocked).GetAwaiter().GetResult());
             check(e2 is UpdateException { Message: "연결 실패 · assets.example.invalid" }, $"자산 호스트가 막힘 → 그 호스트 이름 ({e2?.Message})");
+
+            // 리뷰 9: 받기가 그 길에서 연결 실패하면 다른 길로 처음부터 한 번 더(SHA-256 검증 그대로)
+            var alt = new Fake(body);
+            using var altHttp = new HttpClient(alt);
+            var got2 = Updater.DownloadAsync(Rel(good), dir, null, default, blocked, altHttp).GetAwaiter().GetResult();
+            check(File.ReadAllBytes(got2).AsSpan().SequenceEqual(body) && alt.Hits > 0 && !File.Exists(got2 + ".partial"), "받기: 첫 길 연결 실패 → 다른 길로 한 번 더");
+            File.Delete(got2);
+            var alt2 = new Fake(body);
+            using var altHttp2 = new HttpClient(alt2);
+            var e3 = Catch(() => Updater.DownloadAsync(Rel(wrong), dir, null, default, http, altHttp2).GetAwaiter().GetResult());
+            check(e3 is UpdateException { Message: "SHA-256 불일치" } && alt2.Hits == 0, "받기: SHA 불일치는 다른 길로 다시 받지 않음");
+            using var blocked2 = new HttpClient(new Fake(body, down: true));
+            var e4 = Catch(() => Updater.DownloadAsync(Rel(good), dir, null, default, blocked, blocked2).GetAwaiter().GetResult());
+            check(e4 is UpdateException { Message: "연결 실패 · assets.example.invalid" } && !File.Exists(Path.Combine(dir, "a.zip")), "받기: 두 길 모두 실패 → 예외 · 파일 없음");
         }
         finally { Directory.Delete(dir, true); }
     }

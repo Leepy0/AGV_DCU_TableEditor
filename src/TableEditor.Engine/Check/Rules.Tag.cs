@@ -212,7 +212,7 @@ public static partial class Checker
                     default: x.Add(Squash(r.Cond.Text)); break;
                 }
             }
-            foreach (var (n, what) in new[] { (x.Count, "확장 조건"), (inp.Count, "입력 조건"), (act.Count, "동작 묶음") })
+            foreach (var (n, what) in new[] { (x.Count, "차량 상태 조건"), (inp.Count, "입력 조건"), (act.Count, "동작 묶음") })
                 if (n > 255) yield return f.Error("T-15", z.Begin, $"{what} {n}종 · 255 이하");
         }
     }

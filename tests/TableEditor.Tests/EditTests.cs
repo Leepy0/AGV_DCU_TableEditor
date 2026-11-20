@@ -240,7 +240,7 @@ static class EditTests
         check(back.Ok && back.Site!.Files.All(f => f.ToBytes().AsSpan().SequenceEqual(s.File(f.Name)!.ToBytes())), "조건 지우기 → 원래 바이트 " + back.Error);
         var rr = Rule(s, "TAG_RANGE( 101");
         check(TagEdit.SetCondition(s, rr, [new XCond("X_FORWARD", [])], null) is { Ok: true } x && Rule(x.Site!, "TAG_RANGE_IF( 101").CondText == "IF_FORWARD", "범위 규칙 → TAG_RANGE_IF");
-        Blocked(TagEdit.SetCondition(s, r5, [new XCond("Y_FOO", [])], null), "확장 조건 아님", "모르는 확장 조건");
+        Blocked(TagEdit.SetCondition(s, r5, [new XCond("Y_FOO", [])], null), "차량 상태 아님", "모르는 확장 조건");
         Blocked(TagEdit.SetCondition(s, r5, [new XCond("X_FORWARD", []), new XCond("X_FORWARD", []), new XCond("X_FORWARD", [])], null), "2개", "확장 셋");
         foreach (var rule in s.TagRules.Where(t => t.HasCond))
             check(TagEdit.ReadCondition(rule) != null, "조건 풀기 " + rule.St.Text.Trim());

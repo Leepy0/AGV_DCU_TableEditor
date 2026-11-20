@@ -83,7 +83,7 @@ public sealed partial class MainVm : Observable
         Manual = new ManualVm(this);
         Seq = new SeqVm(this);
         Map = new MapVm(this);
-        Io = new IoVm();
+        Io = new IoVm(this);
         Config = new SettingsVm(settings, this);
         Update = new UpdateVm(this, settings);
         GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
@@ -452,7 +452,7 @@ public sealed partial class MainVm : Observable
     public async Task EditConditionAsync(TagRowVm row)
     {
         if (Site is not { } s || row.Rule == null || !CanEdit) return;
-        var vm = new CondVm(row.Rule, s.Names);
+        var vm = new CondVm(row.Rule, s.Names, TagVm.ScopeOf(s, row.Rule));
         if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, row.Rule, vm.X, vm.Input));
     }
 

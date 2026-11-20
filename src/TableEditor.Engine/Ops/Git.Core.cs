@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace TableEditor.Engine.Ops;
 
-/// <summary>코어 올리기(사양 8.6절)의 깃 단계. 코어 저장소에는 읽기(ls-remote)만 한다.</summary>
+/// <summary>코어 버전 변경(사양 8.6절)의 깃 단계. 코어 저장소에는 읽기(ls-remote)만 한다.</summary>
 public sealed partial class Git
 {
     static readonly Regex DistTag = new(@"^[0-9a-f]{40}\trefs/tags/dist-(v\d+\.\d+\.\d+)$");
@@ -16,6 +16,13 @@ public sealed partial class Git
         if (!r.Ok) return null;
         return r.Out.Select(l => DistTag.Match(l)).Where(m => m.Success).Select(m => m.Groups[1].Value).Distinct()
             .OrderByDescending(v => Version.Parse(v[1..])).ToList();
+    }
+
+    /// <summary>저장소 없이 <c>git ls-remote --tags &lt;주소&gt;</c> 출력 줄. 못 읽으면 null.</summary>
+    internal static async Task<IReadOnlyList<string>?> RemoteTagLinesAsync(string url, TimeSpan limit, CancellationToken ct)
+    {
+        var r = await ProcessRunner.RunAsync(new ProcessSpec("git", ["--no-pager", "ls-remote", "--tags", "--", url], null, limit, ProcessRunner.Utf8, Env), null, ct);
+        return r.Ok ? r.Lines.Where(l => !l.IsError).Select(l => l.Text).ToList() : null;
     }
 
     static string[] CorePaths(string site) => ["core", .. PackedPaths(site)];
@@ -37,6 +44,6 @@ public sealed partial class Git
         return !r.Ok ? Fail(r, "git restore") : !c.Ok ? Fail(c, "git clean") : new(GitOutcome.Ok);
     }
 
-    /// <summary>update_core.ps1 같은 바깥 스크립트 실행을 git.log 에 남긴다(코어 변경이 코어 올리기 때만인지 A-11 로 본다).</summary>
+    /// <summary>update_core.ps1 같은 바깥 스크립트 실행을 git.log 에 남긴다(코어 변경이 코어 버전 변경 때만인지 A-11 로 본다).</summary>
     internal void NoteScript(string code, IEnumerable<string> args) => AppendLog(LogPath, $"# core-update script\t{code}\t{string.Join("\t", args)}");
 }

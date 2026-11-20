@@ -29,6 +29,9 @@ public sealed record FieldInfo(string Label, Arg Arg, ArgSpec Spec)
     public string? Value { get; init; }
     public Func<string, string>? Write { get; init; }
 
+    /// <summary>고른 값을 쓰기 전 검사: 막히면 까닭(알림으로 보이고 쓰지 않는다). 태그 동작 칸 한계 등.</summary>
+    public Func<string, string?>? Check { get; init; }
+
     /// <summary>고른 낱말로 바꾸면 버려지는 인자 글(꼴 칸). 있으면 확인 팝업.</summary>
     public Func<string, IReadOnlyList<string>>? Drops { get; init; }
 

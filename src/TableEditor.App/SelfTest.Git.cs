@@ -353,7 +353,7 @@ public sealed partial class SelfTest
         await Idle();
         Check(!vm.HasExternal && Row(23).Rule!.St.Text.Contains("CW,  150,"), "다시 읽음");
 
-        Step("버리기: 편집 + 저장 안 한 파일 → 확인 → 처음대로");
+        Step("되돌리기: 편집 + 저장 안 한 파일 → 확인 → 처음대로");
         Tag.SelectOnly(Row(22));
         await Idle();
         Tag.Fields.First(f => f.Label == "각도").Text = "15";

@@ -48,7 +48,7 @@ public sealed partial class SelfTest
         var r62 = Row(62, "PF_CART");
         Check(r62.Chips.Select(c => c.Head).SequenceEqual(["호기 범위", "스테이션 범위"]), $"AND 안 상태 칩 ({string.Join("/", r62.Chips.Select(c => c.Head))})");
         var r63 = Row(63, "PF_CART");
-        Check(r63.Chips.Select(c => c.Head).SequenceEqual(["NOT", "켜짐", "꺼짐"]), $"NOT·켜짐·꺼짐 칩 ({string.Join("/", r63.Chips.Select(c => c.Head))})");
+        Check(r63.Chips.Select(c => c.Head).SequenceEqual(["반전", "켜짐", "꺼짐"]), $"NOT·켜짐·꺼짐 칩 ({string.Join("/", r63.Chips.Select(c => c.Head))})");
         var r60 = Row(60, "PF_BOX");
         Check(r60.Chips.Select(c => c.Head).SequenceEqual(["하나라도"]), "ANY 칩 = 하나라도");
         await Shot("tag_new_dsl.png");
@@ -83,6 +83,9 @@ public sealed partial class SelfTest
         await Idle();
         Check(TagText == before, "그대로 닫으면 바이트 같음");
 
+        Step("반전 토글 · 칸 편집기: 새 코어 NOT( FORWARD ), 파라미터 조건은 드롭다운");
+        await NotToggle(Row(60, "PF_BOX"), "FORWARD", "NOT(FORWARD)", "PARAM");
+
         Step("B2 버전별 쓰기: 새 코어는 새 형식, 옛 코어는 옛 형식");
         var tagChoices = Tag.ActionChoices(Row(28)).Select(c => c.Entry).ToList();
         var speed = tagChoices.First(e => e.Name == "AGV_SPEED");
@@ -94,7 +97,9 @@ public sealed partial class SelfTest
         await Idle();
         Tag.AddAction(Row(28), acs);
         await Idle();
-        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, 0 )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
+        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, STATION0 )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
+        Step("보고 칸: 1칸 STATION0 ↔ 2칸 STATION(k) (새 코어)");
+        await StationRoundTrip(28, "ACS( LOADING, STATION0 )", "ACS( LOADING, STATION(2) )");
         var stepNew = SeqEdit.StepRows(false, true).Select(e => e.Name).Distinct().ToList();
         var stepOld = SeqEdit.StepRows(false, false).Select(e => e.Name).Distinct().ToList();
         Check(new[] { "OUT_SET", "WAIT_TO", "ACS", "AGV_SPEED" }.All(stepNew.Contains) && !new[] { "WAIT_TO_PARAM", "WAIT_PARAM_TO", "AGV_SPEED_MMIN", "ACS_SEND", "WHEN_IF", "WHEN_ANY2", "WAIT_IF", "WAIT_ANY2" }.Any(stepNew.Contains),
@@ -185,9 +190,104 @@ public sealed partial class SelfTest
         Check(Row(62, "PF_CART").Rule!.CondText == "IF_X2_IN(X_ID(20,25),X_FORWARD,ON(DEMO_SEN_2))", $"옛 형식 ({Row(62, "PF_CART").Rule!.CondText})");
         var oldSpeedForms = ActionForms.Of(GrammarTable.Find("AGV_SPEED", Place.TagAction).First(e => e.Since.Length == 0), false).Select(e => e.Name + ":" + e.FormName).ToList();
         Check(oldSpeedForms.SequenceEqual(["AGV_SPEED:단계", "AGV_SPEED_MMIN:m/min"]), $"옛 코어 형식 칸 {string.Join("/", oldSpeedForms)}");
+        Step("반전 토글 · 칸 편집기: 옛 코어 X_NOT( X_FORWARD )");
+        await NotToggle(Row(1), "X_FORWARD", "X_NOT(X_FORWARD)", null);
+
+        Step("보고 칸: 옛 코어는 2칸에서 ACS_SEND, 칸 0 은 1칸 ACS(STATION0), 시퀀스는 ACS( 종류, STATION(k) )");
+        await StationRoundTrip(58, "ACS( LOADING, STATION0 )", "ACS_SEND( LOADING, STATION(2) )");
+        var builder = new BlockBuilder(vm.Site!.Names, []);
+        var seqSt = vm.Site.Files.SelectMany(f => f.Pieces).OfType<Statement>().Where(s => s.Name is "ACS" or "ACS_SEND" && s.Args.Count == 2).ToList();
+        var s0 = seqSt.First(s => s.Text.Contains("UNLOADING, STATION0"));
+        var f0 = builder.Statement(s0, Place.Step).Fields.First(f => f.Label == "칸");
+        Check(f0.Value == "0" && f0.Write!("3") == "STATION(3)" && f0.Write("0") == "STATION0", "시퀀스 칸 0 = STATION0, 칸 3 = STATION(3)");
+        var s1 = seqSt.First(s => s.Text.Contains("ARRIVE, STATION(1)"));
+        Check(builder.Statement(s1, Place.Step).Fields.First(f => f.Label == "칸").Value == "1", "시퀀스 STATION(1) = 칸 1");
+        var sSend = seqSt.First(s => s.Name == "ACS_SEND" && s.Text.Contains("STATION(0)"));
+        var forms = builder.Statement(sSend, Place.Step).Fields;
+        Check(forms.Any(f => f.Label == "칸" && f.Value == "0") && forms[0].Value == "스테이션" && forms[0].Spec.Words!.SequenceEqual(["스테이션", "숫자"]), $"ACS_SEND(STATION) 도 스테이션 형식 ({forms[0].Value}: {string.Join("/", forms[0].Spec.Words!)})");
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
         await Idle();
         Clear(dir);
         Clear(core);
+    }
+
+    /// <summary>보고 동작의 칸 고르기: 칸 → 2 → 0 으로 돌리면 줄이 처음 바이트 그대로. 쓴 글은 검사에 안 걸린다.</summary>
+    async Task StationRoundTrip(long tag, string start, string toTwo)
+    {
+        int idx = Row(tag).Rule!.Actions.Count - 1;
+        void Pick(string k)
+        {
+            var rule = Row(tag).Rule!;
+            var f = new BlockBuilder(vm.Site!.Names, []).Action(rule.St, rule.Actions[idx], idx).Fields.First(x => x.Label == "칸");
+            vm.Apply(SiteEdit.SetArg(vm.Site!, rule.St, f.Arg, f.Write!(k)));
+        }
+        var cur = Row(tag).Rule!.Actions[idx].Text;
+        if (cur != start) vm.Apply(SiteEdit.SetArg(vm.Site!, Row(tag).Rule!.St, Row(tag).Rule!.Actions[idx], start));
+        await Idle();
+        var baseText = TagText;
+        int errs = vm.ErrorCount;
+        Pick("2");
+        await Idle();
+        Check(Row(tag).Rule!.Actions[idx].Text == toTwo && vm.ErrorCount == errs, $"칸 2 로 ({Row(tag).Rule!.Actions[idx].Text}) · 오류 {vm.ErrorCount}");
+        var blk = new BlockBuilder(vm.Site!.Names, []).Action(Row(tag).Rule!.St, Row(tag).Rule!.Actions[idx], idx);
+        Check(blk.Cells == 2 && blk.Fields.First(x => x.Label == "칸").Value == "2", $"2칸 · 칸 2 읽음 ({blk.Cells})");
+        Pick("0");
+        await Idle();
+        Check(Row(tag).Rule!.Actions[idx].Text == start && TagText == baseText, "칸 0 으로 되돌리면 원문 바이트 동일");
+    }
+
+    /// <summary>
+    /// 조건 팝업: 상태 줄을 더하고 반전을 켜 OK → 줄에 expect(공백 뺀 글). 다시 열면 반전 켬. paramKind 가 있으면 그 종류의 칸이 드롭다운·범위 숫자 칸이고,
+    /// 범위 밖 숫자는 [바꾸기] 를 막는다. 끝나면 되돌려 줄을 처음대로.
+    /// </summary>
+    async Task NotToggle(TagRowVm row, string kindName, string expect, string? paramKind)
+    {
+        long tag = row.First!.Value;
+        string? profile = row.Rule!.Profile;
+        var before = TagText;
+        var (c, done) = await Open<CondVm>(() => { Tag.SelectOnly(row); return vm.EditConditionAsync(row); });
+        Check(!c.XKinds.Any(k => XRowVm.IsNot(k.Name)), "종류 목록에 NOT 없음");
+        c.AddX.Execute(null);
+        var x = c.XRows[^1];
+        Check(x.Kind.Name == kindName && x.CanNegate && !x.Negate, $"새 줄 {x.Kind.Name} · 반전 끔");
+        x.Negate = true;
+        await Shot("tag_cond_not.png");
+        c.Ok.Execute(null);
+        await done;
+        await Idle();
+        var cond = Row(tag, profile).Rule!.St.Args.Select(a => a.Text).Aggregate("", (s, t) => s + t).Replace(" ", "");
+        Check(cond.Contains(expect), $"반전 쓰기 ({cond})");
+        var (c2, done2) = await Open<CondVm>(() => { var r = Row(tag, profile); Tag.SelectOnly(r); return vm.EditConditionAsync(r); });
+        Check(c2.XRows.Any(r => r.Kind.Name == kindName && r.Negate), "다시 열면 반전 켬");
+        if (paramKind != null)
+        {
+            c2.AddX.Execute(null);
+            var p = c2.XRows[^1];
+            p.Kind = c2.XKinds.First(k => k.Name == paramKind);
+            Check(p.Args[0].IsList && p.Args[0].Options!.Count > 1 && p.Args[0].Text == p.Args[0].Options![0], $"파라미터 이름 드롭다운 ({p.Args[0].Options?.Count}개 · 기본 {p.Args[0].Text})");
+            Check(p.Args[1].IsNumber && p.Args[1].Text == p.Args[1].Min.ToString(), $"값 = 범위 숫자 칸 ({p.Args[1].Range})");
+            p.Args[0].Text = p.Args[0].Options![1];
+            p.Args[1].Text = "99999999";
+            Check(p.Args[1].Invalid && !c2.Ok.CanExecute(null), "범위 밖 숫자 = 빨간 칸 · 바꾸기 막힘");
+            p.Args[1].Text = "5";
+            Check(!p.Args[1].Invalid && c2.Ok.CanExecute(null), "맞는 숫자 = 바꾸기 열림");
+            await Shot("tag_cond_param.png");
+            string name = p.Args[0].Text;
+            c2.Ok.Execute(null);
+            await done2;
+            await Idle();
+            var cond2 = Row(tag, profile).Rule!.St.Args.Select(a => a.Text).Aggregate("", (s, t) => s + t).Replace(" ", "");
+            Check(cond2.Contains($"PARAM({name},5)") && cond2.Contains(expect), $"파라미터 조건 쓰기 ({cond2})");
+            vm.Undo.Execute(null);
+        }
+        else
+        {
+            c2.Cancel.Execute(null);
+            await done2;
+        }
+        await Idle();
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(TagText == before, "되돌리면 처음 바이트");
     }
 }

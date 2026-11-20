@@ -54,7 +54,7 @@ public sealed class ConflictVm(IReadOnlyList<string> files) : DialogVm
 /// <summary>코어 버전 고르기(사양 8.6절 2). 목록은 연 뒤에 받는다. 연결 안 되면 "오프라인".</summary>
 public sealed class VersionsVm : DialogVm
 {
-    public override string Title => "코어 올리기";
+    public override string Title => "코어 버전 변경";
     public string Current { get; }
 
     public VersionsVm(string current)

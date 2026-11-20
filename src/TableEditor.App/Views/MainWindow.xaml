@@ -100,12 +100,12 @@
                     <TextBlock Text="{Binding GitText}" Style="{StaticResource ChipValue}"/>
                 </StackPanel>
             </Border>
-            <!-- 변경 칩: 누르면 [버리기] -->
+            <!-- 변경 칩: 누르면 [되돌리기] -->
             <Button x:Name="ChangesChip" DockPanel.Dock="Left" Style="{StaticResource ChipButton}" Click="OnChipMenu" AutomationProperties.Name="변경"
                     Visibility="{Binding IsReadOnly, Converter={StaticResource Shown}, ConverterParameter=not}">
                 <Button.ContextMenu>
                     <ContextMenu>
-                        <MenuItem Header="버리기" Command="{Binding Discard}"/>
+                        <MenuItem Header="되돌리기" Command="{Binding Discard}"/>
                     </ContextMenu>
                 </Button.ContextMenu>
                 <StackPanel Orientation="Horizontal">

@@ -66,11 +66,26 @@ public static partial class Checker
     /// <summary>
     /// V-4: 옛 코어(v0.58.0 미만) 사이트가 v0.58.0 에서 생긴 문법을 썼다(<c>AND</c>·<c>ANY</c>·새 상태 낱말·<c>PARAM_TIME</c>·<c>OUT_SET</c>·
     /// 숫자 <c>AGV_SPEED</c>·번호 <c>ACS</c> 등). 줄마다 하나, 낱말을 모아 보인다. 사이트가 같은 이름을 직접 <c>#define</c> 했으면 사이트 매크로로 보고 건너뛴다.
-    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다.
+    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다. 낱말마다 최소 버전이 있다: 보고 종류 <c>IDLE</c> 은 v0.59.0 부터(그 미만이면 줄마다 하나 더).
     /// </summary>
     static IEnumerable<Finding> V4(Facts f)
     {
-        if (f.Site.CoreFolder == null || f.Site.CoreVersion == null || f.Site.NewDsl) yield break;
+        if (f.Site.CoreFolder == null || f.Site.CoreVersion == null) yield break;
+        // 보고 종류 칸: IDLE 은 v0.59.0 부터(사이트 정의와 상관없이 검사). 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다
+        foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
+        {
+            var seq = st.Name is "ACS" or "ACS_SEND" && st.Args.Count > 0 ? st.Args.Take(1) : [];
+            var tag = Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => (c.Call.Name, Kind: c.Call.Args[0]));
+            var kinds = seq.Concat(tag.Select(t => t.Kind)).Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
+            // gcc 실측: 종류 칸을 DSL_INFO_##종류 로 바로 붙이는 자리는 사이트 #define 이 안 펼쳐져 안 깨진다. 깨지는 자리 = 태그 ACS(모든 코어), 시퀀스 ACS·ACS_SEND(v0.58.0 이상)
+            var breaks = (f.Site.NewDsl ? seq : []).Concat(tag.Where(t => t.Name == "ACS").Select(t => t.Kind))
+                .Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
+            if (!f.Site.Names.IdleOk && kinds.FirstOrDefault(a => ((NameNode)a.Node).Name == "IDLE") is { } idle)
+                yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", idle);
+            if (breaks.FirstOrDefault(a => f.Names.Get(((NameNode)a.Node).Name).Any(d => !d.Core)) is { } shadow)
+                yield return f.Error("V-4", st, $"사이트 #define 이 보고 종류를 덮음 · {((NameNode)shadow.Node).Name}", shadow);
+        }
+        if (f.Site.NewDsl) yield break;
         var found = new Dictionary<Statement, (Arg? Cell, List<string> Names)>(ReferenceEqualityComparer.Instance);
         void Add(Statement st, Arg? cell, string name)
         {

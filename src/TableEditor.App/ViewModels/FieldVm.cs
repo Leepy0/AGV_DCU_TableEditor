@@ -39,7 +39,7 @@ public sealed class FieldVm : Observable
     public ICommand RevertCmd { get; }
 
     /// <summary>드롭다운 항목(분류가 둘 이상이면 묶음 머리가 붙는다).</summary>
-    public ICollectionView? Items { get; }
+    public ICollectionView? Items { get; private set; }
 
     public FieldVm(IFieldHost owner, NameDict names, FieldInfo info, int index, bool locked = false)
     {
@@ -53,15 +53,23 @@ public sealed class FieldVm : Observable
         text = Original;
         CommitCmd = new Command(Commit);
         RevertCmd = new Command(Revert);
-        if (IsList)
-        {
-            var list = Choices.For(info.Spec, names).ToList();
-            if (!list.Any(c => c.Name == text)) list.Insert(0, new Choice(text, null, list.FirstOrDefault()?.Group ?? ""));
-            var view = new ListCollectionView(list);
-            if (list.Select(c => c.Group).Distinct().Count() > 1) view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Choice.Group)));
-            Items = view;
-            picked = list.First(c => c.Name == text);
-        }
+        if (IsList) BuildItems();
+    }
+
+    static bool IsSignal(ArgKind k) => k is ArgKind.Input or ArgKind.Signal or ArgKind.Output;
+
+    /// <summary>목록 만들기. 신호 칸은 그 줄 프로파일로 걸러 보고(이미 쓴 것은 남긴다), 가려진 것이 있으면 끝에 "전체" 토글.</summary>
+    void BuildItems()
+    {
+        var scope = owner.Scope;
+        var list = Choices.For(Info.Spec, names, scope, n => n == text).ToList();
+        if (!list.Any(c => c.Name == text)) list.Insert(0, new Choice(text, null, list.FirstOrDefault()?.Group ?? ""));
+        if (scope != null && IsSignal(Info.Spec.Kind) && scope.CanToggle)
+            list.Add(new Choice(SignalScope.ShowAll ? SignalScope.AllOn : SignalScope.AllOff, null, list[^1].Group));
+        var view = new ListCollectionView(list);
+        if (list.Select(c => c.Group).Distinct().Count() > 1) view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Choice.Group)));
+        Items = view;
+        picked = list.First(c => c.Name == text);
     }
 
     /// <summary>처음 글: 꼴 칸이면 꼴 낱말, 아니면 인자 글자.</summary>
@@ -82,10 +90,21 @@ public sealed class FieldVm : Observable
         get => picked;
         set
         {
-            if (value == null || !Set(ref picked, value)) return;
+            if (value == null) return;
+            if (value.Name is SignalScope.AllOn or SignalScope.AllOff) { ToggleAll(); return; }
+            if (!Set(ref picked, value)) return;
             text = value.Name;
             Commit();
         }
+    }
+
+    /// <summary>"전체" 토글: 끄면 걸러 보기, 켜면 전부. 고른 값은 그대로 두고 목록만 다시 만든다.</summary>
+    public void ToggleAll()
+    {
+        SignalScope.ShowAll = !SignalScope.ShowAll;
+        BuildItems();
+        Raise(nameof(Items));
+        Raise(nameof(Picked));
     }
 
     bool hot;

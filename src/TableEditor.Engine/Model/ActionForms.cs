@@ -74,9 +74,12 @@ public static class ActionForms
                 else if (k < spec.Least) outArgs.Add(fill(spec));
                 else break;
             }
-        var dropped = left.Where(x => x.Spec is not { Kind: ArgKind.Word, Words.Count: 1 }).Select(x => x.Arg.Text.Trim()).Concat(extra).ToList();
+        // 형식을 가르는 낱말 하나 칸(TAPE 등)은 꼴 자체라 빼지만 STATION0 은 값(스테이션 칸)이라 버리는 인자로 센다
+        var dropped = left.Where(x => !Defining(x.Spec)).Select(x => x.Arg.Text.Trim()).Concat(extra).ToList();
         return (Form.Call(to.Name, outArgs), dropped);
     }
+
+    static bool Defining(ArgSpec? s) => s is { Kind: ArgKind.Word, Words: [var w] } && w != "STATION0";
 
     /// <summary><c>AND( … )</c> 에서 입력 항목만 남긴다: 상태 낱말(<c>ALWAYS</c> 는 상태가 아니다)과 둘째 이후 <c>ANY</c> 는 버린다. 남은 것이 없으면 <c>NO_IN</c>.</summary>
     static (string Text, List<string> Dropped) InputOnly(CallNode and)

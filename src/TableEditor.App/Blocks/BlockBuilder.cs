@@ -32,8 +32,28 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         return new BlockVm
         {
             Head = entry.Head, Cat = entry.Palette, Parts = PartsOf(entry, args, true),
-            Fields = ActionFields(entry, a, args), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
+            Fields = ActionFields(entry, a, args, OtherCells(st, a)), Cells = entry.TagCells, Arg = a, Mark = mark, Index = index,
         };
+    }
+
+    /// <summary>같은 규칙의 다른 동작이 차지한 칸 수(NO_ACTION 은 0, 모르는 글은 1).</summary>
+    int OtherCells(Statement st, Arg a) => st.Name.StartsWith("TAG", StringComparison.Ordinal)
+        ? new TagRule(st).Actions.Where(x => !ReferenceEquals(x, a)).Sum(x =>
+        {
+            var (n, ar) = Split(x.Node);
+            return (n == null ? null : Facts.Fit(ActionRows(n), ar))?.TagCells ?? (names.Value(x.Node) == 0 ? 0 : 1);
+        })
+        : 0;
+
+    /// <summary>이 규칙에서 이 동작을 cells 칸으로 바꾸면 4칸을 넘는가(늘어날 때만 본다).</summary>
+    static string? Over(int others, int now, int cells) => cells > now && others + cells > 4 ? "동작 칸 넘침 · 4칸" : null;
+
+    /// <summary>형식 낱말이 같은 줄이 여럿이면(ACS 스테이션 1칸·2칸) 지금 종류를 받는 줄을 고른다. 1칸 줄은 일부 종류만 받는다.</summary>
+    static GrammarEntry PickForm(IReadOnlyList<GrammarEntry> forms, string word, IReadOnlyList<Arg> args)
+    {
+        var same = forms.Where(e => WordOf(e) == word).ToList();
+        var kind = args.Count > 0 && args[0].Node is NameNode k ? k.Name : null;
+        return same.FirstOrDefault(e => kind == null || e.Args.Count == 0 || e.Args[0].Words == null || e.Args[0].Words!.Contains(kind)) ?? same[0];
     }
 
     /// <summary>형식 칸 낱말(형식 낱말이 빈 형식).</summary>
@@ -43,13 +63,18 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     /// 동작 칸들. 꼴이 여럿이면(<see cref="ActionForms"/>) 맨 앞에 위치 칸(바로·cm·TAPE·TAPE_GD·센서)을 두고, 꼴이 정한 낱말 하나뿐인 칸은 뺀다.
     /// 위치 칸을 바꾸면 그 꼴로 인자 전체를 다시 쓴다(같은 인자 바꾸기 명령).
     /// </summary>
-    List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
+    List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args, int others)
     {
-        var fields = FieldsOf(entry, args);
+        var fields = FieldsOf(entry, args).Select(f => f.Label == StationLabel && args.Count == 2 && ReferenceEquals(f.Arg, args[1]) ? TagStation(f, a, args, entry.TagCells, others) : f).ToList();
         var forms = ActionForms.Of(entry, names.NewDsl);
         if (forms.Count < 2) return fields;
         var form = FormField(entry, forms, a, args);
-        form = form with { Write = w => ActionForms.Convert(forms.First(e => WordOf(e) == w), entry, args, x => Choices.DefaultArg(x, names)) };
+        form = form with
+        {
+            Write = w => ActionForms.Convert(PickForm(forms, w, args), entry, args, x => Choices.DefaultArg(x, names)),
+            Drops = w => ActionForms.Dropped(PickForm(forms, w, args), entry, args),
+            Check = w => Over(others, entry.TagCells, PickForm(forms, w, args).TagCells),
+        };
         return [form, .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
     }
 
@@ -64,7 +89,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         {
             Value = WordOf(entry),
             To = w => forms.First(e => WordOf(e) == w),
-            Drops = w => ActionForms.Dropped(forms.First(e => WordOf(e) == w), entry, args),
+            Drops = w => ActionForms.Dropped(PickForm(forms, w, args), entry, args),
         };
     }
 
@@ -248,12 +273,50 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             var (name, inner) = Split(args[i].Node);
             var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
             if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
-            if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
+            if (StationK(args[i].Node) is long sk && IsStationSpec(spec)) list.Add(StationField(args[i], sk, e.Name == "ACS"));
+            else if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
                 list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
             else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
             else if (name != "NO_IN") list.Add(new(spec.Label, args[i], spec));
         }
         return list;
+    }
+
+    const string StationLabel = "칸";
+    static readonly IReadOnlyList<string> Slots = Enumerable.Range(0, 24).Select(i => i.ToString()).ToList();
+
+    /// <summary>스테이션 칸 읽기: <c>STATION0</c> = 0, <c>STATION(k)</c> = k. 그 밖의 식(<c>STATION0_PLUS1</c>, <c>STATION(0) + 1</c>)은 null.</summary>
+    static long? StationK(Node n) => n switch
+    {
+        NameNode { Name: "STATION0" } => 0,
+        CallNode { Name: "STATION", Args: [{ Node: NumberNode { Value: >= 0 and < 24 } num }] } => num.Value,
+        _ => null,
+    };
+
+    static bool IsStationSpec(ArgSpec s) => s.Kind is ArgKind.AcsSource or ArgKind.AcsStation || s is { Kind: ArgKind.Word, Words: ["STATION0"] };
+
+    /// <summary>스테이션 칸 고르기(0~23). 시퀀스는 그 인자만 다시 쓴다(옛 코어는 칸 0 이 <c>STATION0</c>).</summary>
+    FieldInfo StationField(Arg a, long k, bool acs) => new(StationLabel, a, new ArgSpec(ArgKind.Word, Words: Slots) { Label = StationLabel })
+    {
+        Value = k.ToString(),
+        // 낱말 STATION0 은 옛 코어 ACS( 종류, 번호 ) 줄만. ACS_SEND( 종류, 칸 ) 은 늘 STATION(k)
+        Write = w => names.NewDsl || w != "0" || !acs ? $"STATION({w})" : "STATION0",
+    };
+
+    /// <summary>
+    /// 태그 보고의 칸 고르기: 동작 전체를 다시 쓴다. 칸 0 + 1칸 종류는 <c>ACS( 종류, STATION0 )</c>(1칸), 그 밖은 2칸 형식
+    /// (새 코어 <c>ACS( 종류, STATION(k) )</c>, 옛 코어 <c>ACS_SEND( 종류, STATION(k) )</c>: 옛 태그 ACS 는 STATION(k) 를 못 받는다).
+    /// </summary>
+    FieldInfo TagStation(FieldInfo f, Arg action, IReadOnlyList<Arg> args, int now, int others)
+    {
+        var kind = args[0].Text.Trim();
+        var oneCell = ActionRows("ACS").First(r => r.Args[1].Kind == ArgKind.Word).Args[0].Words!;
+        return f with
+        {
+            Arg = action,
+            Write = w => w == "0" && oneCell.Contains(kind) ? $"ACS( {kind}, STATION0 )" : $"{(names.NewDsl ? "ACS" : "ACS_SEND")}( {kind}, STATION({w}) )",
+            Check = w => Over(others, now, w == "0" && oneCell.Contains(kind) ? 1 : 2),
+        };
     }
 
     public const string OutNone = "없음", OutOn = "켜짐", OutOff = "꺼짐";
@@ -301,7 +364,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             ArgKind.AndItem => [Place.InputCond, Place.StateCond],
             ArgKind.StateCond => [Place.StateCond],
             ArgKind.FromSensor => [Place.TagAction],
-            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.OutMask => [Place.Step],
+            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.AcsStation or ArgKind.OutMask => [Place.Step],
             ArgKind.Timeout => [Place.InputCond],
             ArgKind.LoadSensors => [Place.Frame],
             _ => null,

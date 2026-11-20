@@ -11,6 +11,9 @@ namespace TableEditor.App.ViewModels;
 public interface IFieldHost
 {
     bool IsTagArea { get; }
+
+    /// <summary>신호·시퀀스 목록을 걸러 볼 범위(고른 줄의 프로파일). 없으면 전부.</summary>
+    SignalScope? Scope => null;
     void Hot(FieldVm f);
     void SetField(FieldVm f, string text);
 }
@@ -28,6 +31,11 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
     protected Site Site = null!;
 
     public virtual bool IsTagArea => false;
+
+    /// <summary>고른 줄의 프로파일로 걸러 볼 범위(<see cref="IFieldHost.Scope"/>). 화면마다 정한다.</summary>
+    public SignalScope? Scope => Site == null ? null : ScopeFor();
+
+    protected virtual SignalScope? ScopeFor() => null;
 
     /// <summary>고른 줄의 조각(C 글자·칸 명령의 대상).</summary>
     protected abstract Piece? CodePiece { get; }
@@ -75,6 +83,7 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
     public virtual void SetField(FieldVm f, string text)
     {
         if (!Live(f, out var st)) return;
+        if (f.Info.Check?.Invoke(text) is { } why) { Main.Notify(why); f.Revert(); return; }
         if (f.Info.Drops?.Invoke(text) is { Count: > 0 } drops) { _ = ConfirmDropAsync(f, text, drops); return; }
         Write(f, st, text);
     }

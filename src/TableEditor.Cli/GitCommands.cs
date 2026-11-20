@@ -2,7 +2,7 @@ using TableEditor.Engine.Ops;
 
 namespace TableEditor.Cli;
 
-/// <summary>작업 6 시험용 명령줄: 회차 내기, 코어 올리기·버전 목록, git.log 검사. 종료 코드 0 = 성공, 1 = 실패, 2 = 인자 오류.</summary>
+/// <summary>작업 6 시험용 명령줄: 회차 내기, 코어 버전 변경·버전 목록, git.log 검사. 종료 코드 0 = 성공, 1 = 실패, 2 = 인자 오류.</summary>
 static class GitCommands
 {
     const string Usage =
@@ -57,7 +57,7 @@ static class GitCommands
             {
                 var r = await CoreUpdate.RunAsync(new Git(pos[1], appUrl), pos[2], pos[3], from, Round.DefaultBuilder(gcc), Print, cts.Token);
                 foreach (var f in r.Findings.Where(f => f.Severity == TableEditor.Engine.Check.Severity.Error)) Console.Error.WriteLine(f);
-                if (!r.Ok) { Console.Error.WriteLine($"코어 올리기 실패 · {r.Reason}"); return 1; }
+                if (!r.Ok) { Console.Error.WriteLine($"코어 버전 변경 실패 · {r.Reason}"); return 1; }
                 Console.WriteLine(r.Changed ? $"코어 받음 · {r.CoreLine}" : $"변경 없음 · {r.CoreLine}");
                 return 0;
             }

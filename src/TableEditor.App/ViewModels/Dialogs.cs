@@ -123,12 +123,20 @@ public sealed class AddVm : DialogVm
 
 // ---- 조건 ----
 
-/// <summary>상태 조건 한 줄: 종류 드롭다운 + 칸들. 새 코어(v0.58.0 이상)는 상태 낱말(<c>FORWARD</c> …), 옛 코어는 확장 조건(<c>X_FORWARD</c> …).</summary>
+/// <summary>
+/// 상태 조건 한 줄: 종류 드롭다운 + 반전 토글 + 칸들. 새 코어(v0.58.0 이상)는 상태 낱말(<c>FORWARD</c> …), 옛 코어는 확장 조건(<c>X_FORWARD</c> …).
+/// 반전을 켜면 <c>NOT( … )</c>(옛 형식·옛 전용 조건은 <c>X_NOT( … )</c>)로 감싸 쓴다. 코어가 <c>NOT</c> 을 못 붙이는 종류는 없다(헤더·D-4 확인):
+/// 못 누르는 것은 겹친 <c>NOT( NOT( … ) )</c> 처럼 풀 수 없어 원문 그대로 둔 줄뿐이다.
+/// </summary>
 public sealed class XRowVm : Observable
 {
     public static readonly IReadOnlyList<GrammarEntry> Kinds = GrammarTable.Rows.Where(r => r.Place == Place.ExtCond).ToList();
 
     public static readonly IReadOnlyList<GrammarEntry> StateKinds = GrammarTable.Rows.Where(r => r.Place == Place.StateCond).ToList();
+
+    public static bool IsNot(string name) => name is "NOT" or "X_NOT";
+
+    readonly NameDict names;
 
     /// <summary>이 줄이 고를 수 있는 종류(드롭다운).</summary>
     public IReadOnlyList<GrammarEntry> Items { get; }
@@ -140,29 +148,92 @@ public sealed class XRowVm : Observable
         set
         {
             if (value == null || !Set(ref kind, value)) return;
-            Args = value.Args.Select(a => new ArgBox(a.Label, a.Kind == ArgKind.Word ? a.Words![0] : "0")).ToList();
+            Args = value.Args.Select(a => new ArgBox(a, ArgBox.Default(a, names), names)).ToList();
             Raise(nameof(Args));
+            if (!CanNegate) Negate = false;
+            Raise(nameof(CanNegate));
         }
     }
 
     public IReadOnlyList<ArgBox> Args { get; private set; }
 
-    public XRowVm(GrammarEntry kind, IReadOnlyList<string> args, IReadOnlyList<GrammarEntry>? items = null)
+    bool negate;
+    public bool Negate { get => negate; set => Set(ref negate, value && CanNegate); }
+
+    /// <summary>겹친 NOT 처럼 원문 그대로 둔 줄은 반전을 못 바꾼다.</summary>
+    public bool CanNegate => !IsNot(kind.Name);
+
+    /// <summary>칸이 모두 맞다(숫자 칸은 범위 안). 아니면 [확인] 을 막는다.</summary>
+    public bool Valid => Args.All(a => !a.Invalid);
+
+    public XRowVm(GrammarEntry kind, IReadOnlyList<string> args, IReadOnlyList<GrammarEntry>? items = null, NameDict? names = null, bool negate = false)
     {
+        this.names = names ?? new NameDict();
         Items = items ?? Kinds;
         this.kind = kind;
-        Args = kind.Args.Select((a, i) => new ArgBox(a.Label, i < args.Count ? args[i] : "0")).ToList();
+        Args = kind.Args.Select((a, i) => new ArgBox(a, i < args.Count ? args[i] : ArgBox.Default(a, this.names), this.names)).ToList();
+        this.negate = negate && CanNegate;
     }
 
-    public XCond ToCond() => new(Kind.Name, Args.Select(a => a.Text.Trim()).ToList());
+    public XCond ToCond()
+    {
+        var x = new XCond(Kind.Name, Args.Select(a => a.Text.Trim()).ToList());
+        return Negate ? new XCond(StateWords.IsWord(x.Name) ? "NOT" : "X_NOT", [x.Text]) : x;
+    }
 }
 
-/// <summary>칸 하나(라벨 + 글).</summary>
-public sealed class ArgBox(string label, string text) : Observable
+/// <summary>칸 하나: 종류에 맞는 편집기(고를 수 있으면 드롭다운, 숫자는 범위 칸, 그 밖은 글).</summary>
+public sealed class ArgBox : Observable
 {
-    public string Label { get; } = label;
-    string t = text;
-    public string Text { get => t; set => Set(ref t, value); }
+    public string Label { get; }
+    public IReadOnlyList<string>? Options { get; }
+    public bool IsList => Options != null;
+    public bool IsBox => Options == null;
+    public bool IsNumber { get; }
+    public long Min { get; }
+    public long Max { get; }
+    public string Range => IsNumber ? $"{Min}~{Max}" : "";
+
+    string t;
+    public string Text
+    {
+        get => t;
+        set { if (Set(ref t, value)) Raise(nameof(Invalid)); }
+    }
+
+    /// <summary>열었을 때 값 그대로인 칸은 범위 밖이어도 막지 않는다(바꾼 칸만 범위 검사). 기존 줄의 <c>ID( 3, 150 )</c> 같은 값.</summary>
+    public bool Invalid => IsNumber && t.Trim() != opened && !(long.TryParse(t.Trim(), out var v) && v >= Min && v <= Max);
+
+    readonly string opened;
+
+    public ArgBox(ArgSpec spec, string text, NameDict names)
+    {
+        Label = spec.Label;
+        t = text;
+        opened = text.Trim();
+        switch (Choices.EditorOf(spec))
+        {
+            case FieldEditor.Words:
+                Options = spec.Words!.Contains(text) ? spec.Words : [text, .. spec.Words!];
+                break;
+            case FieldEditor.Names when Choices.For(spec, names).Select(c => c.Name).ToList() is { Count: > 0 } list:
+                Options = list.Contains(text) ? list : [text, .. list];
+                break;
+            case FieldEditor.Number when long.TryParse(text.Trim(), out _): // 이름 상수가 든 칸은 글 상자로 둔다(막지 않는다)
+                IsNumber = true;
+                (Min, Max) = (spec.Min, Math.Max(spec.Min, spec.Max));
+                break;
+        }
+    }
+
+    /// <summary>새 칸의 기본 글: 목록 첫 값, 숫자는 범위 최소.</summary>
+    public static string Default(ArgSpec spec, NameDict names) => Choices.EditorOf(spec) switch
+    {
+        FieldEditor.Words => spec.Words![0],
+        FieldEditor.Names => Choices.For(spec, names).FirstOrDefault()?.Name ?? "0",
+        FieldEditor.Number => spec.Min.ToString(),
+        _ => "0",
+    };
 }
 
 /// <summary>입력 묶음: 켜짐 / 꺼짐 / 하나라도 + 신호 여러 개.</summary>
@@ -175,14 +246,23 @@ public sealed class GroupVm : Observable
     public string KindText { get => KindList.First(k => k.Name == kind).Text; set => Set(ref kind, KindList.First(k => k.Text == value).Name); }
     public string KindName => kind;
 
-    public IReadOnlyList<SignalVm> Signals { get; }
+    public IReadOnlyList<SignalVm> Signals { get; private set; } = [];
 
     public GroupVm(string kind, IReadOnlyList<Choice> inputs, IEnumerable<string> on)
     {
         this.kind = kind;
-        var set = on.ToHashSet();
-        Signals = inputs.Select(c => new SignalVm(c.Name, c.Note, set.Contains(c.Name))).ToList();
+        SetChoices(inputs, on.ToHashSet());
     }
+
+    /// <summary>목록을 다시 만든다(걸러 보기 토글). 켜 둔 신호는 그대로 둔다.</summary>
+    public void SetChoices(IReadOnlyList<Choice> inputs, ISet<string>? on = null)
+    {
+        var set = on ?? Signals.Where(s => s.On).Select(s => s.Name).ToHashSet();
+        Signals = inputs.Select(c => new SignalVm(c.Name, c.Note, set.Contains(c.Name))).ToList();
+        Raise(nameof(Signals));
+    }
+
+    public bool IsOn(string name) => Signals.Any(s => s.On && s.Name == name);
 
     public string? Text
     {
@@ -208,8 +288,11 @@ public sealed class SignalVm(string name, string? note, bool on) : Observable
 /// </summary>
 public sealed class InputVm : Observable
 {
-    readonly IReadOnlyList<Choice> inputs;
+    IReadOnlyList<Choice> inputs;
     readonly bool wrap;
+    readonly NameDict names;
+    readonly SignalScope? scope;
+    readonly string? raw;
 
     public string Label { get; }
     public ObservableCollection<GroupVm> Groups { get; } = [];
@@ -221,17 +304,42 @@ public sealed class InputVm : Observable
     public ICommand AddGroup { get; }
     public ICommand RemoveGroup { get; }
 
-    public InputVm(string label, Arg? arg, NameDict names, bool wrap) : this(label, arg?.Node, arg?.Text, names, wrap) { }
+    public InputVm(string label, Arg? arg, NameDict names, bool wrap, SignalScope? scope = null) : this(label, arg?.Node, arg?.Text, names, wrap, scope) { }
 
-    public InputVm(string label, Node? node, string? raw, NameDict names, bool wrap)
+    public InputVm(string label, Node? node, string? raw, NameDict names, bool wrap, SignalScope? scope = null)
     {
         Label = label;
         this.wrap = wrap;
-        // 조건에는 논리 입력 ID 32 이상(IN_AMP_*)·IO_NONE 을 못 쓴다: 이미 쓴 것만 남긴다
-        inputs = Choices.For(new ArgSpec(ArgKind.Input), names).Where(c => !(long.TryParse(c.Note, out var id) && id >= 32) || raw?.Contains(c.Name) == true).ToList();
+        this.names = names;
+        this.scope = scope;
+        this.raw = raw;
+        inputs = Build();
         if (node != null && !ReadGroups(node)) RawInput = raw;
         AddGroup = new Command(() => Groups.Add(new GroupVm("ON", inputs, [])), () => RawInput == null);
         RemoveGroup = new Command(p => { if (p is GroupVm g) Groups.Remove(g); });
+    }
+
+    /// <summary>
+    /// 고를 입력: 조건에는 논리 입력 ID 32 이상(IN_AMP_*)·IO_NONE 을 못 쓴다(이미 쓴 것만 남긴다).
+    /// 그 줄 프로파일에 맞는 신호 + 지정 없는 신호만(이미 쓴 것은 남긴다).
+    /// </summary>
+    IReadOnlyList<Choice> Build() =>
+        Choices.For(new ArgSpec(ArgKind.Input), names, scope, n => raw?.Contains(n) == true || Groups.Any(g => g.IsOn(n)))
+            .Where(c => !(long.TryParse(c.Note, out var id) && id >= 32) || raw?.Contains(c.Name) == true).ToList();
+
+    /// <summary>"전체" 토글(끄면 걸러 보기, 켜면 전부). 가려질 신호가 없으면 토글을 보이지 않는다.</summary>
+    public bool CanToggle => scope?.CanToggle == true;
+    public bool ShowAll
+    {
+        get => SignalScope.ShowAll;
+        set
+        {
+            if (SignalScope.ShowAll == value) return;
+            SignalScope.ShowAll = value;
+            inputs = Build();
+            foreach (var g in Groups) g.SetChoices(inputs);
+            Raise();
+        }
     }
 
     bool ReadGroups(Node n)
@@ -276,23 +384,28 @@ public sealed class CondVm : DialogVm
     public ICommand AddGroup => In.AddGroup;
     public ICommand Ok { get; }
 
-    public CondVm(TagRule rule, NameDict names)
+    public CondVm(TagRule rule, NameDict names, SignalScope? scope = null)
     {
         var read = TagEdit.ReadCondition(rule);
-        var xs = (read?.X ?? []).Select(x => names.NewDsl ? StateWords.ToState(x) ?? x : x).ToList();
-        var kinds = names.NewDsl ? XRowVm.StateKinds : XRowVm.Kinds;
+        var xs = (read?.X ?? []).Select(x => names.NewDsl ? StateWords.ToState(x) ?? x : x)
+            .Select(Unwrap).ToList(); // (조건, 반전) : NOT( x ) → x + 반전
+        var kinds = (names.NewDsl ? XRowVm.StateKinds : XRowVm.Kinds).Where(k => !XRowVm.IsNot(k.Name)).ToList();
         // 새 코어에서 옮길 수 없는 옛 조건(X_STATION_RUNNING)은 그 종류를 남긴다: 안 그러면 줄이 사라진다
-        XKinds = [.. kinds, .. xs.Where(x => kinds.All(k => k.Name != x.Name)).Select(x => XRowVm.Kinds.FirstOrDefault(k => k.Name == x.Name)).OfType<GrammarEntry>()];
-        foreach (var x in xs)
-            if (XKinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args, XKinds));
+        XKinds = [.. kinds, .. xs.Where(x => kinds.All(k => k.Name != x.Cond.Name)).Select(x => XRowVm.Kinds.Concat(XRowVm.StateKinds).FirstOrDefault(k => k.Name == x.Cond.Name)).OfType<GrammarEntry>().Distinct()];
+        foreach (var (x, neg) in xs)
+            if (XKinds.FirstOrDefault(k => k.Name == x.Name && k.Args.Count == x.Args.Count) is { } k) XRows.Add(new XRowVm(k, x.Args, XKinds, names, neg));
         // 입력 조건 글은 읽는 쪽(ReadCondition)이 새 형식·옛 형식 모두 IN( … ) 하나나 묶음 하나로 돌려준다
         var text = read?.Input;
         var node = text != null ? Expr.Parse(text) : null;
-        In = new InputVm("입력", node, text, names, wrap: false);
-        AddX = new Command(() => XRows.Add(new XRowVm(XKinds.First(k => k.Name == (names.NewDsl ? "FORWARD" : "X_FORWARD")), [], XKinds)), () => XRows.Count < 2);
+        In = new InputVm("입력", node, text, names, wrap: false, scope);
+        AddX = new Command(() => XRows.Add(new XRowVm(XKinds.First(k => k.Name == (names.NewDsl ? "FORWARD" : "X_FORWARD")), [], XKinds, names)), () => XRows.Count < 2);
         RemoveX = new Command(p => { if (p is XRowVm x) XRows.Remove(x); });
-        Ok = new Command(() => Close("ok"));
+        Ok = new Command(() => Close("ok"), () => XRows.All(r => r.Valid));
     }
+
+    /// <summary>NOT( x ) / X_NOT( x ) 를 x + 반전으로 푼다(안이 또 NOT 이거나 못 읽으면 그대로).</summary>
+    static (XCond Cond, bool Negate) Unwrap(XCond x) =>
+        XRowVm.IsNot(x.Name) && x.Args.Count == 1 && Expr.Parse(x.Args[0]) is { } n && XCond.FromNode(n) is { } inner && !XRowVm.IsNot(inner.Name) ? (inner, true) : (x, false);
 
     public IReadOnlyList<XCond> X => XRows.Select(r => r.ToCond()).ToList();
 
@@ -302,11 +415,11 @@ public sealed class CondVm : DialogVm
 /// <summary>적재 조건 팝업(<c>LOAD_IF( 이름, 조건 1[, 조건 2] )</c>): 조건 둘, 둘째는 없어도 된다.</summary>
 public sealed class LoadVm : DialogVm
 {
-    public LoadVm(Statement st, NameDict names)
+    public LoadVm(Statement st, NameDict names, SignalScope? scope = null)
     {
         Name = st.Args[0].Text;
-        First = new InputVm("조건 1", st.Args.Count > 1 ? st.Args[1] : null, names, wrap: true);
-        Second = new InputVm("조건 2", st.Args.Count > 2 ? st.Args[2] : null, names, wrap: true);
+        First = new InputVm("조건 1", st.Args.Count > 1 ? st.Args[1] : null, names, wrap: true, scope);
+        Second = new InputVm("조건 2", st.Args.Count > 2 ? st.Args[2] : null, names, wrap: true, scope);
         Ok = new Command(() => Close("ok"), () => First.Groups.Any(g => g.Text != null) || First.RawInput != null);
     }
 
@@ -322,12 +435,12 @@ public sealed class ManCondVm : DialogVm
 {
     public static readonly IReadOnlyList<string> Keys = CoreConstants.Keys;
 
-    public ManCondVm(Arg cond, NameDict names)
+    public ManCondVm(Arg cond, NameDict names, SignalScope? scope = null)
     {
         var n = cond.Node;
         if (n is CallNode { Name: "KEY", Args.Count: 1 } k) { mode = 1; key = k.Args[0].Text.Trim(); }
         else if (n is NameNode { Name: "NO_IN" }) mode = 2;
-        In = new InputVm("입력", mode == 0 ? cond : null, names, wrap: true);
+        In = new InputVm("입력", mode == 0 ? cond : null, names, wrap: true, scope);
         Ok = new Command(() => Close("ok"));
     }
 
@@ -353,6 +466,38 @@ public sealed class ManCondVm : DialogVm
 
     /// <summary>조건 칸 글: <c>IN( … )</c> / <c>KEY( 키 )</c> / <c>NO_IN</c>(입력 묶음이 없어도).</summary>
     public string Text => mode switch { 1 => $"KEY( {key} )", 2 => "NO_IN", _ => In.Text() ?? "NO_IN" };
+}
+
+/// <summary>IO 맵 신호가 쓰는 프로파일 고르기(토큰). 비면 모두.</summary>
+public sealed class PfPickVm : DialogVm
+{
+    public PfPickVm(string title, IReadOnlyList<string> choices, IEnumerable<string> current)
+    {
+        this.title = title;
+        ProfileChoices = choices;
+        foreach (var p in current) Profiles.Add(p);
+        Profiles.CollectionChanged += (_, _) => Raise(nameof(IsAll));
+        RemoveProfile = new Command(p => { if (p is string s) Profiles.Remove(s); });
+        Ok = new Command(() => Close("ok"));
+    }
+
+    readonly string title;
+    public override string Title => title;
+    public ObservableCollection<string> Profiles { get; } = [];
+    public IReadOnlyList<string> ProfileChoices { get; }
+    public ICommand RemoveProfile { get; }
+    public ICommand Ok { get; }
+
+    /// <summary>고른 것이 없다 = 모든 프로파일.</summary>
+    public bool IsAll => Profiles.Count == 0;
+
+    public string? AddPick
+    {
+        get => null;
+        set { if (value != null && !Profiles.Contains(value)) Profiles.Add(value); Raise(); }
+    }
+
+    public List<string> List => Profiles.ToList();
 }
 
 /// <summary>이름 하나 받기(새 프로파일, 이름 바꾸기).</summary>

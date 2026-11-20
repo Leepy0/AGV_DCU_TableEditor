@@ -31,6 +31,12 @@
                         <TextBlock Text="{Binding Note}" Style="{StaticResource BlockSmall}" Margin="{StaticResource Gap.L12}"
                                    Visibility="{Binding Note, Converter={StaticResource Shown}}"/>
                     </StackPanel>
+                    <DataTemplate.Triggers>
+                        <!-- 대응표가 없는 시퀀스 ID: 흐리게(고를 수는 있다) -->
+                        <DataTrigger Binding="{Binding Group}" Value="연결 없음">
+                            <Setter Property="Opacity" Value="{StaticResource Dim}"/>
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
                 </DataTemplate>
             </ComboBox.ItemTemplate>
         </ComboBox>

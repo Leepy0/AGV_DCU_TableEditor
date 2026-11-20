@@ -215,6 +215,16 @@ public sealed class TagVm : BlockHost
     public override bool IsTagArea => true;
     protected override Piece? CodePiece => Selected?.Piece;
 
+    /// <summary>태그 줄의 프로파일(ANY_PROFILE 은 전부). 동작 칸의 시퀀스 ID 는 <c>ID → 표</c> 로 묶는다.</summary>
+    protected override SignalScope? ScopeFor() => ScopeOf(Site, Selected?.Rule);
+
+    public static SignalScope ScopeOf(Site s, TagRule? r)
+    {
+        var sc = SignalScope.Of(s, r?.AnyProfile == false ? r.Profile : null);
+        sc.Seq = true;
+        return sc;
+    }
+
     protected override void OnPicked()
     {
         Raise(nameof(DetailTitle));

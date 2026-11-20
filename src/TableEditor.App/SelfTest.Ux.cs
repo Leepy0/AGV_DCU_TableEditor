@@ -425,6 +425,8 @@ public sealed partial class SelfTest
         tadd.Category = "속도·방향";
         tadd.Command = tadd.Commands.First(c => c.Entry.Name == "AGV_SPEED");
         Check(tadd.Note == "단계 HIGH·LOW·LLOW·MIN", $"속도 설명 ({tadd.Note})");
+        tadd.Category = "보고";
+        tadd.Command = tadd.Commands.First();
         await Shot("tag_action_add.png");
         tadd.Close(null);
         await taddDone;

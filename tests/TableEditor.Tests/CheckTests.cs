@@ -98,6 +98,8 @@ static class CheckTests
         yield return ("I-5", E, [new("act_table.c", "BELT_ON( 2, CW )", "BELT_ON( 2, CCW )")], "없는 방향 2 CCW");
         yield return ("I-5", E, [new("io_map.h", "#define BELTLIFT_CCW    OUTS( DEMO_LIFT_DOWN )", "#define BELTLIFT_CCW    OUTS( DEMO_LIFT_DOWN )\n#define BELT7_CW        OUTS( DEMO_LAMP )")], "벨트 한쪽만 7");
         yield return ("I-6", W, [Tag("TAG_IF( 206, ANY_PROFILE, IF_IN( ON(DEMO_SPARE_IN) ), AGV_STOP )")], "미연결 신호 DEMO_SPARE_IN");
+        yield return ("I-7", W, [new("io_map.h", "#define DEMO_LAMP       OUT_LAMP_Y", "#define DEMO_LAMP       OUT_LAMP_Y    /* pf: PF_NOPE */")], "프로파일 없음 PF_NOPE");
+        yield return ("I-7", W, [new("io_map.h", "#define DEMO_LAMP       OUT_LAMP_Y", "#define DEMO_LAMP       OUT_LAMP_Y    /* pf: PF_A*B */")], "pf 글 틀림");
         yield return ("T-1", E, [Tag("TAG( 207, ANY_PROFILE, AGV_TURN( CW, 90, 0, 1, 0 ), AGV_STOP( TAPE ) )")], "회전 + 정지");
         yield return ("T-2", E, [Tag("TAG( 208, ANY_PROFILE, AGV_TURN( CW, 90, 0, 1, 0 ), AGV_TURN( CCW, 90, 0, 1, 0 ) )")], "회전 둘");
         yield return ("T-3", E, [Tag("TAG( 209, ANY_PROFILE, AGV_STOP( TAPE ), AGV_STOP( TAPE_GD ) )")], "교차선 정지 둘");

@@ -116,14 +116,14 @@
                 </StackPanel>
             </Border>
 
-            <!-- 코어: 지금 버전 + [코어 올리기](사양 8.6절) -->
+            <!-- 코어: 지금 버전 + [코어 버전 변경](사양 8.6절) -->
             <TextBlock Grid.Row="8" Text="코어" Style="{StaticResource SetLabel}"/>
             <StackPanel Grid.Row="8" Grid.Column="2" Orientation="Horizontal" Margin="{StaticResource Gap.B16}">
                 <Border Style="{StaticResource FieldBox}" Width="{StaticResource SettingsBox}" Margin="{StaticResource Gap.R8}">
                     <TextBlock Text="{Binding DataContext.CoreVersion, RelativeSource={RelativeSource AncestorType=Window}, TargetNullValue=—}" FontWeight="{StaticResource Semi}"
                                VerticalAlignment="Center"/>
                 </Border>
-                <Button Content="코어 올리기" Style="{StaticResource Btn}" Width="{StaticResource WideButtonWidth}"
+                <Button Content="코어 버전 변경" Style="{StaticResource Btn}" Width="{StaticResource WideButtonWidth}"
                         Command="{Binding DataContext.UpdateCore, RelativeSource={RelativeSource AncestorType=Window}}"/>
             </StackPanel>
 
@@ -162,6 +162,8 @@
                         <TextBlock Text="{Binding Update.ChipText}" FontWeight="{StaticResource Semi}" VerticalAlignment="Center"/>
                     </Border>
                 </StackPanel>
+                <TextBlock Text="{Binding Update.FailureDetail}" Style="{StaticResource T.Faint}" TextWrapping="Wrap" Margin="{StaticResource Gap.T8}"
+                           Visibility="{Binding Update.FailureDetail, Converter={StaticResource Shown}}" AutomationProperties.Name="확인 실패"/>
                 <ProgressBar Width="{StaticResource SettingsBox}" HorizontalAlignment="Left" Height="{StaticResource Bar.W}" Margin="{StaticResource Gap.T8}"
                              Maximum="100" Value="{Binding Update.Progress, Mode=OneWay}" Visibility="{Binding Update.IsDownloading, Converter={StaticResource Shown}}"/>
             </StackPanel>

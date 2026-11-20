@@ -3,7 +3,7 @@ using TableEditor.Engine.Grammar;
 using TableEditor.Engine.Ops;
 
 /// <summary>
-/// 작업 6 시험: 깃·회차·코어 올리기. $env:TEMP 아래에 맨(bare) 원격 하나와 작업 폴더 둘(a, b)을 만들어 쓴다.
+/// 작업 6 시험: 깃·회차·코어 버전 변경. $env:TEMP 아래에 맨(bare) 원격 하나와 작업 폴더 둘(a, b)을 만들어 쓴다.
 /// 원격은 그 맨 저장소뿐이다(실제 원격에 닿지 않는다). 사이트 T900_DEMO, 이미지 agv_900 은 지어낸 것.
 /// </summary>
 static class GitTests
@@ -265,7 +265,7 @@ static class GitTests
             ("버리기", Wait(ga.DiscardAsync(Site)).Outcome),
             ("보관하고 받기", Wait(ga.KeepMineAndResetAsync()).Outcome),
             ("회차", Wait(Round.RunAsync(ga, Site, b)).Outcome),
-            ("코어 올리기", Wait(CoreUpdate.RunAsync(ga, Site, GrammarTable.Version, null, b)).Outcome),
+            ("코어 버전 변경", Wait(CoreUpdate.RunAsync(ga, Site, GrammarTable.Version, null, b)).Outcome),
         };
         foreach (var (what, o) in results) check(o == GitOutcome.Refused, $"16 master 아닌 가지: {what} = Refused ({o})");
         check(!built && Out(fx.A, "rev-parse", "HEAD") == head && Read(fx.A, Tags).Contains("TAG( 16,") && Out(fx.A, "branch", "--list", "keep/*") == "", "16 master 아닌 가지: 아무것도 안 바뀜");
@@ -646,9 +646,9 @@ static class GitTests
         var bad = Wait(CoreUpdate.RunAsync(fx.Ga, Site, "v99.0.0", null, Fake("C")));
         check(!bad.Ok && Read(fx.A, "core/VERSION").StartsWith(ver) && !File.Exists(Path.Combine(fx.A, "core", "junk.txt")) && Wait(fx.Ga.StatusAsync())!.Clean,
             $"A-14 없는 태그 → 실패, core/ 원상 ({bad.Reason})");
-        check(!Wait(CoreUpdate.RunAsync(fx.Ga, Site, "v1.0; rm", null, Fake("C"))).Ok, "코어 올리기: 버전 글 검사");
+        check(!Wait(CoreUpdate.RunAsync(fx.Ga, Site, "v1.0; rm", null, Fake("C"))).Ok, "코어 버전 변경: 버전 글 검사");
         Write(fx.A, "core/extra.h", "x");
-        check(Wait(CoreUpdate.RunAsync(fx.Ga, Site, ver, null, Fake("C"))).Outcome == GitOutcome.Dirty, "코어 올리기: core 에 새 파일이 있으면 안 함");
+        check(Wait(CoreUpdate.RunAsync(fx.Ga, Site, ver, null, Fake("C"))).Outcome == GitOutcome.Dirty, "코어 버전 변경: core 에 새 파일이 있으면 안 함");
         File.Delete(Path.Combine(fx.A, "core", "extra.h"));
 
         // 버전 목록: 맨 저장소의 태그(dist-v* 만, ^{} 줄·소스 태그 v* 제외)
@@ -679,8 +679,8 @@ static class GitTests
         check(Git.CheckLog([L("push", "--force-with-lease", "origin", "master")]).Count >= 1, "검사기: --force-with-lease");
         check(Git.CheckLog([L("push", "origin", "+master")]).Count == 1, "검사기: +가지");
         check(Git.CheckLog(["# push-url https://github.com/Leepy0/AGV_DCU_Core.git", L("push", "origin", "master")]).Count == 1, "검사기: 코어 주소 push");
-        check(Git.CheckLog(["# save T900_DEMO", L("add", "--", "core")]).Count == 1, "검사기: 코어 올리기 밖 core 변경");
-        check(Git.CheckLog(["# core-update commit v0.1.0", L("add", "--", "core", "site/T900_DEMO/tag_packed.c")]).Count == 0, "검사기: 코어 올리기 안 core 변경 통과");
+        check(Git.CheckLog(["# save T900_DEMO", L("add", "--", "core")]).Count == 1, "검사기: 코어 버전 변경 밖 core 변경");
+        check(Git.CheckLog(["# core-update commit v0.1.0", L("add", "--", "core", "site/T900_DEMO/tag_packed.c")]).Count == 0, "검사기: 코어 버전 변경 안 core 변경 통과");
         check(Git.CheckLog(["# pull T900_DEMO", L("clean", "-fd")]).Count == 1, "검사기: clean 자리");
         check(Git.CheckLog(["# pull T900_DEMO", L("reset", "--hard", "origin/master")]).Count == 1, "검사기: reset --hard 자리");
         check(Git.CombineRoundConflict("a\n<<<<<<< HEAD\n05차 이미지(x\n=======\n06차 이미지(y\n>>>>>>> o\nb\n") == "a\n06차 이미지(y\n05차 이미지(x\nb\n", "README 회차 줄 합치기");

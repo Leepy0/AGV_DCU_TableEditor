@@ -5,7 +5,7 @@ public sealed partial class Git
 {
     /// <summary>
     /// git.log 줄들을 검사해 어긴 것을 돌려준다(없으면 빈 목록): 강제 인자(--force…, push 의 -f·+가지), 코어 저장소로의 push,
-    /// core 를 건드리는 명령이 코어 올리기 밖에서, git clean 이 코어 올리기 밖에서, reset --hard 가 보관 가지 동작 밖에서.
+    /// core 를 건드리는 명령이 코어 버전 변경 밖에서, git clean 이 코어 버전 변경 밖에서, reset --hard 가 보관 가지 동작 밖에서.
     /// </summary>
     public static IReadOnlyList<string> CheckLog(IEnumerable<string> lines, string coreUrl = CoreUpdate.CoreUrl)
     {
@@ -44,7 +44,7 @@ public sealed partial class Git
                     || string.Equals(x.TrimEnd('/'), coreUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))) Bad("코어 주소로 push");
             }
             bool touchesCore = rest.Any(x => x == "core" || x.StartsWith("core/"));
-            if (touchesCore && cmd is "add" or "rm" or "restore" or "clean" or "mv" or "checkout" or "reset" && !inCore) Bad("코어 올리기 밖에서 core 변경");
+            if (touchesCore && cmd is "add" or "rm" or "restore" or "clean" or "mv" or "checkout" or "reset" && !inCore) Bad("코어 버전 변경 밖에서 core 변경");
             if (cmd == "clean" && !inCore) Bad("git clean 자리 아님");
             if (cmd == "reset" && rest.Contains("--hard") && marker != "keep-and-reset") Bad("reset --hard 자리 아님");
         }

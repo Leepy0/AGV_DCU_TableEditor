@@ -100,16 +100,16 @@
                 <RowDefinition Height="{StaticResource ResRowLength}"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="개발" Style="{StaticResource ResLabel}"/>
+            <TextBlock Text="시험용" Style="{StaticResource ResLabel}"/>
             <TextBlock Grid.Column="1" Text="{Binding DevText}" ToolTip="{Binding DevOut}" Style="{StaticResource ResPath}"/>
-            <TextBlock Grid.Row="1" Text="현장" Style="{StaticResource ResLabel}"/>
+            <TextBlock Grid.Row="1" Text="현장용" Style="{StaticResource ResLabel}"/>
             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FieldText}" ToolTip="{Binding FieldOut}" Style="{StaticResource ResPath}"/>
             <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="폴더 열기" Style="{StaticResource Btn}" Command="{Binding OpenFolder}" Margin="{StaticResource Gap.R8}"/>
                 <Button Content="회차 내기" Style="{StaticResource Btn.Outline}" Command="{Binding Round}"/>
             </StackPanel>
 
-            <!-- 회차 줄 머리 + [README 열기] / 코어 올리기 결과 줄 -->
+            <!-- 회차 줄 머리 + [README 열기] / 코어 버전 변경 결과 줄 -->
             <StackPanel Grid.Row="2" Grid.ColumnSpan="3">
                 <Grid MinHeight="{StaticResource ResRowHeight}" Margin="{StaticResource Gap.T8}" Visibility="{Binding HasReadme, Converter={StaticResource Shown}}">
                     <Grid.ColumnDefinitions>
