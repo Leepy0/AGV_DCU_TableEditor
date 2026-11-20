@@ -275,7 +275,7 @@ public sealed class ProfileVm : BlockHost
             res = SiteEdit.SetArg(res.Site, st, st.Args[i], text);
             if (!res.Ok) break;
         }
-        if (!Main.Apply(res)) r.ResetDrafts();
+        if (!Main.Apply(res with { Base = Site })) r.ResetDrafts();
     }
 
     public void SetProfile(ProfileRowVm r, string name)
@@ -297,7 +297,7 @@ public sealed class ProfileVm : BlockHost
             res = SiteEdit.Delete(res.Site, [added]);
             if (res.Ok && res.Site!.File(key.File)!.Pieces[key.Index] is Statement st) res = SiteEdit.SetArg(res.Site, st, st.Args[0], name);
         }
-        if (!Main.Apply(res)) r.ResetDrafts();
+        if (!Main.Apply(res with { Base = Site })) r.ResetDrafts();
     }
 
     async Task<string?> AskName(string title, string text, string ok)
@@ -401,7 +401,9 @@ public sealed class ProfileVm : BlockHost
 public static class ProfileEdit
 {
     /// <summary>적재: 매크로 이름(name)과 다섯째 칸(arg, null = 없음).</summary>
-    public static EditResult SetLoad(Site site, Statement st, string name, string? arg)
+    public static EditResult SetLoad(Site site, Statement st, string name, string? arg) => SetLoadFrom(site, st, name, arg) with { Base = site };
+
+    static EditResult SetLoadFrom(Site site, Statement st, string name, string? arg)
     {
         var key = BlockHost.Locate(site, st);
         Statement At(Site s) => (Statement)s.File(key.File)!.Pieces[key.Index];
@@ -415,7 +417,9 @@ public static class ProfileEdit
     }
 
     /// <summary>LOAD_IF 조건 둘: 둘째가 null 이면 지운다.</summary>
-    public static EditResult SetLoadIf(Site site, Statement st, string? first, string? second)
+    public static EditResult SetLoadIf(Site site, Statement st, string? first, string? second) => SetLoadIfFrom(site, st, first, second) with { Base = site };
+
+    static EditResult SetLoadIfFrom(Site site, Statement st, string? first, string? second)
     {
         if (first == null) return new EditResult(null, "조건 1 없음", []);
         var key = BlockHost.Locate(site, st);

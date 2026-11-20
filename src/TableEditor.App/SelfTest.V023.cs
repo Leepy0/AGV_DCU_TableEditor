@@ -5,6 +5,7 @@ using System.Windows.Media;
 using TableEditor.App.Blocks;
 using TableEditor.App.ViewModels;
 using TableEditor.Engine.Model;
+using TableEditor.Engine.Text;
 
 namespace TableEditor.App;
 
@@ -85,6 +86,32 @@ public sealed partial class SelfTest
         Chk("시퀀스", vm.Seq.Steps.Select(r => (object)r.Piece));
         Chk("대응표", vm.Map.Rows.Select(r => (object)r.Piece));
         return bad;
+    }
+
+    async Task V023Stale()
+    {
+        Step("25 낡은 사이트 기준 편집은 적용 안 함");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var old = vm.Site!;
+        var st = old.File("tag_table.c")!.Pieces.OfType<Statement>().First();
+        Check(vm.Apply(SiteEdit.SetComment(old, st, "a")), "지금 사이트 기준 편집은 적용");
+        await Idle();
+        var live = vm.Site!;
+        string text = TagText;
+        int changes = vm.ChangeCount, fails = vm.ApplyFailures;
+        vm.ClearNotice();
+        var stale = SiteEdit.SetComment(old, st, "낡음");
+        Check(stale.Ok && ReferenceEquals(stale.Base, old), "낡은 사이트에서 만든 편집 결과");
+        Check(!vm.Apply(stale), "낡은 기준 편집은 거부");
+        await Idle();
+        Check(vm.Notice == "화면 다시 읽음" && vm.ApplyFailures == fails + 1, $"알림 ({vm.Notice})");
+        Check(ReferenceEquals(vm.Site, live) && vm.ChangeCount == changes && TagText == text, "사이트·변경 수·원문 그대로(그 사이 편집이 안 지워짐)");
+        Check(StaleViews().Count == 0, "거부 뒤 전체 다시 그림: 모든 줄 VM 이 현재 사이트");
+        vm.ClearNotice();
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(ReferenceEquals(vm.Site, old), "되돌리면 처음 사이트");
     }
 
     async Task V023Defer()

@@ -249,6 +249,7 @@ public sealed partial class MainVm : Observable
         if (history == null) return false;
         if (IsReadOnly) { ApplyFailures++; Notify("읽기 전용"); Refresh(null, draft: false); return false; }
         if (!r.Ok) { ApplyFailures++; Notify(r.Error ?? "막힘"); return false; }
+        if (r.Base != null && !ReferenceEquals(r.Base, history.Current)) { ApplyFailures++; Notify("화면 다시 읽음"); Refresh(null, draft: false); return false; }
         if (ReferenceEquals(r.Site, history.Current)) return true;
         history.Push(r);
         Refresh(r.Touched, defer: true);

@@ -287,7 +287,7 @@ public sealed class TagVm : BlockHost
             : TagEdit.Renumber(site, rules, first);
         if (r.Ok && r.Touched.Count > 0 && row.Rule.IsRange && m.Groups[2].Success && long.Parse(m.Groups[2].Value) is var last && rules.Count == 1
             && r.Touched.OfType<Statement>().FirstOrDefault() is { } moved && new TagRule(moved) is var nr && r.Site!.Num(nr.LastArg) != last)
-            r = SiteEdit.SetArg(r.Site, moved, nr.LastArg, last.ToString());
+            r = SiteEdit.SetArg(r.Site, moved, nr.LastArg, last.ToString()) with { Base = site };
         if (!main.Apply(r)) row.ResetDrafts();
     }
 

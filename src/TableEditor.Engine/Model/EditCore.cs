@@ -15,8 +15,10 @@ public sealed record FileStamp(long Size, DateTime WriteUtc, string Sha256)
 /// <summary>
 /// 편집 명령의 결과. Site = 새 사이트(받은 사이트는 그대로), 막히면 null 이고 Error 에 까닭.
 /// Touched = 새 사이트에서 이 명령이 쓴 조각(고친·넣은·옮긴 줄). 화면이 고를 줄.
+/// Base = 이 결과를 만든 기준 사이트(명령 여럿을 이으면 맨 처음 것). 쌓을 때 기준이 지금 사이트가 아니면 적용하지 않는다
+/// (낡은 화면이 낸 편집이 그 사이 편집을 지우지 않게). null = 검사 안 함.
 /// </summary>
-public sealed record EditResult(Site? Site, string? Error, IReadOnlyList<Piece> Touched)
+public sealed record EditResult(Site? Site, string? Error, IReadOnlyList<Piece> Touched, Site? Base = null)
 {
     public bool Ok => Site != null;
     internal static EditResult Fail(string why) => new(null, why, []);
@@ -157,7 +159,7 @@ internal sealed class Splice(Site site)
             list[list.IndexOf(f)] = nf;
             touched.AddRange(nf.Pieces.Where(p => p.Kind != PieceKind.Blank && marks.Any(m => p.StartLine <= m.To && p.EndLine >= m.From)));
         }
-        return new EditResult(site.With(list), null, touched);
+        return new EditResult(site.With(list), null, touched, site);
     }
 }
 
