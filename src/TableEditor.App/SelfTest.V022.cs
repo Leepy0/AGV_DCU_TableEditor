@@ -127,5 +127,10 @@ public sealed partial class SelfTest
         var any = Choices.For(sf.Info.Spec, vm.Site!.Names, TagVm.ScopeOf(vm.Site, null)).ToList();
         Check(any.First(x => x.Name == "LOAD").Note == vm.Site.SeqMap.Where(m => m.Id == "SEQ_LOAD").Select(m => m.Profile).Distinct().Count() + "곳" && any.First(x => x.Name == "DEMO_SHUTTLE").Note == "4곳" && any.First(x => x.Name == "CART_LOAD").Note == "1곳"
             && any.Any(x => x.Group == Choices.Unlinked), $"ANY_PROFILE 줄: 연결된 프로파일 수 ({string.Join(", ", any.Where(x => x.Name is "LOAD" or "DEMO_SHUTTLE" or "CART_LOAD").Select(x => x.Name + " " + x.Note))})");
+
+        Step("12 보고 기본 글: 태그 새 동작 ACS 는 칸 0 = 1칸 ACS( 종류, STATION0 )");
+        var acs = GrammarTable.Find("ACS", Place.TagAction).First(e => e.TagCells == 2 && e.Args[1].Kind == ArgKind.AcsStation);
+        Check(Choices.DefaultText(acs, vm.Site.Names) == "ACS( LOADING, STATION0 )", $"기본 글 ({Choices.DefaultText(acs, vm.Site.Names)})");
+        Check(vm.ErrorCount == 0, "끝: 오류 0");
     }
 }

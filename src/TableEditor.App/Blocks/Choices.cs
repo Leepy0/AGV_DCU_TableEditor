@@ -84,6 +84,10 @@ public static class Choices
     public static string DefaultText(GrammarEntry e, NameDict names)
     {
         var args = e.Args.Where(a => a.Least > 0).Select(a => DefaultArg(a, names)).ToList();
+        // 태그 보고: 칸 0 기본은 1칸 형식 ACS( 종류, STATION0 )(1칸을 못 쓰는 종류는 2칸 그대로)
+        if (e is { Name: "ACS", Place: Place.TagAction } && e.Args.Count == 2 && e.Args[1].Kind == ArgKind.AcsStation
+            && GrammarTable.Find("ACS", Place.TagAction).FirstOrDefault(r => r.TagCells == 1)?.Args[0].Words is { } one && one.Contains(args[0]))
+            args[1] = "STATION0";
         if (args.Count == 0) return e.Name;
         return e.Spacing == Spacing.Tight ? $"{e.Name}({string.Join(", ", args)})" : $"{e.Name}( {string.Join(", ", args)} )";
     }

@@ -97,7 +97,7 @@ public sealed partial class SelfTest
         await Idle();
         Tag.AddAction(Row(28), acs);
         await Idle();
-        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, STATION(0) )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
+        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, STATION0 )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
         Step("보고 칸: 1칸 STATION0 ↔ 2칸 STATION(k) (새 코어)");
         await StationRoundTrip(28, "ACS( LOADING, STATION0 )", "ACS( LOADING, STATION(2) )");
         var stepNew = SeqEdit.StepRows(false, true).Select(e => e.Name).Distinct().ToList();
