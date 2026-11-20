@@ -132,5 +132,58 @@ public sealed partial class SelfTest
         var acs = GrammarTable.Find("ACS", Place.TagAction).First(e => e.TagCells == 2 && e.Args[1].Kind == ArgKind.AcsStation);
         Check(Choices.DefaultText(acs, vm.Site.Names) == "ACS( LOADING, STATION0 )", $"기본 글 ({Choices.DefaultText(acs, vm.Site.Names)})");
         Check(vm.ErrorCount == 0, "끝: 오류 0");
+
+        Step("13 보고 종류 IDLE: v0.59.0 사이트는 고를 수 있다(시퀀스·태그), v0.58.0 사이트는 목록에 없고 쓰면 V-4");
+        var dir9 = Path.Combine(Path.GetFullPath(work), "dsl_v059");
+        Clear(dir9);
+        Directory.CreateDirectory(dir9);
+        foreach (var f9 in Directory.GetFiles(Path.Combine(RepoRoot(), "tests", "fixtures", "T900_DEMO", "dsl_v058")))
+            File.Copy(f9, Path.Combine(dir9, Path.GetFileName(f9)));
+        var core9 = FakeCore(Path.Combine(Path.GetFullPath(work), "dsl_v059_core"), "v0.59.0");
+        await vm.TryOpen(() => vm.OpenSiteAsync(dir9, core9));
+        await Idle();
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var acsNew = GrammarTable.Find("ACS", Place.TagAction).First(e => e.Since.Length > 0);
+        Tag.AddAction(Row(28), acsNew);
+        await Idle();
+        var kf = Tag.Fields.First(f => f.Info.Spec.Words?.Contains("LOADING") == true);
+        Check(vm.Site!.Names.IdleOk && kf.Items!.Cast<Choice>().Any(c => c.Name == "IDLE"), "v0.59.0 태그: 종류 목록에 IDLE");
+        kf.Picked = kf.Items!.Cast<Choice>().First(c => c.Name == "IDLE");
+        await Idle();
+        Check(Row(28).Rule!.Actions[^1].Text == "ACS( IDLE, STATION0 )" && vm.ErrorCount == 0, $"태그 1칸 IDLE ({Row(28).Rule!.Actions[^1].Text})");
+        var tagIdle = Row(28).Rule!;
+        vm.Apply(SiteEdit.SetArg(vm.Site, tagIdle.St, tagIdle.Actions[^1], "ACS( IDLE, STATION(2) )"));
+        await Idle();
+        Check(Row(28).Rule!.Actions[^1].Text == "ACS( IDLE, STATION(2) )" && vm.ErrorCount == 0, "태그 2칸 IDLE · 오류 0");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.SeqTab);
+        await Idle();
+        var tbl = vm.Site.Seqs.First(t => t.Steps.Any(s => s is Statement { Name: "ACS" })).Name;
+        S.SelectTable(tbl);
+        S.SelectStep(S.Steps.First(r => r.Piece is Statement { Name: "ACS" }), true);
+        await Idle();
+        var sk = S.Fields.First(f => f.Info.Spec.Words?.Contains("LOADING") == true);
+        sk.Picked = sk.Items!.Cast<Choice>().First(c => c.Name == "IDLE");
+        await Idle();
+        Check(S.SelectedStep!.Piece.Text.Contains("ACS( IDLE,") && vm.ErrorCount == 0, $"시퀀스 IDLE ({S.SelectedStep.Piece.Text.Trim()})");
+        while (vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
+
+        var core8 = FakeCore(Path.Combine(Path.GetFullPath(work), "dsl_v059_core58"), "v0.58.0");
+        await vm.TryOpen(() => vm.OpenSiteAsync(dir9, core8));
+        await Idle();
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        Tag.AddAction(Row(28), acsNew);
+        await Idle();
+        var kf8 = Tag.Fields.First(f => f.Info.Spec.Words?.Contains("LOADING") == true);
+        Check(!vm.Site!.Names.IdleOk && !kf8.Items!.Cast<Choice>().Any(c => c.Name == "IDLE") && kf8.Items!.Cast<Choice>().Any(c => c.Name == "STANDBY"), "v0.58.0 태그: 종류 목록에 IDLE 없음");
+        var r8 = Row(28).Rule!;
+        vm.Apply(SiteEdit.SetArg(vm.Site, r8.St, r8.Actions[^1], "ACS( IDLE, STATION0 )"));
+        await Idle();
+        Check(vm.Findings.Any(f => f.Rule == "V-4" && f.IsError && f.Text == "코어 v0.59.0 필요 · IDLE"), "쓰면 V-4 오류 · 코어 v0.59.0 필요");
+        var mode = GrammarTable.Find("MAN").First(e => e.Place == Place.Manual).Args[1];
+        Check(Choices.For(mode, vm.Site.Names).Any(c => c.Name == "IDLE") && ManualVm.Modes.Contains("IDLE"), "수동 표 모드 IDLE 은 그대로(다른 낱말)");
+        while (vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
+        Clear(dir9);
     }
 }

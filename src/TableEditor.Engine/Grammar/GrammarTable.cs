@@ -118,12 +118,20 @@ public static class GrammarTable
     /// <summary>새 DSL 형식(<c>AND( … )</c>·<c>AGV_SPEED( m/min )</c> 등)이 들어온 코어 버전. 사이트 <c>core/VERSION</c> 이 이 이상일 때만 새 줄을 새 형식으로 쓴다.</summary>
     public const string NewVersion = "v0.58.0";
 
+    /// <summary>보고 종류 <c>IDLE</c>(<c>DSL_INFO_IDLE</c> = 'X')이 들어온 코어 버전. 이 미만 사이트는 IDLE 을 고를 수 없고 쓴 줄은 V-4 오류다.</summary>
+    public const string IdleVersion = "v0.59.0";
+
     /// <summary>코어 버전 글(<c>v0.58.0</c>)이 <see cref="NewVersion"/> 이상인가. 모르면(null) 아니다.</summary>
-    public static bool IsNew(string? coreVersion)
+    public static bool IsNew(string? coreVersion) => AtLeast(coreVersion, NewVersion);
+
+    /// <summary>코어 버전에서 보고 종류 IDLE 을 쓸 수 있다(<see cref="IdleVersion"/> 이상). 모르면(null) 아니다.</summary>
+    public static bool IdleOk(string? coreVersion) => AtLeast(coreVersion, IdleVersion);
+
+    static bool AtLeast(string? coreVersion, string min)
     {
         static int[] Parts(string v) => v.TrimStart('v').Split('.').Select(x => int.TryParse(x, out var n) ? n : 0).ToArray();
         if (coreVersion == null) return false;
-        var (a, b) = (Parts(coreVersion), Parts(NewVersion));
+        var (a, b) = (Parts(coreVersion), Parts(min));
         for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
         {
             int c = (i < a.Length ? a[i] : 0).CompareTo(i < b.Length ? b[i] : 0);
@@ -145,7 +153,7 @@ public static class GrammarTable
     static readonly string[] TurnOptTag = ["ALIGN", "TAPE", "OBS"];
     static readonly string[] MoveOpt = ["TAPE", "TAPE_GD"];
     static readonly string[] TimeUnits = ["TICK", "DSEC", "SEC", "MIN"];
-    static readonly string[] Reports = ["LOADING", "UNLOADING", "NEXT", "ARRIVE", "FINISH", "PROCESSING", "STANDBY", "CALL"];
+    static readonly string[] Reports = ["LOADING", "UNLOADING", "NEXT", "ARRIVE", "FINISH", "PROCESSING", "STANDBY", "CALL", "IDLE"];
     static readonly string[] ReportsTag = [.. Reports, "STANDBY_RESET"];
     static readonly string[] Modes = ["IDLE", "JOG"];
     static readonly string[] Keys = ["MODE", "SHIFT", "UP", "RESET", "SET", "DOWN"];

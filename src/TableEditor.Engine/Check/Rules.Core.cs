@@ -66,11 +66,21 @@ public static partial class Checker
     /// <summary>
     /// V-4: 옛 코어(v0.58.0 미만) 사이트가 v0.58.0 에서 생긴 문법을 썼다(<c>AND</c>·<c>ANY</c>·새 상태 낱말·<c>PARAM_TIME</c>·<c>OUT_SET</c>·
     /// 숫자 <c>AGV_SPEED</c>·번호 <c>ACS</c> 등). 줄마다 하나, 낱말을 모아 보인다. 사이트가 같은 이름을 직접 <c>#define</c> 했으면 사이트 매크로로 보고 건너뛴다.
-    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다.
+    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다. 낱말마다 최소 버전이 있다: 보고 종류 <c>IDLE</c> 은 v0.59.0 부터(그 미만이면 줄마다 하나 더).
     /// </summary>
     static IEnumerable<Finding> V4(Facts f)
     {
-        if (f.Site.CoreFolder == null || f.Site.CoreVersion == null || f.Site.NewDsl) yield break;
+        if (f.Site.CoreFolder == null || f.Site.CoreVersion == null) yield break;
+        if (!f.Site.Names.IdleOk)
+            foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
+            {
+                var hit = (st.Name is "ACS" or "ACS_SEND" ? st.Args.Take(1) : [])
+                    .Concat(Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => c.Call.Args[0]))
+                    .FirstOrDefault(a => a.Node is NameNode { Name: "IDLE" });
+                if (hit != null && !f.Names.Get("IDLE").Any(d => !d.Core))
+                    yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", hit);
+            }
+        if (f.Site.NewDsl) yield break;
         var found = new Dictionary<Statement, (Arg? Cell, List<string> Names)>(ReferenceEqualityComparer.Instance);
         void Add(Statement st, Arg? cell, string name)
         {

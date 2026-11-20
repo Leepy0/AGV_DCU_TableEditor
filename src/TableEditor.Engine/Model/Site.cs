@@ -98,6 +98,7 @@ public sealed partial class Site
 
         Zones = files.SelectMany(BlocksOf).ToList();
         Names.NewDsl = NewDsl;
+        Names.IdleOk = GrammarTable.IdleOk(CoreVersion);
         BuildNames();
 
         Profiles = Names.Of(NameKind.Profile).Where(d => !d.Core && d.Def is Statement)

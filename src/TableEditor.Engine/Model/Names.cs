@@ -53,6 +53,9 @@ public sealed class NameDict
     /// <summary>사이트 코어가 v0.58.0 이상(<see cref="Site.NewDsl"/>). 새 줄 쓰기·묶음 개수 한계가 이것으로 갈린다.</summary>
     public bool NewDsl { get; internal set; }
 
+    /// <summary>사이트 코어가 v0.59.0 이상: 보고 종류 <c>IDLE</c> 을 고를 수 있다.</summary>
+    public bool IdleOk { get; internal set; }
+
     internal void Add(NameDef d)
     {
         all.Add(d);

@@ -53,7 +53,8 @@ public static class Choices
             ArgKind.CoreParam => Of(NameKind.CoreParam).Select(d => C(d)),
             ArgKind.FndParam => Of(NameKind.FndParam).Select(d => Labeled(d)),
             ArgKind.ParamAny => Of(NameKind.FndParam).Where(d => !CoreConstants.PlacedParams.Contains(d.Name)).Select(d => Labeled(d)).Concat(Of(NameKind.CoreParam).Select(d => C(d))),
-            ArgKind.Word => (s.Words ?? []).Select(w => new Choice(w, null, "")),
+            // 보고 종류 IDLE 은 코어 v0.59.0 이상 사이트만(수동 표 모드 IDLE 은 다른 낱말이라 건드리지 않는다)
+            ArgKind.Word => (s.Words ?? []).Where(w => w != "IDLE" || names.IdleOk || !s.Words!.Contains("LOADING")).Select(w => new Choice(w, null, "")),
             _ => [],
         };
         return list.DistinctBy(c => c.Name).OrderBy(c => c.Group == "코어" ? 1 : 0).ToList();
