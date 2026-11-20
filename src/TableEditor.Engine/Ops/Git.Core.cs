@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace TableEditor.Engine.Ops;
 
-/// <summary>코어 올리기(사양 8.6절)의 깃 단계. 코어 저장소에는 읽기(ls-remote)만 한다.</summary>
+/// <summary>코어 버전 변경(사양 8.6절)의 깃 단계. 코어 저장소에는 읽기(ls-remote)만 한다.</summary>
 public sealed partial class Git
 {
     static readonly Regex DistTag = new(@"^[0-9a-f]{40}\trefs/tags/dist-(v\d+\.\d+\.\d+)$");
@@ -37,6 +37,6 @@ public sealed partial class Git
         return !r.Ok ? Fail(r, "git restore") : !c.Ok ? Fail(c, "git clean") : new(GitOutcome.Ok);
     }
 
-    /// <summary>update_core.ps1 같은 바깥 스크립트 실행을 git.log 에 남긴다(코어 변경이 코어 올리기 때만인지 A-11 로 본다).</summary>
+    /// <summary>update_core.ps1 같은 바깥 스크립트 실행을 git.log 에 남긴다(코어 변경이 코어 버전 변경 때만인지 A-11 로 본다).</summary>
     internal void NoteScript(string code, IEnumerable<string> args) => AppendLog(LogPath, $"# core-update script\t{code}\t{string.Join("\t", args)}");
 }

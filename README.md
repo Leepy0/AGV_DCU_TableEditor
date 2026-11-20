@@ -54,7 +54,7 @@ AGV DCU 펌웨어의 사이트 표(프로파일, 태그, 시퀀스, 수동 표)�
 | `tedit pack <앱 루트> <사이트> [--gcc <경로>]` | 압축 태그·시퀀스 표 생성 |
 | `tedit build <앱 루트> <사이트> [--field] [--name <이미지 이름>] [--gcc <경로>]` | 이미지 빌드 |
 | `tedit round <앱 루트> <사이트> --app-url <주소> [--gcc <경로>]` | 회차 내기 |
-| `tedit core-update <앱 루트> <사이트> <vX.Y.Z> --app-url <주소> [--from <주소>] [--gcc <경로>]` | 코어 올리기 |
+| `tedit core-update <앱 루트> <사이트> <vX.Y.Z> --app-url <주소> [--from <주소>] [--gcc <경로>]` | 코어 버전 변경 |
 | `tedit core-versions <앱 루트> [--core-url <주소>]` | 코어 버전 목록 |
 | `tedit git-log-check <git.log> [--core-url <주소>]` | 깃 기록 검사 |
 

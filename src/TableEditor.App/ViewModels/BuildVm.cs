@@ -28,7 +28,7 @@ public sealed class StageVm(string name, int weight) : Observable
 
 /// <summary>
 /// 빌드 결과 화면(사양 9.2절): 단계, 출력 줄(끝 따라가기는 화면이), [취소], 결과 경로 둘, [폴더 열기][회차 내기].
-/// 회차 내기·코어 올리기도 이 화면에 진행을 보인다.
+/// 회차 내기·코어 버전 변경도 이 화면에 진행을 보인다.
 /// </summary>
 public sealed class BuildVm : Observable
 {
@@ -39,8 +39,8 @@ public sealed class BuildVm : Observable
     public const int ToolsWeight = 5;
     public StageVm Check { get; } = new("검사", 5);
     public StageVm Pack { get; } = new("압축", 15);
-    public StageVm Dev { get; } = new("개발", 35);
-    public StageVm Field { get; } = new("현장", 40);
+    public StageVm Dev { get; } = new("시험용", 35);
+    public StageVm Field { get; } = new("현장용", 40);
     public IReadOnlyList<StageVm> Stages { get; }
     public ObservableCollection<string> Lines { get; } = [];
 
@@ -97,7 +97,7 @@ public sealed class BuildVm : Observable
     public string? ReadmePath { get => readmePath; set { readmePath = value; CommandManager.InvalidateRequerySuggested(); } }
     public bool HasReadme => ReadmeLine != null;
 
-    /// <summary>코어 올리기 결과 한 줄(성공: <c>core = …</c>, 실패: 까닭).</summary>
+    /// <summary>코어 버전 변경 결과 한 줄(성공: <c>core = …</c>, 실패: 까닭).</summary>
     public string? ResultLine { get => resultLine; set { if (Set(ref resultLine, value)) Raise(nameof(HasResult)); } }
     public bool HasResult => ResultLine != null;
     string resultLabel = "코어";

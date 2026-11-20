@@ -4,14 +4,14 @@ using TableEditor.Engine.Model;
 
 namespace TableEditor.Engine.Ops;
 
-/// <summary>코어 올리기 결과. Changed = 커밋했다(같은 버전을 다시 받으면 false). Findings = 검사 오류, Errors = 빌드 오류.</summary>
+/// <summary>코어 버전 변경 결과. Changed = 커밋했다(같은 버전을 다시 받으면 false). Findings = 검사 오류, Errors = 빌드 오류.</summary>
 public sealed record CoreResult(GitOutcome Outcome, string? Reason, bool Changed, string? CoreLine, IReadOnlyList<Finding> Findings, ImageBuild? Build)
 {
     public bool Ok => Outcome is GitOutcome.Ok or GitOutcome.NoChange;
 }
 
 /// <summary>
-/// 코어 올리기(사양 8.6절): 깨끗한지 → tools/update_core.ps1 -Ref vX.Y.Z [-From …] → core/VERSION 확인 → 다시 읽기·검사 →
+/// 코어 버전 변경(사양 8.6절): 깨끗한지 → tools/update_core.ps1 -Ref vX.Y.Z [-From …] → core/VERSION 확인 → 다시 읽기·검사 →
 /// 압축·개발·현장 빌드 → 성공이면 core 와 생성물 커밋, 실패면 core·생성물 원상(restore + clean). 화면은 팝업 확인 뒤에 부른다.
 /// </summary>
 public static class CoreUpdate

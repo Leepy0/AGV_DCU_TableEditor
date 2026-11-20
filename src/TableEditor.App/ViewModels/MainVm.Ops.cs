@@ -19,7 +19,7 @@ public delegate Task<PackResult> PackRunner(string appRoot, string site, Action<
 public delegate Task<BuildResult> ImageRunner(string appRoot, string site, bool field, Action<OutputLine>? onLine, CancellationToken ct);
 
 /// <summary>
-/// 깃·빌드·회차·코어 올리기·이력 보기(사양 7·8절). 저장·깃·빌드 동작은 한 줄로 선다(겹치지 않는다).
+/// 깃·빌드·회차·코어 버전 변경·이력 보기(사양 7·8절). 저장·깃·빌드 동작은 한 줄로 선다(겹치지 않는다).
 /// 도는 동안 그 버튼만 흐리고 위 줄에 낱말 + 진행. 편집은 막지 않는다:
 /// 받아서 표가 바뀌었을 때 저장 안 한 편집이 있으면 다시 읽지 않고 "바깥 변경" 칩을 띄운다(저장하면 충돌 팝업).
 /// </summary>
@@ -426,26 +426,26 @@ public sealed partial class MainVm
         return false;
     }
 
-    /// <summary>압축 → 개발 → 현장(단계 표시를 움직인다). 회차 내기·코어 올리기도 이것을 빌드로 쓴다.</summary>
+    /// <summary>압축 → 개발 → 현장(단계 표시를 움직인다). 회차 내기·코어 버전 변경도 이것을 빌드로 쓴다.</summary>
     ImageBuilder StagedBuilder(BuildVm b) => async (app, site, onLine, ct) =>
     {
-        if (b.Check.State == StageState.Run || b.Check.State == StageState.Wait) b.End(b.Check, true); // 코어 올리기: 엔진 검사를 지났다
+        if (b.Check.State == StageState.Run || b.Check.State == StageState.Wait) b.End(b.Check, true); // 코어 버전 변경: 엔진 검사를 지났다
         b.Begin(b.Pack, "압축");
         var pk = await RunPackAsync(app, site, onLine, ct);
         b.End(b.Pack, pk is { Ok: true });
         if (pk is not { Ok: true }) return new(false, null, null, $"압축 · {pk?.Step} · {pk?.Reason}", []);
 
-        b.Begin(b.Dev, "개발 빌드");
+        b.Begin(b.Dev, "시험용 빌드");
         var dev = await Imager(app, site, false, onLine, ct);
         b.End(b.Dev, dev.Ok);
         b.DevOut = dev.OutPath;
-        if (!dev.Ok) return new(false, null, null, "개발 빌드 · " + dev.Reason, dev.Errors);
+        if (!dev.Ok) return new(false, null, null, "시험용 빌드 · " + dev.Reason, dev.Errors);
 
-        b.Begin(b.Field, "현장 빌드");
+        b.Begin(b.Field, "현장용 빌드");
         var field = await Imager(app, site, true, onLine, ct);
         b.End(b.Field, field.Ok);
         b.FieldOut = field.OutPath;
-        if (!field.Ok) return new(false, dev.OutPath, null, "현장 빌드 · " + field.Reason, field.Errors);
+        if (!field.Ok) return new(false, dev.OutPath, null, "현장용 빌드 · " + field.Reason, field.Errors);
         return new(true, dev.OutPath, field.OutPath, null, []);
     };
 
@@ -524,9 +524,9 @@ public sealed partial class MainVm
         await Close1("회차 내기 실패", [r.Reason ?? ""]);
     }
 
-    // ---- 코어 올리기 ----
+    // ---- 코어 버전 변경 ----
 
-    /// <summary>코어 올리기(사양 8.6절): 버전 목록 → 확인 → CoreUpdate.RunAsync(빌드 화면에 진행) → 결과 줄(성공 core = …, 실패 까닭).</summary>
+    /// <summary>코어 버전 변경(사양 8.6절): 버전 목록 → 확인 → CoreUpdate.RunAsync(빌드 화면에 진행) → 결과 줄(성공 core = …, 실패 까닭).</summary>
     public async Task CoreUpdateAsync()
     {
         if (!CanGit || op != null) return;
@@ -538,7 +538,7 @@ public sealed partial class MainVm
         var pick = new VersionsVm(now);
         _ = pick.LoadAsync(() => CoreUpdate.ListVersionsAsync(g, Settings.CoreUrl));
         if (await Show(pick) != "ok" || pick.Selected is not { } v) return;
-        if (await Show(new FactsVm("코어 올리기", [new("지금", now), new("새", v)], [CancelButton, new("ok", v + " 받기", Primary: true)])) != "ok") return;
+        if (await Show(new FactsVm("코어 버전 변경", [new("지금", now), new("새", v)], [CancelButton, new("ok", v + " 받기", Primary: true)])) != "ok") return;
 
         Tab = TabNamed(BuildTabName);
         var b = BuildPane;
@@ -561,7 +561,7 @@ public sealed partial class MainVm
             b.ResultLine = r.Reason;
             if (r.Findings.Count > 0 && Site is { } s) { packFindings = [.. r.Findings.Where(f => f.Severity == Severity.Error)]; SetFindings(s, Checker.Run(s).Concat(packFindings).ToList()); }
             if (r.Build is { Ok: false } img) ShowBuildErrors(img.Errors);
-            await Close1("코어 올리기 실패", [r.Reason ?? "", "core/ 원상"]);
+            await Close1("코어 버전 변경 실패", [r.Reason ?? "", "core/ 원상"]);
         }
         await RefreshGitAsync();
         History.Stale();

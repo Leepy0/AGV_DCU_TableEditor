@@ -3,7 +3,7 @@ namespace TableEditor.Engine.Ops;
 /// <summary>개발·현장 이미지 빌드 결과. DevOut·FieldOut = 만든 .out(.map 은 같은 이름).</summary>
 public sealed record ImageBuild(bool Ok, string? DevOut, string? FieldOut, string? Reason, IReadOnlyList<BuildError> Errors);
 
-/// <summary>회차 내기·코어 올리기의 빌드 단계. 시험은 가짜 .out 을 만드는 것으로 갈아 끼운다.</summary>
+/// <summary>회차 내기·코어 버전 변경의 빌드 단계. 시험은 가짜 .out 을 만드는 것으로 갈아 끼운다.</summary>
 public delegate Task<ImageBuild> ImageBuilder(string appRoot, string site, Action<OutputLine>? onLine, CancellationToken ct);
 
 /// <summary>회차 결과. Number = 회차 번호 글자(예 "74"), Unshared = README 줄에 미공유, Line = 쓴 README 회차 줄.</summary>
@@ -25,9 +25,9 @@ public static class Round
         var pk = await SitePack.RunAsync(app, site, gccPath, onLine, ct);
         if (!pk.Ok) return new(false, null, null, $"압축 · {pk.Step} · {pk.Reason}", []);
         var dev = await SiteBuild.RunAsync(app, site, null, false, onLine, ct, cl2000Path);
-        if (!dev.Ok) return new(false, null, null, "개발 빌드 · " + dev.Reason, dev.Errors);
+        if (!dev.Ok) return new(false, null, null, "시험용 빌드 · " + dev.Reason, dev.Errors);
         var field = await SiteBuild.RunAsync(app, site, null, true, onLine, ct, cl2000Path);
-        if (!field.Ok) return new(false, dev.OutPath, null, "현장 빌드 · " + field.Reason, field.Errors);
+        if (!field.Ok) return new(false, dev.OutPath, null, "현장용 빌드 · " + field.Reason, field.Errors);
         return new(true, dev.OutPath, field.OutPath, null, []);
     };
 
