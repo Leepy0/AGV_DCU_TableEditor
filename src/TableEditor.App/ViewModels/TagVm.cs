@@ -221,6 +221,7 @@ public sealed class TagVm : BlockHost
     public static SignalScope ScopeOf(Site s, TagRule? r)
     {
         var sc = SignalScope.Of(s, r?.AnyProfile == false ? r.Profile : null);
+        sc.Seq = true;
         return sc;
     }
 

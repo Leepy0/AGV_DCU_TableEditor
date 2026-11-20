@@ -95,5 +95,37 @@ public sealed partial class SelfTest
         await Idle();
         Check(Text("io_map.h") == ioBase && vm.ErrorCount == 0, "지정을 다 지우면 원문 바이트 동일");
         while (vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
+
+        Step("11 시퀀스 고르기: 그 프로파일에 연결된 ID → 표 · 연결 없음 흐리게 · 전체 줄은 연결 수");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var r40 = Row(40, "PF_BELT");
+        Tag.SelectOnly(r40);
+        await Idle();
+        Tag.Picked = r40.Blocks.First(b => b.Fields.Any(f => f.Spec.Kind == ArgKind.SeqShort));
+        await Idle();
+        var sf = Tag.Fields.First(f => f.Info.Spec.Kind == ArgKind.SeqShort);
+        var ch = sf.Items!.Cast<Choice>().ToList();
+        var linked = ch.Where(x => x.Group == Choices.Linked).ToList();
+        Check(linked.Select(x => x.Name + x.Note).OrderBy(x => x).SequenceEqual(["DEMO_SHUTTLE→ shuttle", "LOAD→ belt_load", "UNLOAD→ belt_unload"]),
+            $"PF_BELT: 연결 ({string.Join(", ", linked.Select(x => x.Name + " " + x.Note))})");
+        Check(ch.Take(linked.Count).All(x => x.Group == Choices.Linked) && ch.Skip(linked.Count).All(x => x.Group == Choices.Unlinked) && ch.Any(x => x.Name == "CART_LOAD" && x.Group == Choices.Unlinked) && ch.Any(x => x.Name == sf.Text),
+            $"연결이 위 · 아래 연결 없음 ({ch.Count - linked.Count}개) · 고른 값 있음");
+        var box = Below<FieldEdit>(w).FirstOrDefault(f => ReferenceEquals(f.DataContext, sf));
+        if (box != null)
+        {
+            box.List.IsDropDownOpen = true;
+            await Idle();
+            if (box.List.Template.FindName("PART_Popup", box.List) is Popup { Child: System.Windows.FrameworkElement pc } && pc.ActualWidth > 0)
+            {
+                Below<ScrollViewer>(pc).FirstOrDefault()?.ScrollToTop();
+                await Idle();
+                App.Save(pc, Path.Combine(shots ?? work, "tag_seq_drop.png"));
+            }
+            box.List.IsDropDownOpen = false;
+        }
+        var any = Choices.For(sf.Info.Spec, vm.Site!.Names, TagVm.ScopeOf(vm.Site, null)).ToList();
+        Check(any.First(x => x.Name == "LOAD").Note == vm.Site.SeqMap.Where(m => m.Id == "SEQ_LOAD").Select(m => m.Profile).Distinct().Count() + "곳" && any.First(x => x.Name == "DEMO_SHUTTLE").Note == "4곳" && any.First(x => x.Name == "CART_LOAD").Note == "1곳"
+            && any.Any(x => x.Group == Choices.Unlinked), $"ANY_PROFILE 줄: 연결된 프로파일 수 ({string.Join(", ", any.Where(x => x.Name is "LOAD" or "DEMO_SHUTTLE" or "CART_LOAD").Select(x => x.Name + " " + x.Note))})");
     }
 }

@@ -30,6 +30,7 @@ public static class Choices
     {
         // 신호는 그 줄 프로파일에 맞는 것 + 지정 없는 것만(이미 쓴 것은 남긴다)
         IEnumerable<NameDef> Of(params NameKind[] kinds) => names.All.Where(d => kinds.Contains(d.Kind) && !d.Weak && (scope == null || !scope.Hides(d) || keep?.Invoke(d.Name) == true));
+        if (scope is { Seq: true } && s.Kind is ArgKind.SeqId or ArgKind.SeqShort) return SeqChoices(Of(NameKind.SeqId).Where(d => s.Kind == ArgKind.SeqId || d.Name.StartsWith("SEQ_", StringComparison.Ordinal)), scope, s.Kind == ArgKind.SeqShort);
         Choice C(NameDef d, string? name = null) => new(name ?? d.Name, d.Value?.ToString(), d.Core ? "코어" : "사이트");
         Choice Labeled(NameDef d) => CoreConstants.ParamLabels.TryGetValue(d.Name, out var label) ? new(d.Name, label, "코어") : C(d);
         IEnumerable<Choice> list = s.Kind switch
@@ -56,6 +57,27 @@ public static class Choices
             _ => [],
         };
         return list.DistinctBy(c => c.Name).OrderBy(c => c.Group == "코어" ? 1 : 0).ToList();
+    }
+
+    public const string Linked = "연결", Unlinked = "연결 없음";
+
+    /// <summary>
+    /// 태그 동작 시퀀스 ID: 그 줄 프로파일에 대응표가 있는 ID 를 위에 <c>ID → 표</c>(표 이름은 작은 글), 없는 ID 는 아래 "연결 없음"(흐리게).
+    /// 프로파일이 없는(ANY_PROFILE) 줄은 ID 옆에 연결된 프로파일 수.
+    /// </summary>
+    static IReadOnlyList<Choice> SeqChoices(IEnumerable<NameDef> ids, SignalScope scope, bool shortName)
+    {
+        var site = scope.Site;
+        return ids.Select(d =>
+        {
+            var rows = site.SeqMap.Where(m => m.Id == d.Name).ToList();
+            var hit = scope.Profiles == null ? rows : rows.Where(m => m.AnyProfile || scope.Profiles.Contains(m.Profile)).ToList();
+            var name = shortName ? d.Name[4..] : d.Name;
+            if (hit.Count == 0) return (d, new Choice(name, d.Value?.ToString(), Unlinked));
+            var note = scope.Profiles != null ? "→ " + string.Join(", ", hit.Select(m => m.Table).Distinct())
+                : (hit.Any(m => m.AnyProfile) ? site.Profiles.Count : hit.Select(m => m.Profile).Distinct().Count()) + "곳";
+            return (d, new Choice(name, note, Linked));
+        }).DistinctBy(x => x.Item2.Name).OrderBy(x => x.Item2.Group == Linked ? 0 : 1).ThenBy(x => x.d.Core ? 1 : 0).Select(x => x.Item2).ToList();
     }
 
     /// <summary>새 동작의 기본 글자: 꼭 있는 칸만, 첫 항목·범위 안 값으로.</summary>

@@ -15,6 +15,9 @@ public sealed class SignalScope(Site site, IReadOnlySet<string>? profiles)
     public Site Site { get; } = site;
     public IReadOnlySet<string>? Profiles { get; } = profiles;
 
+    /// <summary>태그 동작 칸: 시퀀스 ID 를 <c>ID → 표</c> 로 묶어 보인다.</summary>
+    public bool Seq { get; set; }
+
     public static SignalScope All(Site s) => new(s, null);
 
     /// <summary>프로파일 글(이름·번호·ANY_PROFILE·0)로: 전체면 걸러 보지 않는다.</summary>
