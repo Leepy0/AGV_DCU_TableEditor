@@ -262,6 +262,9 @@ public sealed class UpdateVm : Observable
         }
     }
 
+    /// <summary>이 릴리스가 요구하는 .NET 이 이 PC 에 없으면 알림 낱말(받기·교체를 하지 않는다), 아니면 null.</summary>
+    static string? RuntimeWord(ReleaseInfo r) => Updater.RuntimeNeeded(r) is { } n ? $"런타임 필요 · .NET {n} Desktop" : null;
+
     /// <summary>시작 팝업: 새 버전 · 현재 버전 · [나중에][받기].</summary>
     async Task OfferAsync(ReleaseInfo r)
     {

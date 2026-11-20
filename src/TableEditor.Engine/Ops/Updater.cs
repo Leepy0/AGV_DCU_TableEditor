@@ -12,9 +12,9 @@ namespace TableEditor.Engine.Ops;
 
 /// <summary>
 /// GitHub 정식 릴리스 하나. File = zip 이름, Sha256 = 소문자 64 hex. 둘 중 하나라도 없으면 버전만 알리고 받지 않는다.
-/// Size = zip 바이트, Unpacked = 푼 묶음 바이트(매니페스트에 없으면 0).
+/// Size = zip 바이트, Unpacked = 푼 묶음 바이트(매니페스트에 없으면 0), Runtime = 이 버전이 요구하는 .NET 메이저(없으면 0).
 /// </summary>
-public sealed record ReleaseInfo(Version Version, string? File, string? Sha256, long Size, string Page, string Notes, DateTimeOffset? Published, long Unpacked = 0)
+public sealed record ReleaseInfo(Version Version, string? File, string? Sha256, long Size, string Page, string Notes, DateTimeOffset? Published, long Unpacked = 0, int Runtime = 0)
 {
     public string Tag => "v" + Version.ToString(3);
     public string? AssetUrl => File == null ? null : $"{Updater.Releases}/download/{Tag}/{File}";
@@ -49,7 +49,12 @@ public sealed record Repair(string Mode, string Source, string Target);
 public static class Updater
 {
     public const string Repo = "Leepy0/AGV_DCU_TableEditor";
-    public const string ManifestName = "TableEditor.json";
+    /// <summary>
+    /// 이 클라이언트가 읽는 매니페스트(전체 정보 + runtime). 옛 클라이언트(v0.2.2 이하, 런타임을 묶음에 넣던 때)는 <see cref="LegacyManifestName"/> 만 읽고,
+    /// 그 파일은 버전 알림만 담는다(받기·자동 교체가 없다: 런타임 없는 PC 에 런타임 필요 버전이 깔리지 않게).
+    /// </summary>
+    public const string ManifestName = "TableEditor.net10.json";
+    public const string LegacyManifestName = "TableEditor.json";
     public const string ExeName = "TableEditor.exe";
     public const string CliName = "tedit.exe";
     /// <summary>묶음 파일 목록(크기 TAB 상대 경로). tools/release.ps1 이 만든다.</summary>
@@ -242,7 +247,7 @@ public static class Updater
     }
 
     /// <summary>
-    /// 매니페스트 <c>{ version, file, sha256, size, unpacked, published, page, notes }</c>. 버전이 틀리면 null.
+    /// 매니페스트 <c>{ version, runtime, file, sha256, size, unpacked, published, page, notes }</c>. runtime = 필요한 .NET 메이저(문자열 "10", 없으면 0). 버전이 틀리면 null.
     /// file 은 이름만(경로 글자가 있으면 버린다), sha256 은 64 hex 일 때만.
     /// </summary>
     public static ReleaseInfo? ParseManifest(string json)
@@ -256,7 +261,30 @@ public static class Updater
         bool hex = sha.Length == 64 && sha.All(char.IsAsciiHexDigit);
         var page = Str(m, "page");
         return new ReleaseInfo(v, plain ? file : null, hex ? sha : null, Int(m, "size"), page.Length > 0 ? page : $"{Releases}/tag/v{v.ToString(3)}",
-            Str(m, "notes"), DateTimeOffset.TryParse(Str(m, "published"), CultureInfo.InvariantCulture, out var p) ? p : null, Int(m, "unpacked"));
+            Str(m, "notes"), DateTimeOffset.TryParse(Str(m, "published"), CultureInfo.InvariantCulture, out var p) ? p : null, Int(m, "unpacked"),
+            int.TryParse(Str(m, "runtime"), NumberStyles.None, CultureInfo.InvariantCulture, out var rt) ? rt : 0);
+    }
+
+    /// <summary>
+    /// 받기 전 런타임 검사: 릴리스가 요구하는 .NET 메이저가 지금 프로세스보다 크고 그 메이저의 Microsoft.WindowsDesktop.App 이 설치돼 있지 않으면 그 메이저, 아니면 null.
+    /// dotnet 설치 폴더 = 프로세스 런타임이 있는 곳, DOTNET_ROOT, Program Files\dotnet. 시험은 processMajor·roots 를 직접 준다.
+    /// </summary>
+    public static int? RuntimeNeeded(ReleaseInfo r, int? processMajor = null, IEnumerable<string>? roots = null)
+    {
+        if (r.Runtime <= (processMajor ?? Environment.Version.Major)) return null;
+        roots ??= DotnetRoots();
+        bool has = roots.Any(d => Directory.Exists(Path.Combine(d, "shared", "Microsoft.WindowsDesktop.App"))
+            && Directory.EnumerateDirectories(Path.Combine(d, "shared", "Microsoft.WindowsDesktop.App"), r.Runtime + ".*").Any());
+        return has ? null : r.Runtime;
+    }
+
+    static IEnumerable<string> DotnetRoots()
+    {
+        // ...\dotnet\shared\Microsoft.NETCore.App\<버전>\ → ...\dotnet
+        var rt = Path.TrimEndingDirectorySeparator(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+        if (Path.GetDirectoryName(Path.GetDirectoryName(rt)) is { } up) yield return up;
+        if (Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } e) yield return e;
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet");
     }
 
     /// <summary>매니페스트가 없는 릴리스(v0.1.0): releases/latest 의 Location(…/releases/tag/vX.Y.Z)에서 버전만 읽는다.</summary>

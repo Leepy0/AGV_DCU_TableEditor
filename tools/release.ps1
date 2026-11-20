@@ -1,7 +1,7 @@
 ﻿<#
 배포 묶음을 만든다(GitHub Release 는 만들지 않는다).
   tools\release.ps1 -Version v0.2.0 [-Gcc <mingw64 폴더>] [-Out publish] [-AppRepo <앱 저장소>] [-Site <사이트 폴더 이름>] [-Notes <변경 내용>]
-차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더, .NET 런타임은 넣지 않는다: PC 에 .NET 10 Desktop Runtime 이 있어야 한다)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트
+차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더, .NET 런타임은 넣지 않는다: PC 에 .NET 10 Desktop Runtime 이 있어야 한다)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트 둘
 작업 트리가 깨끗해야 한다(커밋 하나에서 묶음).
 -AppRepo 가 없으면 5 의 (나)(다)는 건너뛴다. -Site 는 -AppRepo 와 같이 준다.
 -Notes 가 없으면 지난 태그 뒤 커밋 제목. 끝에 올리기 명령(gh release create …)을 찍기만 한다.
@@ -237,32 +237,47 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 [IO.File]::WriteAllText("$zip.sha256", "$hash  $(Split-Path -Leaf $zip)`n", (New-Object Text.UTF8Encoding $false))
 if ($hash -notmatch '^[0-9a-f]{64}$') { throw 'sha256 형식 틀림' }
 
-# 매니페스트(프로그램이 releases/latest/download/TableEditor.json 으로 확인한다. api.github.com 이 막힌 망 대비)
+# 매니페스트 둘(프로그램이 releases/latest/download/ 로 확인한다. api.github.com 이 막힌 망 대비)
+#  TableEditor.net10.json  v0.2.3 이상이 읽는다: 전체 정보 + runtime(필요한 .NET 메이저)
+#  TableEditor.json        v0.2.2 이하(런타임을 묶음에 넣던 때)가 읽는다: 버전 알림만. file·sha256·size·unpacked 를 넣지 않아 받기·자동 교체가 안 되고
+#                          런타임 없는 PC 에 런타임 필요 버전이 깔려 켜지지 않는 일이 없다. notes 첫 줄 = 설치 안내
 if (-not $Notes) {
     $prev = cmd /c 'git describe --tags --abbrev=0 2>nul'
     $range = if ($LASTEXITCODE -eq 0 -and $prev) { @("$prev..HEAD") } else { @('-n', '20', 'HEAD') }   # 태그가 없으면(받지 않은 클론) 최근 20개
     $Notes = (git log --format=%s @range | Where-Object { $_ }) -join "`n"
 }
-$manifest = Join-Path $outFull 'TableEditor.json'
+$manifest = Join-Path $outFull 'TableEditor.net10.json'
+$legacy = Join-Path $outFull 'TableEditor.json'
 $notesFile = Join-Path $outFull 'notes.txt'
+$published = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$page = "https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/$Version"
 $m = [ordered]@{
     version   = $num
+    runtime   = '10'
     file      = Split-Path -Leaf $zip
     sha256    = $hash
     size      = (Get-Item $zip).Length
     unpacked  = $unpacked
-    published = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    page      = "https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/$Version"
+    published = $published
+    page      = $page
     notes     = $Notes
 }
+$l = [ordered]@{
+    version   = $num
+    published = $published
+    page      = $page
+    notes     = ".NET 10 Desktop Runtime 설치 후 zip 을 받아 교체`n$Notes"
+}
 [IO.File]::WriteAllText($manifest, ($m | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($legacy, ($l | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 [IO.File]::WriteAllText($notesFile, $Notes, (New-Object Text.UTF8Encoding $false))
 Write-Host "묶음   $(Size $pack)  ($pack)"
 Write-Host "gcc    $(Size $gdst)"
 Write-Host ("zip    {0:N1} MB  ({1})" -f ((Get-Item $zip).Length / 1MB), $zip)
 Write-Host "sha256 $hash"
 Write-Host "매니페스트 $manifest"
+Write-Host "매니페스트(옛 클라이언트용) $legacy"
 Write-Host ("걸린 시간 {0:N0}초" -f $sw.Elapsed.TotalSeconds)
-# 올리기는 손으로(이 스크립트는 릴리스·태그를 만들지 않는다). zip 과 TableEditor.json 을 같은 릴리스에 올린다
+# 올리기는 손으로(이 스크립트는 릴리스·태그를 만들지 않는다). zip 과 매니페스트 둘을 같은 릴리스에 올린다
 Write-Host "`n올리기:"
-Write-Host "  gh release create $Version `"$zip`" `"$zip.sha256`" `"$manifest`" --target $commit --title $Version --notes-file `"$notesFile`" --latest"
+Write-Host "  gh release create $Version `"$zip`" `"$zip.sha256`" `"$manifest`" `"$legacy`" --target $commit --title $Version --notes-file `"$notesFile`" --latest"

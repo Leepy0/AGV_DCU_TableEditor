@@ -198,6 +198,48 @@ static class UpdaterTests
         check(Updater.ParseManifest("""{ "version": "x" }""") == null && Updater.ParseManifest("[]") == null, "매니페스트 버전 틀림");
     }
 
+    /// <summary>
+    /// H1: 옛 클라이언트(v0.2.2 이하)가 읽는 TableEditor.json 은 버전 알림만. v0.2.2 의 Updater.cs·UpdateVm.cs 는 이 버전과 같다(git diff 없음):
+    /// ParseManifest → file·sha 없음 → CanDownload false → CheckAsync 는 Available 로 두고 팝업 없이 토스트 "새 버전 X", [받기]는 토스트 "받기 불가 · 매니페스트 없음", 예외·오류 팝업 없음.
+    /// </summary>
+    static void LegacyManifest(Action<bool, string> check)
+    {
+        var legacy = Updater.ParseManifest("""
+            { "version": "0.2.3", "published": "2026-11-21T00:00:00Z", "page": "https://example.invalid/tag/v0.2.3",
+              "notes": ".NET 10 Desktop Runtime 설치 후 zip 을 받아 교체 / 변경" }
+            """);
+        check(legacy is { CanDownload: false, File: null, Sha256: null, Size: 0, Unpacked: 0, AssetUrl: null, Runtime: 0 }
+            && legacy.Version == new Version(0, 2, 3) && legacy.Page.EndsWith("/tag/v0.2.3") && legacy.Notes.StartsWith(".NET 10 Desktop Runtime"),
+            "알림 전용 매니페스트(TableEditor.json) → 버전·쪽·안내만, 받기 불가(옛 클라이언트도 같은 ParseManifest)");
+        check(Updater.ManifestName == "TableEditor.net10.json" && Updater.LegacyManifestName == "TableEditor.json", "새 클라이언트는 net10 매니페스트 이름을 읽음");
+    }
+
+    /// <summary>H1: 매니페스트 runtime 칸, 받기 전 런타임 검사(가짜 설치 폴더·가짜 프로세스 메이저).</summary>
+    static void Runtime(Action<bool, string> check)
+    {
+        var full = Updater.ParseManifest("""{ "version": "0.2.3", "runtime": "10", "file": "a.zip", "sha256": "%s" }""".Replace("%s", new string('b', 64)));
+        check(full is { Runtime: 10, CanDownload: true }, "net10 매니페스트: runtime 칸");
+        check(Updater.ParseManifest("""{ "version": "0.2.3", "runtime": 10 }""")!.Runtime == 0 && Updater.ParseManifest("""{ "version": "0.2.3", "runtime": "x" }""")!.Runtime == 0
+            && Updater.ParseManifest("""{ "version": "0.2.3" }""")!.Runtime == 0, "runtime 칸 없음·글자 아님 → 0(검사 안 함)");
+        var root = Path.Combine(Path.GetTempPath(), "te_rt_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            string[] roots = [root];
+            ReleaseInfo Rel(int rt) => new(new Version(0, 2, 3), "a.zip", new string('b', 64), 1, "p", "", null, 0, rt);
+            check(Updater.RuntimeNeeded(Rel(10), 10, roots) == null && Updater.RuntimeNeeded(Rel(9), 10, roots) == null && Updater.RuntimeNeeded(Rel(0), 10, roots) == null,
+                "runtime 이 지금 메이저 이하 → 검사 통과(진행)");
+            check(Updater.RuntimeNeeded(Rel(11), 10, roots) == 11, "더 큰 메이저 · 설치 폴더 없음 → 런타임 필요 11");
+            Directory.CreateDirectory(Path.Combine(root, "shared", "Microsoft.NETCore.App", "11.0.0"));
+            check(Updater.RuntimeNeeded(Rel(11), 10, roots) == 11, "NETCore.App 만 있고 WindowsDesktop.App 없음 → 런타임 필요");
+            Directory.CreateDirectory(Path.Combine(root, "shared", "Microsoft.WindowsDesktop.App", "10.0.5"));
+            check(Updater.RuntimeNeeded(Rel(11), 10, roots) == 11, "다른 메이저(10)만 설치 → 런타임 필요 11");
+            Directory.CreateDirectory(Path.Combine(root, "shared", "Microsoft.WindowsDesktop.App", "11.0.0-preview.1"));
+            check(Updater.RuntimeNeeded(Rel(11), 10, roots) == null, "WindowsDesktop.App 11.* 설치 → 진행");
+            check(Updater.RuntimeNeeded(Rel(110), 10, roots) == 110, "11.* 은 110 으로 오인하지 않음");
+        }
+        finally { try { Directory.Delete(root, true); } catch (IOException) { } }
+    }
+
     static void Redirect(Action<bool, string> check)
     {
         check(Updater.TagFromLocation("https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/v0.1.0") == new Version(0, 1, 0), "리다이렉트 태그 v0.1.0");
