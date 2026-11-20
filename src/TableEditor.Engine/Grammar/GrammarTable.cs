@@ -155,6 +155,9 @@ public static class GrammarTable
     static readonly string[] TimeUnits = ["TICK", "DSEC", "SEC", "MIN"];
     static readonly string[] Reports = ["LOADING", "UNLOADING", "NEXT", "ARRIVE", "FINISH", "PROCESSING", "STANDBY", "CALL", "IDLE"];
     static readonly string[] ReportsTag = [.. Reports, "STANDBY_RESET"];
+
+    /// <summary>보고 종류 낱말 전부(<c>ACS( 종류, … )</c> 의 종류 칸).</summary>
+    public static IReadOnlySet<string> ReportKinds { get; } = new HashSet<string>(ReportsTag, StringComparer.Ordinal);
     static readonly string[] Modes = ["IDLE", "JOG"];
     static readonly string[] Keys = ["MODE", "SHIFT", "UP", "RESET", "SET", "DOWN"];
     static readonly string[] BeltMan = ["CW", "CCW", "OFF"];

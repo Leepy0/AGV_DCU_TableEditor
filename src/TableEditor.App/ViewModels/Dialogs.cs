@@ -201,12 +201,16 @@ public sealed class ArgBox : Observable
         set { if (Set(ref t, value)) Raise(nameof(Invalid)); }
     }
 
-    public bool Invalid => IsNumber && !(long.TryParse(t.Trim(), out var v) && v >= Min && v <= Max);
+    /// <summary>열었을 때 값 그대로인 칸은 범위 밖이어도 막지 않는다(바꾼 칸만 범위 검사). 기존 줄의 <c>ID( 3, 150 )</c> 같은 값.</summary>
+    public bool Invalid => IsNumber && t.Trim() != opened && !(long.TryParse(t.Trim(), out var v) && v >= Min && v <= Max);
+
+    readonly string opened;
 
     public ArgBox(ArgSpec spec, string text, NameDict names)
     {
         Label = spec.Label;
         t = text;
+        opened = text.Trim();
         switch (Choices.EditorOf(spec))
         {
             case FieldEditor.Words:

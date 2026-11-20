@@ -71,15 +71,17 @@ public static partial class Checker
     static IEnumerable<Finding> V4(Facts f)
     {
         if (f.Site.CoreFolder == null || f.Site.CoreVersion == null) yield break;
-        if (!f.Site.Names.IdleOk)
-            foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
-            {
-                var hit = (st.Name is "ACS" or "ACS_SEND" ? st.Args.Take(1) : [])
-                    .Concat(Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => c.Call.Args[0]))
-                    .FirstOrDefault(a => a.Node is NameNode { Name: "IDLE" });
-                if (hit != null && !f.Names.Get("IDLE").Any(d => !d.Core))
-                    yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", hit);
-            }
+        // 보고 종류 칸: IDLE 은 v0.59.0 부터(사이트 정의와 상관없이 검사). 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다
+        foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
+        {
+            var kinds = (st.Name is "ACS" or "ACS_SEND" && st.Args.Count > 0 ? st.Args.Take(1) : [])
+                .Concat(Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => c.Call.Args[0]))
+                .Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
+            if (!f.Site.Names.IdleOk && kinds.FirstOrDefault(a => ((NameNode)a.Node).Name == "IDLE") is { } idle)
+                yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", idle);
+            if (kinds.FirstOrDefault(a => f.Names.Get(((NameNode)a.Node).Name).Any(d => !d.Core)) is { } shadow)
+                yield return f.Error("V-4", st, $"사이트 #define 이 보고 종류를 덮음 · {((NameNode)shadow.Node).Name}", shadow);
+        }
         if (f.Site.NewDsl) yield break;
         var found = new Dictionary<Statement, (Arg? Cell, List<string> Names)>(ReferenceEqualityComparer.Instance);
         void Add(Statement st, Arg? cell, string name)

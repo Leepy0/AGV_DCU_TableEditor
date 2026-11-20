@@ -56,5 +56,12 @@ static class Core059Tests
         bool D1(string cond) => Checker.Run(Man(c59, $"MAN( 5, JOG, {cond}, BELT( 1, CW ) )")).Any(f => f.Rule == "D-1");
         check(D1("AND( KEY( UP ), FORWARD )") && D1("AND( KEY( UP ), KEY( DOWN ) )") && D1("AND( FORWARD, KEY( UP ) )"), "D-1: 수동 AND( KEY, 상태 )·AND( KEY, KEY ) 오류");
         check(!D1("AND( KEY( UP ), IN( ON(SEN_1) ) )") && !D1("AND( KEY( UP ) )"), "D-1: KEY 하나 + 입력은 통과");
+
+        // 리뷰 6: 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다(gcc 로 확인) → V-4
+        Site Shadow(string? core, string def, string line) => Make(core, "seq_table.c", def + "\nSEQ_LABELS( DONE, ERR )\nSEQ_BEGIN( t )\n    " + line + "\n    L( DONE )\n    END_STOP\nSEQ_END\n");
+        List<Finding> Shad(Site s) => Checker.Run(s).Where(f => f.Rule == "V-4" && f.Text.Contains("덮음")).ToList();
+        check(Shad(Shadow(c59, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 1 && Shad(Shadow(c59, "#define LOADING 1", "ACS_SEND( LOADING, 5 )")).Count == 1, "사이트 #define 이 보고 종류를 덮음 = V-4 오류(IDLE·LOADING)");
+        check(Shad(Shadow(c59, "#define IDLE 7", "ACS( NEXT, 5 )")).Count == 0 && Shad(Shadow(c59, "", "ACS( IDLE, 5 )")).Count == 0 && Shad(Shadow(null, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 0, "쓴 줄이 없거나 정의가 없으면(코어 모름 포함) 안 건다");
+        check(V4(Shadow(c58, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 2, "v0.58.0 + 사이트 IDLE 정의: 최소 버전 오류도 사이트 정의와 상관없이");
     }
 }

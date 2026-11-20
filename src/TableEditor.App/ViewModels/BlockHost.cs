@@ -83,6 +83,7 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
     public virtual void SetField(FieldVm f, string text)
     {
         if (!Live(f, out var st)) return;
+        if (f.Info.Check?.Invoke(text) is { } why) { Main.Notify(why); f.Revert(); return; }
         if (f.Info.Drops?.Invoke(text) is { Count: > 0 } drops) { _ = ConfirmDropAsync(f, text, drops); return; }
         Write(f, st, text);
     }

@@ -252,6 +252,20 @@ static class UpdaterTests
             using var blocked = new HttpClient(new Fake(body, down: true));
             var e2 = Catch(() => Updater.DownloadAsync(Rel(good), dir, null, default, blocked).GetAwaiter().GetResult());
             check(e2 is UpdateException { Message: "연결 실패 · assets.example.invalid" }, $"자산 호스트가 막힘 → 그 호스트 이름 ({e2?.Message})");
+
+            // 리뷰 9: 받기가 그 길에서 연결 실패하면 다른 길로 처음부터 한 번 더(SHA-256 검증 그대로)
+            var alt = new Fake(body);
+            using var altHttp = new HttpClient(alt);
+            var got2 = Updater.DownloadAsync(Rel(good), dir, null, default, blocked, altHttp).GetAwaiter().GetResult();
+            check(File.ReadAllBytes(got2).AsSpan().SequenceEqual(body) && alt.Hits > 0 && !File.Exists(got2 + ".partial"), "받기: 첫 길 연결 실패 → 다른 길로 한 번 더");
+            File.Delete(got2);
+            var alt2 = new Fake(body);
+            using var altHttp2 = new HttpClient(alt2);
+            var e3 = Catch(() => Updater.DownloadAsync(Rel(wrong), dir, null, default, http, altHttp2).GetAwaiter().GetResult());
+            check(e3 is UpdateException { Message: "SHA-256 불일치" } && alt2.Hits == 0, "받기: SHA 불일치는 다른 길로 다시 받지 않음");
+            using var blocked2 = new HttpClient(new Fake(body, down: true));
+            var e4 = Catch(() => Updater.DownloadAsync(Rel(good), dir, null, default, blocked, blocked2).GetAwaiter().GetResult());
+            check(e4 is UpdateException { Message: "연결 실패 · assets.example.invalid" } && !File.Exists(Path.Combine(dir, "a.zip")), "받기: 두 길 모두 실패 → 예외 · 파일 없음");
         }
         finally { Directory.Delete(dir, true); }
     }

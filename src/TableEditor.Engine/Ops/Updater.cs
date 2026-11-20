@@ -338,20 +338,37 @@ public static class Updater
 
     // ---- 받기 ----
 
-    /// <summary>zip 을 dir 에 받는다(.partial → SHA-256 이 맞으면 이름 바꿈). 이미 받아 둔 같은 파일은 그대로. 30초 동안 바이트가 안 오면 실패.</summary>
-    public static async Task<string> DownloadAsync(ReleaseInfo r, string dir, IProgress<double>? progress, CancellationToken ct, HttpClient? http = null)
+    /// <summary>
+    /// zip 을 dir 에 받는다(.partial → SHA-256 이 맞으면 이름 바꿈). 이미 받아 둔 같은 파일은 그대로. 30초 동안 바이트가 안 오면 실패.
+    /// 확인에 성공한 길(<see cref="Route"/>)로 받고, 그 길에서 연결·시간 초과로 실패하면 다른 길로 처음부터 한 번 더 받는다(이어받기 없음, SHA-256 검증 그대로).
+    /// 다른 길에서 되면 <see cref="Route"/> 를 그 길로 바꾼다. http 를 주면(시험) 그 클라이언트로만 받고, 다시 시도할 클라이언트는 retry 로 준다.
+    /// </summary>
+    public static async Task<string> DownloadAsync(ReleaseInfo r, string dir, IProgress<double>? progress, CancellationToken ct, HttpClient? http = null, HttpClient? retry = null)
     {
         if (!r.CanDownload) throw new UpdateException("매니페스트 없음");
         Directory.CreateDirectory(dir);
         var target = Path.Combine(dir, r.File!);
         if (File.Exists(target) && await Task.Run(() => HashFile(target), ct) == r.Sha256) return target;
-        var part = target + ".partial";
+        var other = Route == NetRoute.Proxy ? NetRoute.Direct : NetRoute.Proxy;
+        if (http == null) retry = ClientFor(other);
+        try { await DownloadOnceAsync(r, target + ".partial", target, http ?? DownloadClient, progress, ct); }
+        catch (Exception e) when (retry != null && !ct.IsCancellationRequested && e is HttpRequestException or IOException or TaskCanceledException
+            or UpdateException { Message: not "SHA-256 불일치" })
+        {
+            await DownloadOnceAsync(r, target + ".partial", target, retry, progress, ct);
+            if (http == null) Route = other;
+        }
+        return target;
+    }
+
+    static async Task DownloadOnceAsync(ReleaseInfo r, string part, string target, HttpClient client, IProgress<double>? progress, CancellationToken ct)
+    {
         var url = new Uri(r.AssetUrl!);
         using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
             idle.CancelAfter(Idle);
-            using var res = (await GetFollowAsync(http ?? DownloadClient, url, idle.Token))!;
+            using var res = (await GetFollowAsync(client, url, idle.Token))!;
             url = res.RequestMessage?.RequestUri ?? url;
             long total = res.Content.Headers.ContentLength ?? r.Size;
             await using var src = await res.Content.ReadAsStreamAsync(idle.Token);
@@ -380,7 +397,6 @@ public static class Updater
             throw;
         }
         await Task.Run(() => Accept(part, target, r.Sha256!), ct);
-        return target;
     }
 
     /// <summary>.partial 의 SHA-256 이 기대값과 같을 때만 target 으로 이름을 바꾼다. 다르면 지우고 예외.</summary>

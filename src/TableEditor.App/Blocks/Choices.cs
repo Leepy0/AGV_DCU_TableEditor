@@ -66,17 +66,21 @@ public static class Choices
     /// 태그 동작 시퀀스 ID: 그 줄 프로파일에 대응표가 있는 ID 를 위에 <c>ID → 표</c>(표 이름은 작은 글), 없는 ID 는 아래 "연결 없음"(흐리게).
     /// 프로파일이 없는(ANY_PROFILE) 줄은 ID 옆에 연결된 프로파일 수.
     /// </summary>
+    /// <summary>대응표 줄의 프로파일 이름: 번호로 적었으면(<c>1</c>) 프로파일 번호로 이름을 푼다.</summary>
+    static string Pf(Site s, MapRow m) =>
+        long.TryParse(m.Profile.Trim(), out var n) && s.Profiles.FirstOrDefault(p => p.Number == n)?.Name is { } nm ? nm : m.Profile.Trim();
+
     static IReadOnlyList<Choice> SeqChoices(IEnumerable<NameDef> ids, SignalScope scope, bool shortName)
     {
         var site = scope.Site;
         return ids.Select(d =>
         {
             var rows = site.SeqMap.Where(m => m.Id == d.Name).ToList();
-            var hit = scope.Profiles == null ? rows : rows.Where(m => m.AnyProfile || scope.Profiles.Contains(m.Profile)).ToList();
+            var hit = scope.Profiles == null ? rows : rows.Where(m => m.AnyProfile || scope.Profiles.Contains(Pf(site, m))).ToList();
             var name = shortName ? d.Name[4..] : d.Name;
             if (hit.Count == 0) return (d, new Choice(name, d.Value?.ToString(), Unlinked));
             var note = scope.Profiles != null ? "→ " + string.Join(", ", hit.Select(m => m.Table).Distinct())
-                : (hit.Any(m => m.AnyProfile) ? site.Profiles.Count : hit.Select(m => m.Profile).Distinct().Count()) + "곳";
+                : (hit.Any(m => m.AnyProfile) ? site.Profiles.Count : hit.Select(m => Pf(site, m)).Distinct().Count()) + "곳";
             return (d, new Choice(name, note, Linked));
         }).DistinctBy(x => x.Item2.Name).OrderBy(x => x.Item2.Group == Linked ? 0 : 1).ThenBy(x => x.d.Core ? 1 : 0).Select(x => x.Item2).ToList();
     }
