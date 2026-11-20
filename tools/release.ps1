@@ -65,7 +65,7 @@ function Native($exe, [string[]]$a) { & $exe @a; if ($LASTEXITCODE -ne 0) { thro
 function Size($p) { '{0:N1} MB' -f ((Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum / 1MB) }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $num = $Version.TrimStart('v')
-$name = "TableEditor-$Version-win-x64"
+$name = "TableEditor-$Version-net10-x64"   # 옛 클라이언트(v0.2.2 이하)의 API 폴백이 찾는 -win-x64.zip 규칙과 겹치지 않게
 $outFull = if ([IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path $root $Out }
 $pack = Join-Path $outFull $name
 $zip = "$pack.zip"
@@ -247,6 +247,7 @@ if (-not $Notes) {
     $range = if ($LASTEXITCODE -eq 0 -and $prev) { @("$prev..HEAD") } else { @('-n', '20', 'HEAD') }   # 태그가 없으면(받지 않은 클론) 최근 20개
     $Notes = (git log --format=%s @range | Where-Object { $_ }) -join "`n"
 }
+$Notes = $Notes -replace '\\~', '~'   # README 에서 가져온 마크다운 이스케이프(\~)는 매니페스트·릴리스 본문에 그대로 넣지 않는다
 $manifest = Join-Path $outFull 'TableEditor.net10.json'
 $legacy = Join-Path $outFull 'TableEditor.json'
 $notesFile = Join-Path $outFull 'notes.txt'

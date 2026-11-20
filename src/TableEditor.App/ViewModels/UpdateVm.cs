@@ -265,6 +265,9 @@ public sealed class UpdateVm : Observable
     /// <summary>이 릴리스가 요구하는 .NET 이 이 PC 에 없으면 알림 낱말(받기·교체를 하지 않는다), 아니면 null.</summary>
     static string? RuntimeWord(ReleaseInfo r) => Updater.RuntimeNeeded(r) is { } n ? $"런타임 필요 · .NET {n} Desktop" : null;
 
+    /// <summary>받아 둔 버전이 요구하는 .NET 이 이 PC 에 없으면 알림 낱말(교체하지 않는다), 아니면 null.</summary>
+    string? RuntimeBlocked() => latest is { } r && pending == r.Version ? RuntimeWord(r) : null;
+
     /// <summary>시작 팝업: 새 버전 · 현재 버전 · [나중에][받기].</summary>
     async Task OfferAsync(ReleaseInfo r)
     {
@@ -389,7 +392,7 @@ public sealed class UpdateVm : Observable
     /// <summary>창을 닫을 때(받아 둔 버전이 있으면): 도우미를 띄우고 끝낸다. 다시 열지 않는다. 막히면 팝업 뒤 그대로 닫는다.</summary>
     public async Task ApplyOnCloseAsync()
     {
-        try { if (HasPending) await LaunchCheckedAsync("apply", install, Updater.NewDir(install), start: false); }
+        try { if (HasPending && RuntimeBlocked() == null) await LaunchCheckedAsync("apply", install, Updater.NewDir(install), start: false); }
         catch (Exception e) { failure = Word(e); } // 닫기는 막지 않는다
     }
 
@@ -397,6 +400,7 @@ public sealed class UpdateVm : Observable
     async Task ApplyNowAsync()
     {
         if (!HasPending) { RefreshPending(); await Ask("받은 버전 없음"); return; }
+        if (RuntimeBlocked() is { } need) { await Ask("업데이트 불가", need); return; }
         if (!await main.ConfirmLeaveAsync()) return;
         if (await LaunchCheckedAsync("apply", install, Updater.NewDir(install), start: true)) CloseForUpdate?.Invoke();
     }
@@ -423,7 +427,7 @@ public sealed class UpdateVm : Observable
     public void Fake(string mode)
     {
         current = new Version(0, 0, 1);
-        latest = new ReleaseInfo(Updater.Current, $"TableEditor-v{Updater.Current.ToString(3)}-win-x64.zip", new string('0', 64), 98L << 20,
+        latest = new ReleaseInfo(Updater.Current, $"TableEditor-v{Updater.Current.ToString(3)}-net10-x64.zip", new string('0', 64), 98L << 20,
             $"{Updater.Releases}/tag/v{Updater.Current.ToString(3)}", "", DateTimeOffset.Now);
         checkedAt = DateTime.Now;
         foreach (var n in new[] { nameof(VersionText), nameof(BuildText) }) Raise(n);

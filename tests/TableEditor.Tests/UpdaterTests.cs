@@ -187,12 +187,12 @@ static class UpdaterTests
     {
         var sha = new string('A', 64);
         var r = Updater.ParseManifest($$"""
-            { "version": "v0.2.0", "file": "TableEditor-v0.2.0-win-x64.zip", "sha256": "{{sha}}", "size": 102760448, "unpacked": 316000000,
+            { "version": "v0.2.0", "file": "TableEditor-v0.2.0-net10-x64.zip", "sha256": "{{sha}}", "size": 102760448, "unpacked": 316000000,
               "published": "2026-11-15T09:00:00Z", "page": "https://example.invalid/p", "notes": "변경" }
             """);
-        check(r is { File: "TableEditor-v0.2.0-win-x64.zip", Size: 102760448, Unpacked: 316000000, Page: "https://example.invalid/p", Notes: "변경", CanDownload: true }
+        check(r is { File: "TableEditor-v0.2.0-net10-x64.zip", Size: 102760448, Unpacked: 316000000, Page: "https://example.invalid/p", Notes: "변경", CanDownload: true }
             && r.Version == new Version(0, 2, 0) && r.Sha256 == new string('a', 64) && r.Published?.Year == 2026, "매니페스트 필드(sha 소문자로)");
-        check(r!.AssetUrl == $"{Updater.Releases}/download/v0.2.0/TableEditor-v0.2.0-win-x64.zip", "매니페스트 → 자산 주소");
+        check(r!.AssetUrl == $"{Updater.Releases}/download/v0.2.0/TableEditor-v0.2.0-net10-x64.zip", "매니페스트 → 자산 주소");
         var bad = Updater.ParseManifest("""{ "version": "0.3.0", "file": "..\\x.zip", "sha256": "123", "size": 1.5e30, "unpacked": -4 }""");
         check(bad is { File: null, Sha256: null, CanDownload: false, Size: 0, Unpacked: 0 } && bad.Page.EndsWith("/tag/v0.3.0"), "매니페스트 경로 글자·짧은 sha·큰 수·음수 버림");
         check(Updater.ParseManifest("""{ "version": "x" }""") == null && Updater.ParseManifest("[]") == null, "매니페스트 버전 틀림");
@@ -221,6 +221,12 @@ static class UpdaterTests
         check(full is { Runtime: 10, CanDownload: true }, "net10 매니페스트: runtime 칸");
         check(Updater.ParseManifest("""{ "version": "0.2.3", "runtime": 10 }""")!.Runtime == 0 && Updater.ParseManifest("""{ "version": "0.2.3", "runtime": "x" }""")!.Runtime == 0
             && Updater.ParseManifest("""{ "version": "0.2.3" }""")!.Runtime == 0, "runtime 칸 없음·글자 아님 → 0(검사 안 함)");
+        // N5: 프로세스 런타임 폴더(...\dotnet\shared\Microsoft.NETCore.App\10.0.1\)에서 dotnet 설치 폴더까지 세 단계
+        check(Updater.DotnetRoots(@"C:\x\dotnet\shared\Microsoft.NETCore.App\10.0.1\").First() == @"C:\x\dotnet", "dotnet 설치 폴더 = 런타임 폴더 세 단계 위");
+        // N3: 받기 자체도 막는다(받기·준비 모두 DownloadAsync 를 지난다)
+        var need99 = new ReleaseInfo(new Version(0, 2, 3), "a.zip", new string('b', 64), 1, "p", "", null, 0, 99);
+        var blocked = Catch(() => Updater.DownloadAsync(need99, Path.GetTempPath(), null, default).GetAwaiter().GetResult());
+        check(blocked is UpdateException { Message: "런타임 필요 · .NET 99 Desktop" }, $"런타임 없으면 받기 거부 ({blocked?.Message})");
         var root = Path.Combine(Path.GetTempPath(), "te_rt_" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
@@ -565,10 +571,10 @@ static class UpdaterTests
     /// <summary>묶음 zip(맨 위 폴더 하나, release.ps1 과 같음). drop = files.txt 에는 있고 zip 에서는 뺄 파일.</summary>
     static string Zip(string root, string version, string mark, string extra, string? drop = null)
     {
-        var src = Path.Combine(root, "pkg-" + version, $"TableEditor-{version}-win-x64");
+        var src = Path.Combine(root, "pkg-" + version, $"TableEditor-{version}-net10-x64");
         Pack(src, version, mark, extra);
         if (drop != null) File.Delete(Path.Combine(src, drop));
-        var zip = Path.Combine(root, $"TableEditor-{version}-win-x64.zip");
+        var zip = Path.Combine(root, $"TableEditor-{version}-net10-x64.zip");
         ZipFile.CreateFromDirectory(src, zip, CompressionLevel.Fastest, includeBaseDirectory: true);
         return zip;
     }
