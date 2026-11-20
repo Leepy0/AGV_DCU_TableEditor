@@ -269,6 +269,8 @@
                                                     </DataTemplate>
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
+                                            <ToggleButton Style="{StaticResource TokToggle}" Content="반전" IsChecked="{Binding Negate}" IsEnabled="{Binding CanNegate}"
+                                                          VerticalAlignment="Bottom" Margin="{StaticResource Gap.R8}" AutomationProperties.Name="반전"/>
                                             <ItemsControl ItemsSource="{Binding Args}" Focusable="False">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
@@ -277,8 +279,22 @@
                                                     <DataTemplate DataType="{x:Type vm:ArgBox}">
                                                         <StackPanel Margin="{StaticResource Gap.R8}">
                                                             <TextBlock Text="{Binding Label}" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.B4}"/>
-                                                            <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource EditBox}" FontFamily="{StaticResource Mono}"
-                                                                     MinWidth="{StaticResource CellEditWidth}" AutomationProperties.Name="{Binding Label}"/>
+                                                            <ComboBox Style="{StaticResource Drop}" MinWidth="{StaticResource CellEditWidth}" ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
+                                                                      Visibility="{Binding IsList, Converter={StaticResource Shown}}" AutomationProperties.Name="{Binding Label}"/>
+                                                            <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource Mono}" MinWidth="{StaticResource CellEditWidth}"
+                                                                     Visibility="{Binding IsBox, Converter={StaticResource Shown}}" ToolTip="{Binding Range}" AutomationProperties.Name="{Binding Label}">
+                                                                <TextBox.Style>
+                                                                    <Style TargetType="TextBox" BasedOn="{StaticResource EditBox}">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding Invalid}" Value="True">
+                                                                                <Setter Property="BorderBrush" Value="{StaticResource Err}"/>
+                                                                                <Setter Property="BorderThickness" Value="{StaticResource Bd.Pick}"/>
+                                                                                <Setter Property="Foreground" Value="{StaticResource Err}"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBox.Style>
+                                                            </TextBox>
                                                         </StackPanel>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>

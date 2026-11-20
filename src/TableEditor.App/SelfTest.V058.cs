@@ -83,6 +83,9 @@ public sealed partial class SelfTest
         await Idle();
         Check(TagText == before, "그대로 닫으면 바이트 같음");
 
+        Step("반전 토글 · 칸 편집기: 새 코어 NOT( FORWARD ), 파라미터 조건은 드롭다운");
+        await NotToggle(Row(60, "PF_BOX"), "FORWARD", "NOT(FORWARD)", "PARAM");
+
         Step("B2 버전별 쓰기: 새 코어는 새 형식, 옛 코어는 옛 형식");
         var tagChoices = Tag.ActionChoices(Row(28)).Select(c => c.Entry).ToList();
         var speed = tagChoices.First(e => e.Name == "AGV_SPEED");
@@ -187,6 +190,9 @@ public sealed partial class SelfTest
         Check(Row(62, "PF_CART").Rule!.CondText == "IF_X2_IN(X_ID(20,25),X_FORWARD,ON(DEMO_SEN_2))", $"옛 형식 ({Row(62, "PF_CART").Rule!.CondText})");
         var oldSpeedForms = ActionForms.Of(GrammarTable.Find("AGV_SPEED", Place.TagAction).First(e => e.Since.Length == 0), false).Select(e => e.Name + ":" + e.FormName).ToList();
         Check(oldSpeedForms.SequenceEqual(["AGV_SPEED:단계", "AGV_SPEED_MMIN:m/min"]), $"옛 코어 형식 칸 {string.Join("/", oldSpeedForms)}");
+        Step("반전 토글 · 칸 편집기: 옛 코어 X_NOT( X_FORWARD )");
+        await NotToggle(Row(1), "X_FORWARD", "X_NOT(X_FORWARD)", null);
+
         Step("보고 칸: 옛 코어는 2칸에서 ACS_SEND, 칸 0 은 1칸 ACS(STATION0), 시퀀스는 ACS( 종류, STATION(k) )");
         await StationRoundTrip(58, "ACS( LOADING, STATION0 )", "ACS_SEND( LOADING, STATION(2) )");
         var builder = new BlockBuilder(vm.Site!.Names, []);
@@ -230,4 +236,58 @@ public sealed partial class SelfTest
         Check(Row(tag).Rule!.Actions[idx].Text == start && TagText == baseText, "칸 0 으로 되돌리면 원문 바이트 동일");
     }
 
+    /// <summary>
+    /// 조건 팝업: 상태 줄을 더하고 반전을 켜 OK → 줄에 expect(공백 뺀 글). 다시 열면 반전 켬. paramKind 가 있으면 그 종류의 칸이 드롭다운·범위 숫자 칸이고,
+    /// 범위 밖 숫자는 [바꾸기] 를 막는다. 끝나면 되돌려 줄을 처음대로.
+    /// </summary>
+    async Task NotToggle(TagRowVm row, string kindName, string expect, string? paramKind)
+    {
+        long tag = row.First!.Value;
+        string? profile = row.Rule!.Profile;
+        var before = TagText;
+        var (c, done) = await Open<CondVm>(() => { Tag.SelectOnly(row); return vm.EditConditionAsync(row); });
+        Check(!c.XKinds.Any(k => XRowVm.IsNot(k.Name)), "종류 목록에 NOT 없음");
+        c.AddX.Execute(null);
+        var x = c.XRows[^1];
+        Check(x.Kind.Name == kindName && x.CanNegate && !x.Negate, $"새 줄 {x.Kind.Name} · 반전 끔");
+        x.Negate = true;
+        await Shot("tag_cond_not.png");
+        c.Ok.Execute(null);
+        await done;
+        await Idle();
+        var cond = Row(tag, profile).Rule!.St.Args.Select(a => a.Text).Aggregate("", (s, t) => s + t).Replace(" ", "");
+        Check(cond.Contains(expect), $"반전 쓰기 ({cond})");
+        var (c2, done2) = await Open<CondVm>(() => { var r = Row(tag, profile); Tag.SelectOnly(r); return vm.EditConditionAsync(r); });
+        Check(c2.XRows.Any(r => r.Kind.Name == kindName && r.Negate), "다시 열면 반전 켬");
+        if (paramKind != null)
+        {
+            c2.AddX.Execute(null);
+            var p = c2.XRows[^1];
+            p.Kind = c2.XKinds.First(k => k.Name == paramKind);
+            Check(p.Args[0].IsList && p.Args[0].Options!.Count > 1 && p.Args[0].Text == p.Args[0].Options![0], $"파라미터 이름 드롭다운 ({p.Args[0].Options?.Count}개 · 기본 {p.Args[0].Text})");
+            Check(p.Args[1].IsNumber && p.Args[1].Text == p.Args[1].Min.ToString(), $"값 = 범위 숫자 칸 ({p.Args[1].Range})");
+            p.Args[0].Text = p.Args[0].Options![1];
+            p.Args[1].Text = "99999999";
+            Check(p.Args[1].Invalid && !c2.Ok.CanExecute(null), "범위 밖 숫자 = 빨간 칸 · 바꾸기 막힘");
+            p.Args[1].Text = "5";
+            Check(!p.Args[1].Invalid && c2.Ok.CanExecute(null), "맞는 숫자 = 바꾸기 열림");
+            await Shot("tag_cond_param.png");
+            string name = p.Args[0].Text;
+            c2.Ok.Execute(null);
+            await done2;
+            await Idle();
+            var cond2 = Row(tag, profile).Rule!.St.Args.Select(a => a.Text).Aggregate("", (s, t) => s + t).Replace(" ", "");
+            Check(cond2.Contains($"PARAM({name},5)") && cond2.Contains(expect), $"파라미터 조건 쓰기 ({cond2})");
+            vm.Undo.Execute(null);
+        }
+        else
+        {
+            c2.Cancel.Execute(null);
+            await done2;
+        }
+        await Idle();
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(TagText == before, "되돌리면 처음 바이트");
+    }
 }
