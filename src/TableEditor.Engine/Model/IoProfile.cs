@@ -24,6 +24,9 @@ public static partial class IoProfile
         return names.Count == 0 ? null : names;
     }
 
+    /// <summary>이름 아닌 글자가 든 pf 주석이 있다(읽히지 않고 지정이 막힌다).</summary>
+    public static bool HasBad(Statement st) => PfRx().Matches(st.Tail).Any(m => !Valid(m));
+
     /// <summary>꼬리 주석 글에서 pf 주석을 뺀다(화면의 주석 칸).</summary>
     public static string StripComment(string comment) => PfRx().Replace(comment, "").Trim();
 

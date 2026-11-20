@@ -166,8 +166,11 @@ public static partial class Checker
     {
         var known = f.Site.Profiles.Select(p => p.Name).ToHashSet();
         foreach (var d in f.Names.All.Where(d => !d.Core && !d.Weak && d.Def is Statement { Shape: StatementShape.Define }))
+        {
             foreach (var n in (d.Profiles ?? []).Where(n => !known.Contains(n)))
                 yield return f.Warn("I-7", d.Def!, $"프로파일 없음 {n}");
+            if (IoProfile.HasBad((Statement)d.Def!)) yield return f.Warn("I-7", d.Def!, "pf 글 틀림");
+        }
     }
 
     // ---- 수동 표 ----

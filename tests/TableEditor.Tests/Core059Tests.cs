@@ -63,5 +63,14 @@ static class Core059Tests
         check(Shad(Shadow(c59, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 1 && Shad(Shadow(c59, "#define LOADING 1", "ACS_SEND( LOADING, 5 )")).Count == 1, "사이트 #define 이 보고 종류를 덮음 = V-4 오류(IDLE·LOADING)");
         check(Shad(Shadow(c59, "#define IDLE 7", "ACS( NEXT, 5 )")).Count == 0 && Shad(Shadow(c59, "", "ACS( IDLE, 5 )")).Count == 0 && Shad(Shadow(null, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 0, "쓴 줄이 없거나 정의가 없으면(코어 모름 포함) 안 건다");
         check(V4(Shadow(c58, "#define IDLE 7", "ACS( IDLE, 5 )")).Count == 2, "v0.58.0 + 사이트 IDLE 정의: 최소 버전 오류도 사이트 정의와 상관없이");
+        // 덮음 V-4 는 gcc 로 실제 깨지는 자리에만(#define LOADING 5): 태그 ACS = 모든 코어, 시퀀스 ACS·ACS_SEND = v0.58.0 이상, 태그 ACS_SEND = 안 깨짐
+        var c57b = Core("c57b", "v0.57.0");
+        foreach (var (core, name, newer) in new[] { (c57b, "v0.57.0", false), (c58, "v0.58.0", true), (c59, "v0.59.0", true) })
+        {
+            bool Seqs(string l) => Shad(Shadow(core, "#define LOADING 5", l)).Count == 1;
+            bool Tags(string l) => Checker.Run(Make(core, "tag_table.c", "#define LOADING 5\nTAG_TABLE_BEGIN( site_tags )\n    TAG( 1, ANY_PROFILE, " + l + " )\nTAG_TABLE_END\n")).Count(f => f.Rule == "V-4" && f.Text.Contains("덮음")) == 1;
+            check(Seqs("ACS( LOADING, STATION0 )") == newer && Seqs("ACS_SEND( LOADING, 5 )") == newer && Tags("ACS( LOADING, STATION0 )") && !Tags("ACS_SEND( LOADING, 5 )"),
+                $"덮음 표 {name}: 시퀀스 ACS·ACS_SEND = {newer} · 태그 ACS = true · 태그 ACS_SEND = false");
+        }
     }
 }

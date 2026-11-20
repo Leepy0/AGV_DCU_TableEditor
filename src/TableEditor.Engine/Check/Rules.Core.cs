@@ -74,12 +74,15 @@ public static partial class Checker
         // 보고 종류 칸: IDLE 은 v0.59.0 부터(사이트 정의와 상관없이 검사). 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다
         foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
         {
-            var kinds = (st.Name is "ACS" or "ACS_SEND" && st.Args.Count > 0 ? st.Args.Take(1) : [])
-                .Concat(Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => c.Call.Args[0]))
+            var seq = st.Name is "ACS" or "ACS_SEND" && st.Args.Count > 0 ? st.Args.Take(1) : [];
+            var tag = Calls(st).Where(c => c.Call.Name is "ACS" or "ACS_SEND" && c.Call.Args.Count > 0).Select(c => (c.Call.Name, Kind: c.Call.Args[0]));
+            var kinds = seq.Concat(tag.Select(t => t.Kind)).Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
+            // gcc 실측: 종류 칸을 DSL_INFO_##종류 로 바로 붙이는 자리는 사이트 #define 이 안 펼쳐져 안 깨진다. 깨지는 자리 = 태그 ACS(모든 코어), 시퀀스 ACS·ACS_SEND(v0.58.0 이상)
+            var breaks = (f.Site.NewDsl ? seq : []).Concat(tag.Where(t => t.Name == "ACS").Select(t => t.Kind))
                 .Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
             if (!f.Site.Names.IdleOk && kinds.FirstOrDefault(a => ((NameNode)a.Node).Name == "IDLE") is { } idle)
                 yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", idle);
-            if (kinds.FirstOrDefault(a => f.Names.Get(((NameNode)a.Node).Name).Any(d => !d.Core)) is { } shadow)
+            if (breaks.FirstOrDefault(a => f.Names.Get(((NameNode)a.Node).Name).Any(d => !d.Core)) is { } shadow)
                 yield return f.Error("V-4", st, $"사이트 #define 이 보고 종류를 덮음 · {((NameNode)shadow.Node).Name}", shadow);
         }
         if (f.Site.NewDsl) yield break;
