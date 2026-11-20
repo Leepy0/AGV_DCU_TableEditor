@@ -320,6 +320,8 @@ public sealed class TagVm : BlockHost
     public async Task AddActionAsync(TagRowVm row)
     {
         if (row.Rule == null) return;
+        if (main.CommitKeep(row.Rule.St) is not Statement kept) return;
+        if (!ReferenceEquals(kept, row.Rule.St)) row = Rows.FirstOrDefault(r => ReferenceEquals(r.Piece, kept)) ?? row; // 칸 확정이 줄을 다시 쓰면 새 줄로
         var d = new StepVm("동작 추가", "추가", ActionChoices(row), GrammarTable.TagPalette, null, e => Choices.DefaultText(e, site.Names));
         if (await main.Show(d) == "ok") AddAction(row, d.Command.Entry);
     }

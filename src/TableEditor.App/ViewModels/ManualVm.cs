@@ -236,6 +236,7 @@ public sealed class ManualVm : BlockHost
 
     async Task AddCardAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
         var vm = new CardAddVm(Profiles, Site.ManualChains.Where(c => z.Statements.Contains(c.Rows[0])).ToList(), Selected?.Card?.Profile);
         if (await Main.Show(vm) != "ok" || vm.Profile is not { } pf) return;
@@ -278,9 +279,10 @@ public sealed class ManualVm : BlockHost
     async Task EditCondAsync(ManRowVm r)
     {
         if (r.St.Name != "MAN" || r.St.Args.Count < 3) return;
-        var vm = new ManCondVm(r.St.Args[2], Site.Names, ScopeOf(Site, r.St));
+        if (Main.CommitKeep(r.St) is not Statement st || st.Args.Count < 3) return; // 칸 확정이 줄을 다시 쓰면 새 사이트의 같은 줄로
+        var vm = new ManCondVm(st.Args[2], Site.Names, ScopeOf(Site, st));
         if (await Main.Show(vm) != "ok") return;
-        Main.Apply(SiteEdit.SetArg(Site, r.St, r.St.Args[2], vm.Text));
+        Main.Apply(SiteEdit.SetArg(Site, st, st.Args[2], vm.Text));
     }
 
     /// <summary>[+] 메뉴: 켬 / 끔 / 벨트 / 출력 없음.</summary>

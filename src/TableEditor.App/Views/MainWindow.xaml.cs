@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         vm.Went += _ => FocusPane();
         vm.DialogShown += _ => { focusBack.Push(BackSpot()); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog); };
         vm.DialogClosed += OnDialogClosed;
+        vm.CommitFocused = CommitFocus;
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
         vm.Update.CloseForUpdate += () => { closeConfirmed = updateDone = true; Close(); }; // 도우미를 띄웠다
         Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
@@ -47,16 +48,20 @@ public partial class MainWindow : Window
     public bool HandleUndoKey(Key key, ModifierKeys mods)
     {
         if (mods != ModifierKeys.Control || key is not (Key.Z or Key.Y) || vm.HasDialog || vm.IsSettingsTab) return false;
-        if (Keyboard.FocusedElement is TextBox or ComboBox)
-        {
-            int fails = vm.ApplyFailures;
-            bool bad = (Keyboard.FocusedElement as FrameworkElement)?.DataContext is FieldVm { Invalid: true };
-            Keyboard.ClearFocus(); // 확정은 칸이 포커스를 잃을 때
-            if (bad || vm.HasDialog || vm.ApplyFailures != fails) return true;
-        }
+        if (!CommitFocus()) return true;
         var cmd = key == Key.Z ? vm.Undo : vm.Redo;
         if (cmd.CanExecute(null)) cmd.Execute(null);
         return true;
+    }
+
+    /// <summary>칸(글 상자·목록)을 고치는 중이면 포커스를 풀어 확정한다(확정은 칸이 포커스를 잃을 때). 확정이 실패했거나(빨간 칸·막힘) 팝업이 떴으면 false.</summary>
+    bool CommitFocus()
+    {
+        if (Keyboard.FocusedElement is not (TextBox or ComboBox) || vm.HasDialog) return true;
+        int fails = vm.ApplyFailures;
+        bool bad = (Keyboard.FocusedElement as FrameworkElement)?.DataContext is FieldVm { Invalid: true };
+        Keyboard.ClearFocus();
+        return !(bad || vm.HasDialog || vm.ApplyFailures != fails);
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -213,6 +218,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
+        if (!closeConfirmed) vm.CommitPending(); // 확정 안 한 칸이 있으면 먼저 확정(변경 수에 들어가게)
         if (!closeConfirmed && vm.Dirty)
         {
             e.Cancel = true;

@@ -189,6 +189,70 @@ public sealed partial class SelfTest
         Check(StaleViews().Count == 0, "되돌린 뒤 모든 줄 VM 이 현재 사이트");
     }
 
+    /// <summary>N1 확정 안 한 칸 + 저장 · N4 확정 안 한 칸 + 조건 팝업: 칸 값이 사라지지 않고 팝업 입력도 거부되지 않는다.</summary>
+    async Task V023Commit()
+    {
+        Step("27 확정 안 한 칸 + Ctrl+S · 확정 안 한 칸 + 조건 팝업");
+        while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
+        Drafts.Clear(vm.Site!);
+        await vm.TryOpen(() => vm.OpenSiteAsync(site)); // 앞 단계가 열어 둔 사이트가 아니라 시험 사이트에서
+        await Idle();
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+
+        // 칸에 값을 치고(상자에 포커스) 확정은 안 한 상태를 만든다. 친 값을 돌려준다
+        async Task<(TagRowVm Row, long Value)> Typed()
+        {
+            foreach (var r in Tag.Rows.Where(r => r.Rule != null))
+            {
+                Tag.SelectOnly(r);
+                var f = Tag.Fields.FirstOrDefault(x => x.Editor == FieldEditor.Number && !x.Locked && !x.NoStates && long.TryParse(x.Text, out _));
+                if (f == null) continue;
+                await Idle();
+                long v = long.Parse(f.Text);
+                foreach (var cand in new[] { v + 5, v - 5, v + 1, v - 1 })
+                {
+                    f.Text = cand.ToString();
+                    if (f.Invalid) continue;
+                    var box = FindAbove<TextBox>(w, x => ReferenceEquals(x.DataContext, f) && x.IsVisible);
+                    if (box != null) Keyboard.Focus(box);
+                    return (r, cand);
+                }
+            }
+            throw new InvalidOperationException("숫자 칸 없음");
+        }
+
+        // N1: 확정 없이 저장 → 저장된 파일에 그 값
+        var (_, v1) = await Typed();
+        string disk0 = DiskText;
+        Check(vm.ChangeCount == 0, "확정 전에는 변경 0");
+        bool saved = await vm.SaveAsync();
+        await Idle();
+        Check(saved && vm.ChangeCount == 0 && DiskText != disk0 && DiskText == TagText, $"확정 안 한 칸이 저장된 파일에 있음 ({vm.ChangeCount})");
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(await vm.SaveAsync() && DiskText == disk0, "되돌려 저장하면 처음 파일");
+
+        // N4: 확정 없이 조건 팝업 → 칸이 먼저 확정되고, 팝업 [확인] 이 거부되지 않아 칸 값과 조건 둘 다 반영
+        var (row, v2) = await Typed();
+        int changes = vm.ChangeCount, fails = vm.ApplyFailures;
+        var (dlg, done) = await Open<CondVm>(() => vm.EditConditionAsync(row));
+        Check(vm.ChangeCount == changes + 1, $"팝업이 뜨기 전에 칸이 확정됨 ({vm.ChangeCount})");
+        string afterField = TagText;
+        var cv = (CondVm)dlg;
+        cv.AddX.Execute(null);
+        Check(cv.Ok.CanExecute(null), "차량 상태 하나 추가");
+        cv.Ok.Execute(null);
+        await done;
+        await Idle();
+        Check(vm.ApplyFailures == fails && vm.ChangeCount == changes + 2 && TagText != afterField && TagText.Contains(v2.ToString()), $"칸 값과 조건 둘 다 반영 ({vm.ChangeCount}, 거부 {vm.ApplyFailures - fails})");
+        vm.Undo.Execute(null);
+        await Idle();
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(vm.ChangeCount == 0 && DiskText == TagText, "되돌림");
+    }
+
     async Task V023Defer()
     {
         Step("24 편집은 안 보이는 탭을 미룸 · 보이면 지금 사이트");

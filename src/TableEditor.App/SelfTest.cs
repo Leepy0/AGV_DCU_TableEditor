@@ -27,6 +27,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
     {
         log.Add((ok ? "통과  " : "실패  ") + what);
         if (!ok) failures++;
+        try { File.WriteAllLines(Path.Combine(work, "selftest.log"), log); } catch (IOException) { } // 멈춰도 어디까지 갔는지 남는다
     }
 
     void Step(string name)
@@ -321,6 +322,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await V023Stale();
         await V023Leftovers();
         await Review();
+        await V023Commit();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);

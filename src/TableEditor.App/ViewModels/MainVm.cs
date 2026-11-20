@@ -382,6 +382,7 @@ public sealed partial class MainVm : Observable
     /// </summary>
     public async Task<bool> SaveAsync()
     {
+        if (!CommitPending()) return false; // 확정 안 한 칸이 있으면 먼저 확정(실패하면 저장 안 함): 저장 뒤 그 편집이 사라지지 않게
         if (Site is not { } s || !CanEdit || op == "save") return false;
         string? reason = null;
         if (Repo != null && siteName != null && !Checker.Run(s).Any(f => f.Severity == Severity.Error))
@@ -390,8 +391,36 @@ public sealed partial class MainVm : Observable
             var rv = new ReasonVm();
             if (await Show(rv) != "ok") return false;
             reason = rv.Text.Trim();
+            if (!ReferenceEquals(Site, s)) return StaleSite(); // 팝업 중 사이트가 바뀜: 옛 사이트로 저장하면 새 편집을 덮는다
         }
         return await Locked("save", "저장", () => SaveFilesAsync(s, reason));
+    }
+
+    bool StaleSite()
+    {
+        ApplyFailures++;
+        Notify("화면 다시 읽음 · 저장 안 함");
+        Refresh(null, draft: false);
+        return false;
+    }
+
+    /// <summary>
+    /// 칸을 고치는 중이면 확정한다(창이 포커스를 풀어 칸 확정 명령을 낸다). 확정이 실패했거나(빨간 칸·막힘) 못 하면 false: 호출한 명령은 아무것도 하지 않는다.
+    /// 팝업 중이면 아무것도 안 한다. 사이트를 잡고 팝업을 띄워 쓰는 명령은 사이트를 잡기 전에 부른다.
+    /// </summary>
+    public bool CommitPending() => HasDialog || CommitFocused?.Invoke() != false;
+
+    /// <summary>창이 단다: 포커스가 칸에 있으면 풀어 확정, 성공 여부.</summary>
+    public Func<bool>? CommitFocused { get; set; }
+
+    /// <summary>조각 p 를 가진 채 칸을 확정하고 새 사이트의 같은 자리 조각을 돌려준다(확정이 칸의 문장을 다시 쓰기 때문). 실패면 null.</summary>
+    public Piece? CommitKeep(Piece p)
+    {
+        if (Site is not { } s) return null;
+        (string File, int Index)? key = null;
+        try { key = BlockHost.Locate(s, p); } catch (InvalidOperationException) { }
+        if (!CommitPending()) return null;
+        return key is { } k && Site?.File(k.File) is { } f && k.Index < f.Pieces.Count ? f.Pieces[k.Index] : p;
     }
 
     async Task<bool> SaveFilesAsync(Site s, string? reason)
@@ -407,6 +436,7 @@ public sealed partial class MainVm : Observable
                 [new("reload", "다시 읽기"), new("overwrite", "내 것으로 덮기"), new("cancel", "취소", Default: true)]));
             if (key == "reload") { await ReloadAsync(); return false; }
             if (key != "overwrite") return false;
+            if (!ReferenceEquals(Site, s)) return StaleSite();
             IsBusy = true;
             try { r = await Task.Run(() => SaveFiles.Save(s, overwrite: true)); }
             finally { IsBusy = false; }
@@ -443,6 +473,7 @@ public sealed partial class MainVm : Observable
     /// <summary>저장 안 한 변경이 있으면 [저장][버리기][취소]. 나가도 되는가. reload = 버리면 디스크에서 다시 연다(받기·되돌리기 전).</summary>
     public async Task<bool> ConfirmLeaveAsync(bool reload = false)
     {
+        if (!CommitPending()) return false;
         if (!Dirty) return true;
         var key = await Show(new AskVm("저장 안 함", [$"변경 {ChangeCount}"],
             [new("save", "저장", Primary: true), new("drop", "버리기"), new("cancel", "취소", Default: true)]));
@@ -485,6 +516,7 @@ public sealed partial class MainVm : Observable
 
     public async Task AddRowsAsync()
     {
+        if (!CommitPending()) return;
         if (Site is not { } s) return;
         var vm = new AddVm(s, Tag.SelectedRows);
         if (await Show(vm) == "ok") Apply(TagEdit.Add(s, vm.Tags, vm.ProfileList, vm.Template.Rule, vm.Mode));
@@ -492,14 +524,20 @@ public sealed partial class MainVm : Observable
 
     public async Task EditConditionAsync(TagRowVm row)
     {
-        if (Site is not { } s || row.Rule == null || !CanEdit) return;
-        var vm = new CondVm(row.Rule, s.Names, TagVm.ScopeOf(s, row.Rule));
-        if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, row.Rule, vm.X, vm.Input));
+        if (row.Rule == null || !CanEdit) return;
+        var rule = row.Rule;
+        if (CommitKeep(rule.St) is not Statement st) return; // 칸 확정이 줄을 다시 쓰면 새 사이트의 같은 줄로
+        if (Site is not { } s) return;
+        if (!ReferenceEquals(st, rule.St)) rule = new TagRule(st);
+        var vm = new CondVm(rule, s.Names, TagVm.ScopeOf(s, rule));
+        if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, rule, vm.X, vm.Input));
     }
 
     public async Task EditRawAsync(Piece p)
     {
-        if (Site is not { } s || !Settings.Advanced) return;
+        if (!Settings.Advanced || CommitKeep(p) is not { } kept) return;
+        p = kept;
+        if (Site is not { } s) return;
         var vm = new RawVm(p.Text.TrimEnd('\r', '\n'));
         if (await Show(vm) == "ok") Apply(SiteEdit.ReplaceText(s, p, vm.Text));
     }

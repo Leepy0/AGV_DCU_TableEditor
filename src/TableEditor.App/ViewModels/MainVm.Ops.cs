@@ -182,7 +182,7 @@ public sealed partial class MainVm
     /// <summary>[받기](사양 8.2·8.4절): 저장 안 한 편집 → [저장][버리기][취소], 충돌 팝업, 표가 바뀌면 다시 읽기 → 검사 → 압축 → 압축 커밋.</summary>
     public async Task PullAsync()
     {
-        if (!CanGit) return;
+        if (!CanGit || !CommitPending()) return;
         if (!await ConfirmLeaveAsync(reload: true)) return;
         var site = SiteName!;
         for (int i = 0; i < 2; i++)
@@ -353,7 +353,7 @@ public sealed partial class MainVm
     /// </summary>
     public async Task BuildAsync()
     {
-        if (!CanGit || building || op is "build" or "round" or "core") return;
+        if (!CanGit || building || op is "build" or "round" or "core" || !CommitPending()) return;
         building = true; // 누르는 즉시 잠금(저장·도구 확인 동안 두 번째 눌림 막기)
         CommandManager.InvalidateRequerySuggested();
         try
@@ -486,7 +486,7 @@ public sealed partial class MainVm
     /// </summary>
     public async Task RoundAsync()
     {
-        if (!CanGit || op != null) return;
+        if (!CanGit || op != null || !CommitPending()) return;
         if (Dirty && !await SaveAsync()) return;
         if (Dirty) return;
         var root = Repo!;
@@ -529,7 +529,7 @@ public sealed partial class MainVm
     /// <summary>코어 버전 변경(사양 8.6절): 버전 목록 → 확인 → CoreUpdate.RunAsync(빌드 화면에 진행) → 결과 줄(성공 core = …, 실패 까닭).</summary>
     public async Task CoreUpdateAsync()
     {
-        if (!CanGit || op != null) return;
+        if (!CanGit || op != null || !CommitPending()) return;
         if (!await ConfirmLeaveAsync(reload: true)) return;
         var root = Repo!;
         var site = SiteName!;
@@ -592,7 +592,7 @@ public sealed partial class MainVm
     /// <summary>[되돌리기](변경 칩 메뉴): 확인 팝업 뒤 편집 내용과 저장 안 한 파일 변경을 버린다.</summary>
     public async Task DiscardAsync()
     {
-        if (Site == null || IsReadOnly) return;
+        if (Site == null || IsReadOnly || !CommitPending()) return;
         var files = await SiteChangesAsync();
         if (!Dirty && files.Count == 0) { Notify("변경 없음", error: false); return; }
         var facts = new List<Fact>();
@@ -624,6 +624,7 @@ public sealed partial class MainVm
     /// <summary>[다시 읽기](바깥 변경 칩): 편집이 있으면 버린다는 확인 뒤.</summary>
     public async Task ReloadExternalAsync()
     {
+        if (!CommitPending()) return;
         if (Dirty && await Show(new FactsVm("다시 읽기", [new("편집", $"변경 {ChangeCount}"), new("바뀐 파일", string.Join(", ", external))],
                 [CancelButton, new("ok", "다시 읽기", Primary: true)])) != "ok") return;
         await ReloadAsync();
@@ -694,7 +695,7 @@ public sealed partial class MainVm
     /// <summary>[되돌리기]: 확인 팝업(사유) → git revert → 다시 읽기 → 검사 → 압축 확인.</summary>
     public async Task RevertAsync(HistoryEntry e)
     {
-        if (!CanGit || op != null) return;
+        if (!CanGit || op != null || !CommitPending()) return;
         if (!await ConfirmLeaveAsync(reload: true)) return;
         var subject = e.Subject;
         if (await Show(new FactsVm("되돌리기", [new("사유", subject), new("커밋", e.Hash, Mono: true), new("날짜", e.Date.Length >= 16 ? e.Date[..16] : e.Date)],

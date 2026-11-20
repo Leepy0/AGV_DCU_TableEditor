@@ -352,6 +352,7 @@ public sealed class SeqVm : BlockHost
     /// <summary>[추가]: 고른 스텝 뒤(없으면 끝)에 새 스텝 하나(꼭 있는 칸만 기본값).</summary>
     public async Task AddStepAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
         var d = new StepVm("스텝 추가", "추가", z.Open == "ACT_BEGIN", null, e => Choices.DefaultText(e, Site.Names), newDsl: Site.NewDsl);
         if (await Main.Show(d) != "ok" || Zone is not { } zone) return;
@@ -370,6 +371,7 @@ public sealed class SeqVm : BlockHost
     /// </summary>
     public async Task ChangeStepAsync()
     {
+        if (!Main.CommitPending()) return;
         if (SelectedStep?.Piece is not Statement st || Zone is not { } z) return;
         if (SeqEdit.LabelUses(z, st) is { Count: > 0 } uses)
         {
@@ -406,6 +408,7 @@ public sealed class SeqVm : BlockHost
     /// <summary>[삭제]·Del: 고른 스텝. 라벨 줄을 다른 줄이 쓰면 팝업으로 막는다.</summary>
     public async Task DeleteStepAsync()
     {
+        if (!Main.CommitPending()) return;
         if (SelectedStep is not { } row || Zone is not { } z) return;
         if (row.Piece is Statement st && SeqEdit.LabelUses(z, st) is { Count: > 0 } uses)
         {
@@ -452,6 +455,7 @@ public sealed class SeqVm : BlockHost
     /// <summary>[표 추가]: 새 표(<c>END_STOP</c> 한 줄) + 대응표 줄(<see cref="BundleEdit.AddSeqTable"/>).</summary>
     public async Task AddTableAsync()
     {
+        if (!Main.CommitPending()) return;
         var d = new SeqTableVm(Site);
         if (await Main.Show(d) != "ok") return;
         var name = d.Name.Trim();
@@ -467,6 +471,7 @@ public sealed class SeqVm : BlockHost
     /// </summary>
     public async Task DeleteTableAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
         var refs = SeqEdit.TableUses(Site, z.Name);
         if (refs.Blocking.Count > 0)
