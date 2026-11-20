@@ -251,7 +251,7 @@ public sealed partial class MainVm : Observable
         if (!r.Ok) { ApplyFailures++; Notify(r.Error ?? "막힘"); return false; }
         if (ReferenceEquals(r.Site, history.Current)) return true;
         history.Push(r);
-        Refresh(r.Touched);
+        Refresh(r.Touched, defer: true);
         return true;
     }
 
@@ -259,7 +259,7 @@ public sealed partial class MainVm : Observable
     {
         if (history == null) return;
         f(history);
-        Refresh(null);
+        Refresh(null, defer: true);
     }
 
     public ICommand Undo { get; }
@@ -270,23 +270,52 @@ public sealed partial class MainVm : Observable
     public bool HasChanges => ChangeCount > 0;
     public bool Dirty => history?.Dirty == true;
 
-    /// <summary>검사 다시 → 태그 화면·검사 목록·변경 수.</summary>
-    void Refresh(IReadOnlyList<Piece>? touched, bool draft = true)
+    /// <summary>
+    /// 검사 다시 → 표 화면들·검사 목록·변경 수. defer = 편집 한 번(안 보이는 표 화면은 그 탭이 보일 때까지 미룬다:
+    /// 숨은 화면의 목록이 편집마다 요소 수천 개를 다시 만들어 한 번에 0.7~1초가 들었다). 검사 목록·변경 수·탭 배지는 바로 갱신한다.
+    /// </summary>
+    void Refresh(IReadOnlyList<Piece>? touched, bool draft = true, bool defer = false)
     {
         var s = Site!;
         var list = Checker.Run(s);
-        Tag.Reload(s, list, baseline, touched);
-        Profile.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Manual.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Seq.Reload(s, list, baseline, touched);
-        Map.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Io.Reload(s, list);
+        (staleSite, staleList) = (s, list);
+        foreach (var name in TableTabNames)
+        {
+            if (defer && Tab.Name != name) { stale.Add(name); continue; }
+            stale.Remove(name);
+            ReloadTab(name, s, list, touched);
+        }
         SetFindings(s, list.Concat(packFindings).ToList());
         Raise(nameof(Site));
         Raise(nameof(ChangeCount));
         Raise(nameof(HasChanges));
         CommandManager.InvalidateRequerySuggested();
         if (draft) { draftTimer.Stop(); draftTimer.Start(); }
+    }
+
+    static readonly string[] TableTabNames = [TagTab, ProfileTab, ManualTab, SeqTab, MapTab, IoTab];
+
+    readonly HashSet<string> stale = [];
+    Site? staleSite;
+    IReadOnlyList<Finding> staleList = [];
+
+    void ReloadTab(string name, Site s, IReadOnlyList<Finding> list, IReadOnlyList<Piece>? touched)
+    {
+        switch (name)
+        {
+            case TagTab: Tag.Reload(s, list, baseline, touched); break;
+            case ProfileTab: Profile.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case ManualTab: Manual.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case SeqTab: Seq.Reload(s, list, baseline, touched); break;
+            case MapTab: Map.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case IoTab: Io.Reload(s, list); break;
+        }
+    }
+
+    /// <summary>미뤄 둔 그 탭의 화면을 지금 사이트로 만든다(탭이 보이기 전·그 화면 VM 을 건드리기 전).</summary>
+    public void Flush(string name)
+    {
+        if (stale.Remove(name) && staleSite is { } s) ReloadTab(name, s, staleList, null);
     }
 
     /// <summary>초안: 편집을 잠깐 묶어 쓴다. 변경이 없으면 지운다.</summary>
@@ -548,6 +577,7 @@ public sealed partial class MainVm : Observable
         {
             var old = tab;
             if (!Set(ref tab, value)) return;
+            Flush(value.Name);
             old.Changed();
             value.Changed();
             foreach (var n in new[] { nameof(IsTagTab), nameof(IsSettingsTab), nameof(IsBuildTab), nameof(IsHistoryTab), nameof(IsProfileTab), nameof(IsIoTab), nameof(IsSeqTab), nameof(IsMapTab), nameof(IsManualTab) })
@@ -608,6 +638,7 @@ public sealed partial class MainVm : Observable
     /// <summary>태그 동작의 시퀀스 → 시퀀스 화면의 그 시퀀스 ID 표. 대응표에 없으면 화면을 안 바꾸고 false.</summary>
     public bool GoSeq(string? profile, string id)
     {
+        Flush(SeqTab);
         if (!Seq.HasSeq(id)) return false;
         Tab = Tabs.First(t => t.Name == SeqTab);
         return Seq.SelectSeq(profile, id);

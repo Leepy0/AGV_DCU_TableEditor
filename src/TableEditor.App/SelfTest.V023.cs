@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using TableEditor.App.Blocks;
 using TableEditor.App.ViewModels;
 using TableEditor.Engine.Model;
 
@@ -70,5 +71,62 @@ public sealed partial class SelfTest
         await done;
         await Idle();
         Check(ReferenceEquals(Keyboard.FocusedElement, item), "팝업을 닫으면 포커스가 줄로 돌아옴");
+    }
+
+    /// <summary>모든 표 화면의 줄이 지금 사이트의 조각을 가리키는가(낡은 줄 VM 이 남으면 false). 화면 이름 목록을 돌려준다.</summary>
+    List<string> StaleViews()
+    {
+        var live = vm.Site!.Files.SelectMany(f => f.Pieces).ToHashSet<object>(ReferenceEqualityComparer.Instance);
+        var bad = new List<string>();
+        void Chk(string name, IEnumerable<object> pieces) { if (pieces.Any(p => !live.Contains(p))) bad.Add(name); }
+        Chk("태그", Tag.Rows.Select(r => (object)r.Piece));
+        Chk("프로파일", vm.Profile.Rows.Select(r => (object)r.Piece));
+        Chk("수동", vm.Manual.Cards.SelectMany(c => c.Rows).Select(r => (object)r.St));
+        Chk("시퀀스", vm.Seq.Steps.Select(r => (object)r.Piece));
+        Chk("대응표", vm.Map.Rows.Select(r => (object)r.Piece));
+        return bad;
+    }
+
+    async Task V023Defer()
+    {
+        Step("24 편집은 안 보이는 탭을 미룸 · 보이면 지금 사이트");
+        vm.Tab = vm.Tabs.First(t => t.Name == MainVm.TagTab);
+        await Idle();
+        var steps0 = vm.Seq.Steps;
+        var rows0 = vm.Profile.Rows;
+        FieldVm? f = null;
+        foreach (var r in Tag.Rows.Where(r => r.Rule != null))
+        {
+            Tag.SelectOnly(r);
+            f = Tag.Fields.FirstOrDefault(x => x.Editor == FieldEditor.Number && !x.Locked && !x.NoStates && long.TryParse(x.Text, out _));
+            if (f != null) break;
+        }
+        Check(f != null, "숫자 칸이 있는 태그 줄");
+        await Idle();
+        long v = long.Parse(f!.Text);
+        foreach (var cand in new[] { v + 5, v - 5, v + 1, v - 1 }) { f.Text = cand.ToString(); if (!f.Invalid) break; }
+        int changes = vm.ChangeCount;
+        f.Commit();
+        await Idle();
+        Check(vm.ChangeCount == changes + 1, $"칸 고침 ({vm.ChangeCount})");
+        Check(ReferenceEquals(vm.Seq.Steps, steps0) && ReferenceEquals(vm.Profile.Rows, rows0), "안 보이는 시퀀스·프로파일 화면은 다시 안 그림");
+        Check(!StaleViews().Contains("태그"), "보이는 태그 화면은 바로 현재 사이트");
+        foreach (var name in new[] { MainVm.SeqTab, MainVm.ProfileTab, MainVm.ManualTab, MainVm.MapTab, MainVm.IoTab, MainVm.TagTab })
+        {
+            vm.Tab = vm.Tabs.First(t => t.Name == name);
+            await Idle();
+            Check(!StaleViews().Contains(name), $"{name} 탭이 보이면 현재 사이트");
+        }
+        Check(StaleViews().Count == 0, "모든 줄 VM 이 현재 사이트의 조각");
+        vm.Undo.Execute(null);
+        await Idle();
+        foreach (var name in new[] { MainVm.SeqTab, MainVm.ManualTab, MainVm.TagTab })
+        {
+            vm.Tab = vm.Tabs.First(t => t.Name == name);
+            await Idle();
+        }
+        vm.Flush(MainVm.ProfileTab);
+        vm.Flush(MainVm.MapTab);
+        Check(vm.ChangeCount == changes && StaleViews().Count == 0, "되돌린 뒤에도 모든 줄 VM 이 현재 사이트");
     }
 }

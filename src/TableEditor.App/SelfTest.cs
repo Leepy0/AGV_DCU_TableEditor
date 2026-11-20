@@ -317,6 +317,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await V058();
         await V022();
         await V023();
+        await V023Defer();
         await Review();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
@@ -467,6 +468,8 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         Step("되돌리기 전부");
         while (vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
         Check(vm.ChangeCount == 0 && ChangedFiles() == 0, $"변경 0, 파일 그대로 ({ChangedFiles()})");
+        vm.Flush(MainVm.SeqTab); // 안 보이는 탭 화면은 보일 때까지 미룬다
+        vm.Flush(MainVm.ManualTab);
         S.SelectTable("belt_unload");
         S.SelectTable("belt_load");
         Check(S.Steps.All(r => !r.IsChanged) && P.Rows.All(r => !r.IsChanged) && vm.Manual.Cards.All(c => c.Rows.All(r => !r.IsChanged)), "바뀐 줄 점 없음(다시 연 표 포함)");
