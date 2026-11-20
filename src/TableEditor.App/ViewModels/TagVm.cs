@@ -36,7 +36,15 @@ public sealed class TagVm : BlockHost
         CommitTag = new Command(p => CommitTagText(p as TagRowVm ?? Selected));
         CancelTag = new Command(p => (p as TagRowVm ?? Selected)?.ResetDrafts());
         CommitComment = new Command(p => CommitCommentText(p as TagRowVm ?? Selected));
-        EditCond = new Command(p => { if (!main.HasDialog && p is TagRowVm r) { SelectOnly(r); _ = main.EditConditionAsync(r); } });
+        EditCond = new Command(p =>
+        {
+            if (main.HasDialog || p is not TagRowVm r) return;
+            // 다른 줄의 칩이면 줄을 고르기 전에 지금 줄의 확정 안 한 칸부터 확정(고르면 칸이 버려진다). 확정이 줄을 다시 쓰면 새 줄로
+            if (main.CommitKeep(r.Piece) is not { } kept) return;
+            if (!ReferenceEquals(kept, r.Piece)) r = Rows.FirstOrDefault(x => ReferenceEquals(x.Piece, kept)) ?? r;
+            SelectOnly(r);
+            _ = main.EditConditionAsync(r);
+        });
         EditRaw = new Command(() => { if (Selected != null) _ = main.EditRawAsync(Selected.Piece); }, () => main.Settings.Advanced && Selected != null);
     }
 

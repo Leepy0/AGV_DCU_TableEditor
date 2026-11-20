@@ -251,6 +251,31 @@ public sealed partial class SelfTest
         vm.Undo.Execute(null);
         await Idle();
         Check(vm.ChangeCount == 0 && DiskText == TagText, "되돌림");
+
+        // 다른 줄의 조건 칩: 줄을 고르기 전에 지금 줄의 확정 안 한 칸이 확정된다(고르면 칸이 버려졌다)
+        var (rowA, v3) = await Typed();
+        var rowB = Tag.Rows.First(r => r.Rule != null && !ReferenceEquals(r, rowA));
+        string before = TagText;
+        int ch = vm.ChangeCount;
+        var (dlgB, doneB) = await Open<CondVm>(() => { Tag.EditCond.Execute(rowB); return Task.CompletedTask; });
+        Check(vm.ChangeCount == ch + 1 && TagText != before && TagText.Contains(v3.ToString()), $"다른 줄 조건 칩: 앞 줄의 칸 값이 반영됨 ({vm.ChangeCount})");
+        dlgB.Cancel.Execute(null);
+        await doneB;
+        await Idle();
+        vm.Undo.Execute(null);
+        await Idle();
+
+        // CommitKeep: 확정 뒤 같은 자리의 조각 이름이 달라지면 null(명령은 아무것도 안 함)
+        var stK = (Statement)Tag.Rows.First(r => r.Rule != null).Piece;
+        Check(ReferenceEquals(vm.CommitKeep(stK), stK), "CommitKeep: 같은 줄이면 그대로");
+        var hook = vm.CommitFocused;
+        vm.CommitFocused = () => vm.Apply(SiteEdit.ReplaceText(vm.Site!, stK, stK.Text.Replace(stK.Name, stK.Name + "X")));
+        var kept = vm.CommitKeep(stK);
+        vm.CommitFocused = hook;
+        Check(kept == null, $"CommitKeep: 확정 뒤 같은 자리 줄의 이름이 달라지면 null ({kept?.GetType().Name})");
+        vm.Undo.Execute(null);
+        await Idle();
+        Check(vm.ChangeCount == 0, "되돌림");
     }
 
     async Task V023Defer()

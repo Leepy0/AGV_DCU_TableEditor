@@ -420,7 +420,12 @@ public sealed partial class MainVm : Observable
         (string File, int Index)? key = null;
         try { key = BlockHost.Locate(s, p); } catch (InvalidOperationException) { }
         if (!CommitPending()) return null;
-        return key is { } k && Site?.File(k.File) is { } f && k.Index < f.Pieces.Count ? f.Pieces[k.Index] : p;
+        if (key is not { } k) return p;
+        if (Site?.File(k.File) is not { } f || k.Index >= f.Pieces.Count) return null;
+        var now = f.Pieces[k.Index];
+        // 다시 잡은 조각이 확정 전과 다른 종류·이름이면 엉뚱한 줄이다: 명령은 아무것도 안 한다
+        bool same = now.Kind == p.Kind && (p is not Statement a || now is Statement b && a.Name == b.Name);
+        return same ? now : null;
     }
 
     async Task<bool> SaveFilesAsync(Site s, string? reason)

@@ -79,7 +79,15 @@ public sealed class ManualVm : BlockHost
         DeleteRow = new Command(DeleteSelected, () => Main.CanEdit && Selected != null && !Selected.IsElse);
         DeleteCard = new Command(DeleteSelectedCard, () => Main.CanEdit && Selected?.Card != null);
         DeleteBlock = new Command(() => DeleteOut(Picked), () => Main.CanEdit && Picked is { Index: >= 0 } && Selected is { IsInput: false, Blocks.Count: > 1 });
-        EditCond = new Command(p => { if (!Main.HasDialog && p is ManRowVm r) { Select(r, false); _ = EditCondAsync(r); } });
+        EditCond = new Command(p =>
+        {
+            if (Main.HasDialog || p is not ManRowVm r) return;
+            // 줄을 고르기 전에 지금 줄의 확정 안 한 칸부터 확정(고르면 칸이 버려진다). 확정이 줄을 다시 쓰면 새 줄로
+            if (Main.CommitKeep(r.St) is not Statement kept) return;
+            if (!ReferenceEquals(kept, r.St)) r = Cards.SelectMany(c => c.Rows).FirstOrDefault(x => ReferenceEquals(x.St, kept)) ?? r;
+            Select(r, false);
+            _ = EditCondAsync(r);
+        });
         Pick = new Command(p => { if (p is ManRowVm r) Select(r, false); });
     }
 

@@ -218,7 +218,12 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (!closeConfirmed) vm.CommitPending(); // 확정 안 한 칸이 있으면 먼저 확정(변경 수에 들어가게)
+        if (!closeConfirmed && !vm.CommitPending()) // 확정 안 한 칸이 있으면 먼저 확정(변경 수에 들어가게). 안 되면(값 버림 팝업·빨간 칸) 닫지 않는다
+        {
+            e.Cancel = true;
+            if (!vm.HasDialog) vm.Notify("막힘");
+            return;
+        }
         if (!closeConfirmed && vm.Dirty)
         {
             e.Cancel = true;
