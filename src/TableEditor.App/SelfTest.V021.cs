@@ -192,6 +192,21 @@ public sealed partial class SelfTest
         }
         else log.Add("   메뉴 크기 0: 캡처 못 함");
         menu.IsOpen = false;
+        if (w.FindName("ChangesChip") is System.Windows.Controls.Button chip && chip.ContextMenu is { } cm)
+        {
+            cm.PlacementTarget = chip;
+            cm.IsOpen = true;
+            await Idle();
+            Check(cm.Items.OfType<MenuItem>().Select(m => m.Header?.ToString()).SequenceEqual(["되돌리기"]), "변경 칩 메뉴 = 되돌리기");
+            if (shots != null && cm.ActualWidth > 0)
+            {
+                var pic2 = new System.Windows.Shapes.Rectangle { Width = cm.ActualWidth, Height = cm.ActualHeight, Fill = new System.Windows.Media.VisualBrush(cm) };
+                pic2.Measure(new Size(pic2.Width, pic2.Height));
+                pic2.Arrange(new Rect(0, 0, pic2.Width, pic2.Height));
+                App.Save(pic2, Path.Combine(shots, "change_menu.png"));
+            }
+            cm.IsOpen = false;
+        }
         Check(RowMenu.Pick(rows, null) == null, "줄 밖 우클릭 = 선택 안 건드림");
 
         Step("A16 조건 입력 목록: IN_START_SW·IN_STOP_SW·IN_REMOTE_START·IN_BUMPER_1·IN_OBS_F, IN_AMP_* 는 없음");

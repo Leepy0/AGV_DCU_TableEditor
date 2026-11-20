@@ -589,7 +589,7 @@ public sealed partial class MainVm
         return st?.Changed.Select(l => l.Length > 3 ? l[3..].Trim('"') : l).Where(p => p.StartsWith(prefix, StringComparison.Ordinal)).Select(p => p[prefix.Length..]).ToList() ?? [];
     }
 
-    /// <summary>[버리기](변경 칩 메뉴): 확인 팝업 뒤 편집 내용과 저장 안 한 파일 변경을 버린다.</summary>
+    /// <summary>[되돌리기](변경 칩 메뉴): 확인 팝업 뒤 편집 내용과 저장 안 한 파일 변경을 버린다.</summary>
     public async Task DiscardAsync()
     {
         if (Site == null || IsReadOnly) return;
@@ -598,11 +598,11 @@ public sealed partial class MainVm
         var facts = new List<Fact>();
         if (Dirty) facts.Add(new("편집", $"변경 {ChangeCount}"));
         if (files.Count > 0) facts.Add(new("파일", string.Join(", ", files)));
-        if (await Show(new FactsVm("버리기", facts, [CancelButton, new("ok", "버리기", Primary: true)])) != "ok") return;
+        if (await Show(new FactsVm("되돌리기", facts, [CancelButton, new("ok", "되돌리기", Primary: true)])) != "ok") return;
         if (files.Count > 0)
         {
             var r = await Locked("discard", "버리는 중", () => GitOf()!.DiscardAsync(SiteName!));
-            if (!await ReportAsync(r, "버리기")) return;
+            if (!await ReportAsync(r, "되돌리기")) return;
         }
         await ReloadAsync();
     }

@@ -48,7 +48,7 @@ public sealed partial class SelfTest
         var r62 = Row(62, "PF_CART");
         Check(r62.Chips.Select(c => c.Head).SequenceEqual(["호기 범위", "스테이션 범위"]), $"AND 안 상태 칩 ({string.Join("/", r62.Chips.Select(c => c.Head))})");
         var r63 = Row(63, "PF_CART");
-        Check(r63.Chips.Select(c => c.Head).SequenceEqual(["NOT", "켜짐", "꺼짐"]), $"NOT·켜짐·꺼짐 칩 ({string.Join("/", r63.Chips.Select(c => c.Head))})");
+        Check(r63.Chips.Select(c => c.Head).SequenceEqual(["반전", "켜짐", "꺼짐"]), $"NOT·켜짐·꺼짐 칩 ({string.Join("/", r63.Chips.Select(c => c.Head))})");
         var r60 = Row(60, "PF_BOX");
         Check(r60.Chips.Select(c => c.Head).SequenceEqual(["하나라도"]), "ANY 칩 = 하나라도");
         await Shot("tag_new_dsl.png");

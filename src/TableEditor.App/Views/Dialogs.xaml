@@ -92,7 +92,7 @@
                                         <Border Style="{StaticResource Tok}">
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
-                                                <Button Content="✕" Style="{StaticResource TokX}" AutomationProperties.Name="빼기"
+                                                <Button Content="✕" Style="{StaticResource TokX}" AutomationProperties.Name="삭제"
                                                         Command="{Binding DataContext.RemoveProfile, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             </StackPanel>
                                         </Border>
@@ -202,7 +202,7 @@
                                 Padding="{StaticResource Pad.TokBox}" Margin="{StaticResource Gap.B8}">
                             <DockPanel>
                                 <DockPanel DockPanel.Dock="Top" Margin="{StaticResource Gap.B4}">
-                                    <Button DockPanel.Dock="Right" Content="빼기" Style="{StaticResource Btn.Small}"
+                                    <Button DockPanel.Dock="Right" Content="삭제" Style="{StaticResource Btn.Small}"
                                             Command="{Binding DataContext.RemoveGroup, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                     <ComboBox Style="{StaticResource Drop}" HorizontalAlignment="Left" MinWidth="{StaticResource FieldMinWidth}"
                                               ItemsSource="{Binding KindTexts}" SelectedItem="{Binding KindText}" AutomationProperties.Name="묶음"/>
@@ -258,7 +258,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:XRowVm}">
                                     <DockPanel Margin="{StaticResource Gap.B8}">
-                                        <Button DockPanel.Dock="Right" Content="빼기" Style="{StaticResource Btn.Small}" VerticalAlignment="Bottom"
+                                        <Button DockPanel.Dock="Right" Content="삭제" Style="{StaticResource Btn.Small}" VerticalAlignment="Bottom"
                                                 Command="{Binding DataContext.RemoveX, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         <StackPanel Orientation="Horizontal">
                                             <ComboBox Style="{StaticResource Drop}" MinWidth="{StaticResource ProfileBoxWidth}" Margin="{StaticResource Gap.R8}" VerticalAlignment="Bottom"
