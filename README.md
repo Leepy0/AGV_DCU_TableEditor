@@ -10,7 +10,15 @@ AGV DCU 펌웨어의 사이트 표(프로파일, 태그, 시퀀스, 수동 표)�
 
 ## 받기
 
+**먼저 .NET 10 Desktop Runtime (x64) 을 설치한다**: https://dotnet.microsoft.com/download/dotnet/10.0
+
 [Releases](https://github.com/Leepy0/AGV_DCU_TableEditor/releases) 의 `TableEditor-vX.Y.Z-win-x64.zip` 을 풀어 `TableEditor.exe` 를 실행한다. 설치가 없다. 폴더에 `tedit.exe`(명령줄), `gcc\`(휴대용 컴파일러), `VERSION` 이 같이 있다.
+
+## v0.2.3 변경
+
+- 설치 크기 줄임: 302 MB → 76 MB(zip 98 MB → 28.6 MB). 휴대용 gcc 는 쓰는 헤더·라이브러리만 남김, .NET 런타임은 묶음에 넣지 않음
+- .NET 10 Desktop Runtime (x64) 을 PC 에 따로 설치한다. 없으면 실행할 때 Windows 가 받는 곳을 알려 준다
+- **v0.2.2 이하 사용자**: 업데이트 전에 .NET 10 Desktop Runtime 을 먼저 설치한다.
 
 ## v0.2.2 변경
 
