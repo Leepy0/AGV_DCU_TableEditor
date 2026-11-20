@@ -94,7 +94,9 @@ public sealed partial class SelfTest
         await Idle();
         Tag.AddAction(Row(28), acs);
         await Idle();
-        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, 0 )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
+        Check(Row(28).Rule!.Actions.Select(a => a.Text).SequenceEqual(["OBS_ON", "AGV_SPEED( 4 )", "ACS( LOADING, STATION(0) )"]), $"새 동작 글 ({string.Join(" · ", Row(28).Rule!.Actions.Select(a => a.Text))})");
+        Step("보고 칸: 1칸 STATION0 ↔ 2칸 STATION(k) (새 코어)");
+        await StationRoundTrip(28, "ACS( LOADING, STATION0 )", "ACS( LOADING, STATION(2) )");
         var stepNew = SeqEdit.StepRows(false, true).Select(e => e.Name).Distinct().ToList();
         var stepOld = SeqEdit.StepRows(false, false).Select(e => e.Name).Distinct().ToList();
         Check(new[] { "OUT_SET", "WAIT_TO", "ACS", "AGV_SPEED" }.All(stepNew.Contains) && !new[] { "WAIT_TO_PARAM", "WAIT_PARAM_TO", "AGV_SPEED_MMIN", "ACS_SEND", "WHEN_IF", "WHEN_ANY2", "WAIT_IF", "WAIT_ANY2" }.Any(stepNew.Contains),
@@ -185,9 +187,47 @@ public sealed partial class SelfTest
         Check(Row(62, "PF_CART").Rule!.CondText == "IF_X2_IN(X_ID(20,25),X_FORWARD,ON(DEMO_SEN_2))", $"옛 형식 ({Row(62, "PF_CART").Rule!.CondText})");
         var oldSpeedForms = ActionForms.Of(GrammarTable.Find("AGV_SPEED", Place.TagAction).First(e => e.Since.Length == 0), false).Select(e => e.Name + ":" + e.FormName).ToList();
         Check(oldSpeedForms.SequenceEqual(["AGV_SPEED:단계", "AGV_SPEED_MMIN:m/min"]), $"옛 코어 형식 칸 {string.Join("/", oldSpeedForms)}");
+        Step("보고 칸: 옛 코어는 2칸에서 ACS_SEND, 칸 0 은 1칸 ACS(STATION0), 시퀀스는 ACS( 종류, STATION(k) )");
+        await StationRoundTrip(58, "ACS( LOADING, STATION0 )", "ACS_SEND( LOADING, STATION(2) )");
+        var builder = new BlockBuilder(vm.Site!.Names, []);
+        var seqSt = vm.Site.Files.SelectMany(f => f.Pieces).OfType<Statement>().Where(s => s.Name is "ACS" or "ACS_SEND" && s.Args.Count == 2).ToList();
+        var s0 = seqSt.First(s => s.Text.Contains("UNLOADING, STATION0"));
+        var f0 = builder.Statement(s0, Place.Step).Fields.First(f => f.Label == "칸");
+        Check(f0.Value == "0" && f0.Write!("3") == "STATION(3)" && f0.Write("0") == "STATION0", "시퀀스 칸 0 = STATION0, 칸 3 = STATION(3)");
+        var s1 = seqSt.First(s => s.Text.Contains("ARRIVE, STATION(1)"));
+        Check(builder.Statement(s1, Place.Step).Fields.First(f => f.Label == "칸").Value == "1", "시퀀스 STATION(1) = 칸 1");
+        var sSend = seqSt.First(s => s.Name == "ACS_SEND" && s.Text.Contains("STATION(0)"));
+        var forms = builder.Statement(sSend, Place.Step).Fields;
+        Check(forms.Any(f => f.Label == "칸" && f.Value == "0") && forms[0].Value == "스테이션" && forms[0].Spec.Words!.SequenceEqual(["스테이션", "숫자"]), $"ACS_SEND(STATION) 도 스테이션 형식 ({forms[0].Value}: {string.Join("/", forms[0].Spec.Words!)})");
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
         await Idle();
         Clear(dir);
         Clear(core);
     }
+
+    /// <summary>보고 동작의 칸 고르기: 칸 → 2 → 0 으로 돌리면 줄이 처음 바이트 그대로. 쓴 글은 검사에 안 걸린다.</summary>
+    async Task StationRoundTrip(long tag, string start, string toTwo)
+    {
+        int idx = Row(tag).Rule!.Actions.Count - 1;
+        void Pick(string k)
+        {
+            var rule = Row(tag).Rule!;
+            var f = new BlockBuilder(vm.Site!.Names, []).Action(rule.St, rule.Actions[idx], idx).Fields.First(x => x.Label == "칸");
+            vm.Apply(SiteEdit.SetArg(vm.Site!, rule.St, f.Arg, f.Write!(k)));
+        }
+        var cur = Row(tag).Rule!.Actions[idx].Text;
+        if (cur != start) vm.Apply(SiteEdit.SetArg(vm.Site!, Row(tag).Rule!.St, Row(tag).Rule!.Actions[idx], start));
+        await Idle();
+        var baseText = TagText;
+        int errs = vm.ErrorCount;
+        Pick("2");
+        await Idle();
+        Check(Row(tag).Rule!.Actions[idx].Text == toTwo && vm.ErrorCount == errs, $"칸 2 로 ({Row(tag).Rule!.Actions[idx].Text}) · 오류 {vm.ErrorCount}");
+        var blk = new BlockBuilder(vm.Site!.Names, []).Action(Row(tag).Rule!.St, Row(tag).Rule!.Actions[idx], idx);
+        Check(blk.Cells == 2 && blk.Fields.First(x => x.Label == "칸").Value == "2", $"2칸 · 칸 2 읽음 ({blk.Cells})");
+        Pick("0");
+        await Idle();
+        Check(Row(tag).Rule!.Actions[idx].Text == start && TagText == baseText, "칸 0 으로 되돌리면 원문 바이트 동일");
+    }
+
 }

@@ -119,6 +119,7 @@ public sealed class Facts
                 bool pt = args[i].Node is CallNode { Name: "PARAM_TIME" };
                 if (specs[i].Kind == ArgKind.ParamTime ? !pt : specs[i].Kind is ArgKind.Timeout or ArgKind.Time && pt) words = false;
             }
+            if (args.Count == 2 && specs[1].Kind == ArgKind.AcsStation && args[1].Node is not CallNode { Name: "STATION" }) words = false; // 칸 형식은 STATION( k ) 만
             if (r.Name == "AGV_STOP" && args.Count == 1 && specs[0].Kind == ArgKind.Number && args[0].Node is NameNode { Name: "TAPE" or "TAPE_GD" }) words = false;
             if (r.Name == "SEQ_START" && args.Count == 2 && specs[0].Kind == ArgKind.Number && args[0].Node is NameNode { Name: "TAPE" or "TAPE_GD" }) words = false;
             if (words) return r;
@@ -176,7 +177,7 @@ public sealed class Facts
         ArgKind.ManCond => (HashSet<string>)["IN", "KEY", "NO_IN", "AND"],
         ArgKind.ManOut => (HashSet<string>)["ON", "OFF", "BELT", "NO_OUT"],
         ArgKind.StationExpr => (HashSet<string>)["STATION", "MOD"],
-        ArgKind.AcsSource => (HashSet<string>)["STATION"],
+        ArgKind.AcsSource or ArgKind.AcsStation => (HashSet<string>)["STATION"],
         ArgKind.AcsNumber => area == Area.Tag ? (HashSet<string>)["STATION", "AGV_ID_MINUS", "TAG_NUM"] : (HashSet<string>)["STATION"],
         ArgKind.FromSensor => (HashSet<string>)["FROM_SENSOR"],
         ArgKind.Timeout => (HashSet<string>)["UNMATCHED"],
@@ -202,7 +203,7 @@ public sealed class Facts
         ArgKind.AndItem => p is Place.InputCond or Place.StateCond,
         ArgKind.StateCond => p == Place.StateCond,
         ArgKind.StationExpr or ArgKind.AcsSource => p == Place.Step,
-        ArgKind.AcsNumber => p is Place.Step or Place.TagAction,
+        ArgKind.AcsNumber or ArgKind.AcsStation => p is Place.Step or Place.TagAction,
         _ => true,
     };
 
@@ -228,7 +229,7 @@ public sealed class Facts
         string? name = node is CallNode c0 ? c0.Name : node is NameNode n0 ? n0.Name : null;
         var args = node is CallNode c ? c.Args : [];
         if (name == null) return;
-        bool callish = IsCallKind(spec.Kind) || spec.Kind is ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.Timeout;
+        bool callish = IsCallKind(spec.Kind) || spec.Kind is ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.AcsStation or ArgKind.Timeout;
         if (!callish) return;
         var entry = Inner(name, args, spec.Kind, area);
         if (entry == null) return;

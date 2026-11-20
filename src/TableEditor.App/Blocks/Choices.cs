@@ -91,6 +91,8 @@ public static class Choices
                 return "UNTIL( NO_IN )";
             case ArgKind.Any2:
                 return $"ANY2_ON({FirstInput(names)})";
+            case ArgKind.AcsStation:
+                return "STATION(0)";
             case ArgKind.AcsSource:
                 return names.NewDsl ? "STATION(0)" : "STATION0";
             case ArgKind.StationExpr:

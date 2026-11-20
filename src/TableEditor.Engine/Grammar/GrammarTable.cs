@@ -48,6 +48,7 @@ public enum ArgKind
     StationExpr,  // STATION(k) 식
     AcsSource,    // 시퀀스 ACS 번호 출처
     AcsNumber,    // ACS_SEND 번호
+    AcsStation,   // ACS_SEND·태그 ACS 의 STATION( 칸 )
     StopDist,     // FL 또는 cm
     FromSensor,   // FROM_SENSOR( … )
     AndCond,      // IN( … ), 묶음 하나, NO_IN, AND( … )(v0.58.0)
@@ -207,8 +208,8 @@ public static class GrammarTable
         "DELAY" => "틱",
         "AGV_SPEED" => "단계",
         "AGV_SPEED_MMIN" => "m/min",
-        "ACS" => "출처",
-        "ACS_SEND" => "번호",
+        "ACS" => "스테이션",
+        "ACS_SEND" => "숫자",
         "WAIT" or "WAIT_STABLE" or "OUT_FLICKER_UNTIL_IN" or "SELECT_END" => "없음",
         "WAIT_TO" or "WAIT_STABLE_TO" or "OUT_FLICKER_UNTIL_IN_TO" or "SELECT_END_TO" => "시간",
         _ => "",
@@ -221,7 +222,7 @@ public static class GrammarTable
         {
             _ when a.Switch => "ON·OFF",
             ArgKind.Word => string.Join("·", a.Words ?? []),
-            ArgKind.Number or ArgKind.Time or ArgKind.Timeout or ArgKind.StopDist or ArgKind.AcsNumber => string.Join(" ", new[] { a.Unit, range }.Where(s => s.Length > 0)),
+            ArgKind.Number or ArgKind.Time or ArgKind.Timeout or ArgKind.StopDist or ArgKind.AcsNumber or ArgKind.AcsStation => string.Join(" ", new[] { a.Unit, range }.Where(s => s.Length > 0)),
             ArgKind.Profile => "프로파일",
             ArgKind.Input or ArgKind.CoreInput or ArgKind.FromSensor => "입력",
             ArgKind.Signal => "신호",
@@ -389,7 +390,7 @@ public static class GrammarTable
         E("X_STATION_DIV", XC, Pt, "X_STATION_DIV( 칸, n, m )", "스테이션 몫", "차량 상태", Slot, N(1, 65535), U16),
         E("X_TAG_NUM", XC, Pt, "X_TAG_NUM( 식 )", "태그 번호 = 식", "차량 상태", A(ArgKind.StationExpr)),
         E("X_PARAM", XC, Pt, "X_PARAM( FND 이름, 값 )", "파라미터 =", "차량 상태", A(ArgKind.FndParam), N(-32768, 65535)),
-        E("X_NOT", XC, Pt, "X_NOT( 차량 상태 )", "NOT", "차량 상태", X),
+        E("X_NOT", XC, Pt, "X_NOT( 차량 상태 )", "반전", "차량 상태", X),
 
         // ---- v0.58.0 상태 낱말(AND 안, 옛 X_ 이름 대응. 헤더 dsl_and.h) ----
         E("ALWAYS", SC, Pt, "ALWAYS", "조건 없음", "차량 상태").Added(),
@@ -464,6 +465,7 @@ public static class GrammarTable
         E("STATION", S, Pt, "STATION( k )", "스테이션[k]", "보고", Slot),
         E("MOD", S, Pt, "MOD( STATION(k), m )", "나머지", "보고", A(ArgKind.StationExpr), N(1, 255)),
         E("ACS", S, St, "ACS( 종류, 번호 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsSource, 0, 65535)).Word("STANDBY 정지 없음"),
+        E("ACS_SEND", S, St, "ACS_SEND( 종류, 칸 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsStation, 0, 23)).Alias().Form("스테이션"),
         E("ACS_SEND", S, St, "ACS_SEND( 종류, 번호 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsNumber, 0, 65535)).Alias(),
         E("ACS_WAIT_ACK", S, St, "ACS_WAIT_ACK( 제한, 라벨 )", "응답 대기", "보고", TO, Lb),
         E("ACS_STATION", S, St, "ACS_STATION( 칸, 값, 길이 )", "스테이션 넣기", "보고", Slot, U16, U16),
@@ -549,9 +551,11 @@ public static class GrammarTable
         E("AGV_FORBACK", TA, Pt, "AGV_FORBACK( 방향 )", "전후진", "동작", W(ForBack)).Cells(1),
         E("AGV_TURN", TA, Pt, "AGV_TURN( 방향, 각도, 회전 뒤, 자동 출발[, 속도[, 옵션[, 옵션]]] )", "회전", "동작",
             W(Rot), N(5, 315, "도"), N(0, 15), N(0, 15).Sw(), N(0, 31, "m/min").Opt(), W(TurnOptTag).Opt(), W(TurnOptTag).Opt()).Cells(2),
+        E("ACS_SEND", TA, Pt, "ACS_SEND( 종류, 칸 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsStation, 0, 23)).Cells(2).Alias().Form("스테이션"),
         E("ACS_SEND", TA, Pt, "ACS_SEND( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2).Alias(),
         E("ACS", TA, Pt, "ACS( 종류, STATION0 )", "보고", "동작", W(Reports), W("STATION0")).Cells(1).Word("STANDBY 정지 중엔 정지 없음"),
-        E("ACS", TA, Pt, "ACS( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2).Added().Form("번호").Word("STANDBY 정지 중엔 정지 없음"),
+        E("ACS", TA, Pt, "ACS( 종류, 칸 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsStation, 0, 23)).Cells(2).Added().Word("STANDBY 정지 중엔 정지 없음"),
+        E("ACS", TA, Pt, "ACS( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2).Added().Form("숫자").Word("STANDBY 정지 중엔 정지 없음"),
         E("STATION_RESET", TA, Pt, "STATION_RESET", "스테이션 초기화", "동작").Cells(1),
         E("OBS_ON", TA, Pt, "OBS_ON", "장애물 감지 켬", "동작").Cells(1),
         E("OBS_OFF", TA, Pt, "OBS_OFF", "장애물 감지 끔", "동작").Cells(1),

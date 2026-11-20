@@ -45,7 +45,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     /// </summary>
     List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args)
     {
-        var fields = FieldsOf(entry, args);
+        var fields = FieldsOf(entry, args).Select(f => f.Label == StationLabel && args.Count == 2 && ReferenceEquals(f.Arg, args[1]) ? TagStation(f, a, args) : f).ToList();
         var forms = ActionForms.Of(entry, names.NewDsl);
         if (forms.Count < 2) return fields;
         var form = FormField(entry, forms, a, args);
@@ -248,12 +248,48 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             var (name, inner) = Split(args[i].Node);
             var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
             if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
-            if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
+            if (StationK(args[i].Node) is long sk && IsStationSpec(spec)) list.Add(StationField(args[i], sk));
+            else if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
                 list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
             else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
             else if (name != "NO_IN") list.Add(new(spec.Label, args[i], spec));
         }
         return list;
+    }
+
+    const string StationLabel = "칸";
+    static readonly IReadOnlyList<string> Slots = Enumerable.Range(0, 24).Select(i => i.ToString()).ToList();
+
+    /// <summary>스테이션 칸 읽기: <c>STATION0</c> = 0, <c>STATION(k)</c> = k. 그 밖의 식(<c>STATION0_PLUS1</c>, <c>STATION(0) + 1</c>)은 null.</summary>
+    static long? StationK(Node n) => n switch
+    {
+        NameNode { Name: "STATION0" } => 0,
+        CallNode { Name: "STATION", Args: [{ Node: NumberNode { Value: >= 0 and < 24 } num }] } => num.Value,
+        _ => null,
+    };
+
+    static bool IsStationSpec(ArgSpec s) => s.Kind is ArgKind.AcsSource or ArgKind.AcsStation || s is { Kind: ArgKind.Word, Words: ["STATION0"] };
+
+    /// <summary>스테이션 칸 고르기(0~23). 시퀀스는 그 인자만 다시 쓴다(옛 코어는 칸 0 이 <c>STATION0</c>).</summary>
+    FieldInfo StationField(Arg a, long k) => new(StationLabel, a, new ArgSpec(ArgKind.Word, Words: Slots) { Label = StationLabel })
+    {
+        Value = k.ToString(),
+        Write = w => names.NewDsl || w != "0" ? $"STATION({w})" : "STATION0",
+    };
+
+    /// <summary>
+    /// 태그 보고의 칸 고르기: 동작 전체를 다시 쓴다. 칸 0 + 1칸 종류는 <c>ACS( 종류, STATION0 )</c>(1칸), 그 밖은 2칸 형식
+    /// (새 코어 <c>ACS( 종류, STATION(k) )</c>, 옛 코어 <c>ACS_SEND( 종류, STATION(k) )</c>: 옛 태그 ACS 는 STATION(k) 를 못 받는다).
+    /// </summary>
+    FieldInfo TagStation(FieldInfo f, Arg action, IReadOnlyList<Arg> args)
+    {
+        var kind = args[0].Text.Trim();
+        var oneCell = ActionRows("ACS").First(r => r.Args[1].Kind == ArgKind.Word).Args[0].Words!;
+        return f with
+        {
+            Arg = action,
+            Write = w => w == "0" && oneCell.Contains(kind) ? $"ACS( {kind}, STATION0 )" : $"{(names.NewDsl ? "ACS" : "ACS_SEND")}( {kind}, STATION({w}) )",
+        };
     }
 
     public const string OutNone = "없음", OutOn = "켜짐", OutOff = "꺼짐";
@@ -301,7 +337,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             ArgKind.AndItem => [Place.InputCond, Place.StateCond],
             ArgKind.StateCond => [Place.StateCond],
             ArgKind.FromSensor => [Place.TagAction],
-            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.OutMask => [Place.Step],
+            ArgKind.Until or ArgKind.StationExpr or ArgKind.AcsSource or ArgKind.AcsNumber or ArgKind.AcsStation or ArgKind.OutMask => [Place.Step],
             ArgKind.Timeout => [Place.InputCond],
             ArgKind.LoadSensors => [Place.Frame],
             _ => null,
