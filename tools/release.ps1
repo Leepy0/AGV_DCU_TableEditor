@@ -35,10 +35,11 @@ $dllsCc1 = 'libgmp-10.dll', 'libmpfr-6.dll', 'libmpc-3.dll', 'libisl-23.dll', 'l
 # 링크에 드는 라이브러리(기본 링크 + -lm). Windows API 용 수백 개와 디버그·옛 런타임 판은 뺀다
 $libsKeep = 'libmingw32.a', 'libmingwex.a', 'libmoldname.a', 'libmsvcrt.a', 'libucrt.a', 'libm.a', 'libpthread.a', 'libpthread.dll.a', 'libwinpthread.a', 'libwinpthread.dll.a',
     'libkernel32.a', 'libadvapi32.a', 'libshell32.a', 'libuser32.a'
-# 컴파일에 드는 헤더(x86_64-w64-mingw32\include 바로 아래). ISO C 표준 헤더 전체가 끌어오는 것을 gcc -H 로 쟀다(C99~C2x, 확장 옵션 포함)
+# 컴파일에 드는 헤더(x86_64-w64-mingw32\include 바로 아래). ISO C 표준 헤더 전체와 흔한 POSIX 헤더(unistd·io·fcntl·getopt·strings·process·dirent·sys\stat)가 끌어오는 것을 gcc -H 로 쟀다(C99~C2x, 확장 옵션 포함)
 $hdrKeep = 'assert.h', 'complex.h', 'ctype.h', 'errno.h', 'fenv.h', 'float.h', 'inttypes.h', 'limits.h', 'locale.h', 'malloc.h', 'math.h', 'setjmp.h', 'signal.h',
     'stdarg.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h', 'string.h', 'time.h', 'uchar.h', 'wchar.h', 'wctype.h', 'vadefs.h', 'swprintf.inl',
-    'crtdefs.h', '_*.h', 'corecrt*.h', 'pthread_compat.h', 'pthread_signal.h', 'pthread_time.h'
+    'crtdefs.h', '_*.h', 'corecrt*.h', 'pthread_compat.h', 'pthread_signal.h', 'pthread_time.h',
+    'unistd.h', 'io.h', 'fcntl.h', 'getopt.h', 'strings.h', 'process.h', 'dirent.h', 'pthread_unistd.h'   # 흔한 C/POSIX 헤더(sys\ 는 폴더 통째). windows.h 계열은 뺀다
 # 목록을 다시 만드는 법: 앱 저장소의 clone 에서 사이트마다 tools\*_pack_gen.c 빌드(SitePack 과 같은 인자)와 표준 헤더마다 빈 main 을
 # gcc -H -Wl,--trace 로 컴파일·링크해 나온 "." 줄(헤더)과 링크 줄(.a .o)을 모은다. 모자라면 여기에 더한다
 function GccParts {
