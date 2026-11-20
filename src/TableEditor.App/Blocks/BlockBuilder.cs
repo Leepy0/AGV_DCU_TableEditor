@@ -248,7 +248,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
             var (name, inner) = Split(args[i].Node);
             var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
             if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
-            if (StationK(args[i].Node) is long sk && IsStationSpec(spec)) list.Add(StationField(args[i], sk));
+            if (StationK(args[i].Node) is long sk && IsStationSpec(spec)) list.Add(StationField(args[i], sk, e.Name == "ACS"));
             else if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
                 list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
             else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
@@ -271,10 +271,11 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     static bool IsStationSpec(ArgSpec s) => s.Kind is ArgKind.AcsSource or ArgKind.AcsStation || s is { Kind: ArgKind.Word, Words: ["STATION0"] };
 
     /// <summary>스테이션 칸 고르기(0~23). 시퀀스는 그 인자만 다시 쓴다(옛 코어는 칸 0 이 <c>STATION0</c>).</summary>
-    FieldInfo StationField(Arg a, long k) => new(StationLabel, a, new ArgSpec(ArgKind.Word, Words: Slots) { Label = StationLabel })
+    FieldInfo StationField(Arg a, long k, bool acs) => new(StationLabel, a, new ArgSpec(ArgKind.Word, Words: Slots) { Label = StationLabel })
     {
         Value = k.ToString(),
-        Write = w => names.NewDsl || w != "0" ? $"STATION({w})" : "STATION0",
+        // 낱말 STATION0 은 옛 코어 ACS( 종류, 번호 ) 줄만. ACS_SEND( 종류, 칸 ) 은 늘 STATION(k)
+        Write = w => names.NewDsl || w != "0" || !acs ? $"STATION({w})" : "STATION0",
     };
 
     /// <summary>

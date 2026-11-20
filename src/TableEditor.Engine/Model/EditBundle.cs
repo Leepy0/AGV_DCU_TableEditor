@@ -39,7 +39,7 @@ public static partial class BundleEdit
     }
 
     /// <summary>
-    /// 프로파일 삭제: 정의와 그 프로파일의 <c>profiles.c</c> 줄을 지운다. 다른 줄(태그·시퀀스·수동 등)이 하나라도 쓰면 막는다.
+    /// 프로파일 삭제: 정의와 그 프로파일의 <c>profiles.c</c> 줄을 지운다. 다른 줄(태그·시퀀스·수동 등, IO 맵 <c>pf</c> 주석 포함)이 하나라도 쓰면 막는다.
     /// 뒤 프로파일의 번호가 하나씩 당겨진다(enum).
     /// </summary>
     public static EditResult DeleteProfile(Site site, string name)
@@ -48,7 +48,7 @@ public static partial class BundleEdit
             return EditResult.Fail($"프로파일 아님 · {name}");
         var rx = Word(name);
         var own = new HashSet<Piece>(site.ProfileRows.Where(r => r.Profile == name).Select(r => (Piece)r.St).Append(def), ReferenceEqualityComparer.Instance);
-        var uses = site.Files.SelectMany(f => f.Statements.Where(s => !own.Contains(s) && s.Args.Any(a => rx.IsMatch(a.Text))).Select(s => $"{f.Name}:{s.StartLine}")).ToList();
+        var uses = site.Files.SelectMany(f => f.Statements.Where(s => !own.Contains(s) && (s.Args.Any(a => rx.IsMatch(a.Text)) || IoProfile.Spans(s).Any(x => x.Name == name))).Select(s => $"{f.Name}:{s.StartLine}")).ToList();
         if (uses.Count > 0) return EditResult.Fail($"쓰는 줄 {uses.Count} · {uses[0]}");
         if (RawUse(site, name) is { } at) return EditResult.Fail($"N-6 원문에서 씀 · {at}");
         var sp = new Splice(site);
@@ -231,6 +231,8 @@ public static partial class BundleEdit
                 }
                 foreach (var a in st.Args)
                     foreach (Match m in rx.Matches(a.Text)) spans.Add((a.Offset + m.Index, m.Length, map[m.Value]));
+                foreach (var (at, nm) in IoProfile.Spans(st)) // IO 맵 줄 끝 /* pf: … */ 의 프로파일 이름
+                    if (map.TryGetValue(nm, out var pn)) spans.Add((at, nm.Length, pn));
                 foreach (var e in extra.Where(e => ReferenceEquals(e.St, st))) spans.Add((e.Arg.Offset, e.Arg.Text.Length, e.New));
                 if (spans.Count == 0) continue;
                 if (f.ReadOnly) return EditResult.Fail($"읽기 전용 · {f.Name}");
