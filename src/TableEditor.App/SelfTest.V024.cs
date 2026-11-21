@@ -113,6 +113,8 @@ public sealed partial class SelfTest
         M.Filter = TagVm.AllProfiles;
         await Idle();
         Check(ManualVm.ScopeOf(vm.Site, vm.Site.ManualRows.First(r => r.Name == "MAN_FB_SW" && r.Args[0].Text.StartsWith("PROFILE_SET", StringComparison.Ordinal))).Profiles!.SetEquals(["PF_LIFT"]), "신호 범위: 묶음 열쇠 = 그 프로파일들");
+        vm.ClearNotice(); // 앞 단계 저장 막힘 알림(4초 칩)이 위 줄에 남아 아래 검사 목록과 다르게 보이지 않게
+        Check(vm.Notice == null && vm.ErrorCount == 0, $"캡처 전 알림 없음 · 오류 0 ({vm.Notice}, {vm.ErrorCount})");
         await Shot("manual_v063.png");
         var manBase = Text("manual_table.c");
         var (ask, askDone) = await Open<AskVm>(() => { M.AddInput.Execute(null); return Task.CompletedTask; });
@@ -131,6 +133,7 @@ public sealed partial class SelfTest
         await Idle();
         var last = vm.Site.ManualRows[^1];
         Check(last.Name == "MAN_START_SW" && last.Args.Count == 2 && vm.ErrorCount == 0, $"시작 스위치 줄: 표 끝 ({last.Text.Trim()}, 오류 {vm.ErrorCount})");
+        Check(vm.Site.Names.Find(last.Args[1].Text) is { Kind: NameKind.Input, Value: not 16 } && vm.Site.Names.Of(NameKind.Input).Any(d => !d.Core), $"기본 입력은 평범한 입력 별칭 ({last.Args[1].Text})");
         vm.Undo.Execute(null);
         await Idle();
         Check(Text("manual_table.c") == manBase, "되돌리면 바이트 같음");

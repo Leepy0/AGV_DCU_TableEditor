@@ -42,10 +42,10 @@ static class Core060Tests
         var ok = CoreKit.Man(c60, "MAN_START_SW( PF_A, IN_EXT_9 )", "MAN_START_SW( PF_B, SEN_1 )", "MAN_START_SW( PF_A, 31 )", "MAN_START_SW( PF_B, IN_IF_5 )");
         check(CoreKit.Errors(ok).Count(f => f.Rule is not ("V-2" or "V-3")) == 0 && M("M-8", ok).Count == 0, "MAN_START_SW 정상 입력(별칭·번호·IN_IF) 오류 0: " + CoreKit.Dump(CoreKit.Errors(ok)));
         var none = CoreKit.Man(c60, "MAN_START_SW( PF_A, IO_NONE )");
-        check(M("M-8", none) is [{ Severity: Severity.Error }] m1 && m1[0].Text.Contains("IO_NONE"), "M-8: IO_NONE(미연결) 입력");
+        check(M("M-8", none) is [{ Severity: Severity.Warning }] m1 && m1[0].Text.Contains("IO_NONE"), "M-8: IO_NONE(미연결) 입력");
         var alias = CoreKit.Mk(c60, man: CoreKit.ManText("MAN_START_SW( PF_A, NC_IN )"), io: CoreKit.Io + "#define NC_IN IO_NONE\n");
         check(M("M-8", alias).Count == 1, "M-8: IO_NONE 별칭도");
-        check(M("M-8", CoreKit.Man(c60, "MAN_START_SW( PF_A, IN_START_SW )")) is [{ Severity: Severity.Error }] m2 && m2[0].Text.Contains("IN_START_SW"), "M-8: IN_START_SW 자신");
+        check(M("M-8", CoreKit.Man(c60, "MAN_START_SW( PF_A, IN_START_SW )")) is [{ Severity: Severity.Warning }] m2 && m2[0].Text.Contains("IN_START_SW"), "M-8: IN_START_SW 자신");
         var self = CoreKit.Mk(c60, man: CoreKit.ManText("MAN_START_SW( PF_A, MY_START )"), io: CoreKit.Io + "#define MY_START IN_START_SW\n");
         check(M("M-8", self).Count == 1, "M-8: IN_START_SW 별칭도 자신");
         var outName = CoreKit.Man(c60, "MAN_START_SW( PF_A, OUT_A )");
@@ -80,7 +80,8 @@ static class Core060Tests
 
         // 코어 컴파일
         CoreKit.Ok(check, "MAN_START_SW 줄", c60, "man", ["MAN_START_SW( PF_A, IN_EXT_9 )", "MAN_START_SW( PF_B, SEN_1 )", "MAN_START_SW( 3, 31 )"], ref gcc);
-        CoreKit.Neg(check, "뜻 없음 MAN_START_SW IO_NONE(코어는 컴파일)", c60, "man", ["MAN_START_SW( PF_A, IO_NONE )"], "M-8", ref gcc, coreRejects: false);
+        check(M("M-8", none) is [{ Severity: Severity.Warning }], "뜻 없음 MAN_START_SW IO_NONE: 경고(코어는 컴파일)");
+        if (CoreKit.GccReady) { gcc++; check(CoreKit.GccCompiles("agv/seq_dsl.h", CoreKit.ManText("MAN_START_SW( PF_A, IO_NONE )")), "코어 헤더로 MAN_START_SW IO_NONE 은 컴파일된다"); }
         if (CoreKit.GccReady) Console.WriteLine($"  gcc 대조 {gcc}건(v0.60.0)");
     }
 }

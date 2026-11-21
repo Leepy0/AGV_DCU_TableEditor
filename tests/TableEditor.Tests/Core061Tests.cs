@@ -125,6 +125,16 @@ static class Core061Tests
         check(S19(H1, H2, "SELECT_END_TO( 100, B )", H3) == 0 && S19(H1, H2, "L( A )", H3) == 0 && S19(H1, H2, "OBS_ON", H3, H1) == 0, "S-19: SELECT_END_TO·라벨·다른 스텝을 만나면 묶음 끝");
         check(Checker.Run(CoreKit.Seq(c61, H1, H2, H3)).Where(f => f.Rule == "S-19").All(f => f.Severity == Severity.Error && f.Text.Contains("290")), "S-19 는 오류(저장 막음)이고 실행 때 오류 290 을 알린다");
         check(Checker.Run(CoreKit.Seq(c61, "SELECT_BEGIN", H1, H2, H3, "SELECT_END")).Count(f => f.Rule == "S-5") == 0, "묶음 뒤 라벨 앞에서 S-5(닿지 않음)가 안 걸림");
+        // 표 안 원문 블록(#if)이 낀 묶음: 그 안 글자까지 세고, 합이 둘을 넘으면 오류 대신 경고
+        List<Finding> S19f(params string[] lines) => Checker.Run(CoreKit.Seq(c61, lines)).Where(f => f.Rule == "S-19").ToList();
+        var rawIn = S19f(H1, "#if 0", "WHEN_STABLE( IN( ON(SEN_3) ), 10, B )", "#endif", H2);
+        check(rawIn.Count >= 1 && rawIn.All(f => f.Severity == Severity.Warning), "S-19: 원문 블록 안 WHEN_STABLE 까지 세어 셋째면 경고 · " + CoreKit.Dump(rawIn));
+        check(S19f(H1, "#if 0", "WHEN_ACCUM( IN( ON(SEN_3) ), 10, B )", "#endif").Count == 0 && S19f(H1, H2, "// WHEN_STABLE 주석", "/* WHEN_ACCUM */").Count == 0 && S19f(H1, "#define X_WHEN_STABLE 1", H2).Count == 0, "S-19: 합이 둘이면 조용, 주석·이름 일부는 안 센다");
+        var rawAfter = S19f(H1, "#if 0", "OBS_ON", "#endif", H2, H3);
+        check(rawAfter is [{ Severity: Severity.Error }], "S-19: 낱말이 없는 원문 블록은 묶음을 끊지도 경고로 낮추지도 않는다 · " + CoreKit.Dump(rawAfter));
+        var rawStmt = S19f("#if 0", "WHEN_STABLE( IN( ON(SEN_3) ), 10, B )", "#endif", H1, H2);
+        check(rawStmt.Count == 1 && rawStmt[0].Severity == Severity.Warning, "S-19: 원문 안 가지 다음에 오는 문장 가지도 경고 · " + CoreKit.Dump(rawStmt));
+        check(S19f(H1, H2, H3).All(f => f.Severity == Severity.Error), "S-19: 원문 블록이 없으면 그대로 오류");
 
         if (CoreKit.GccReady) Console.WriteLine($"  gcc 대조 {gcc}건(v0.61.0)");
     }

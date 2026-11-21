@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using TableEditor.Engine.Grammar;
 using TableEditor.Engine.Model;
 using TableEditor.Engine.Text;
@@ -232,15 +233,29 @@ public static partial class Checker
         foreach (var t in f.Site.Seqs)
         {
             int holds = 0;
-            foreach (var st in RealSteps(t))
+            bool raw = false; // 묶음 사이에 표 안 원문 블록(#if 등)이 끼었다: 그 안 가지는 글자로만 세므로 확인 필요(경고)
+            foreach (var piece in t.Zone.Body)
             {
+                if (piece.Kind == PieceKind.Raw)
+                {
+                    int n = HoldWordRx().Matches(CCommentRx().Replace(piece.Text, " ")).Count;
+                    if (n == 0) continue;
+                    raw = true;
+                    holds += n;
+                    if (holds > 2 && holds - n <= 2) yield return f.Warn("S-19", piece, $"WHEN 묶음 유지 가지 {holds} · 원문 블록 안 확인");
+                    continue;
+                }
+                if (piece is not Statement { Name: not ("SELECT_BEGIN" or "SELECT_END") } st) continue;
                 if (st.Name is "WHEN" or "WHEN_STATE" or "WHEN_IF" or "WHEN_IF_IN" or "WHEN_ANY2" or "WHEN_ID" or "OTHERWISE" or "WHEN_OUT") continue;
                 if (st.Name is "WHEN_STABLE" or "WHEN_ACCUM")
                 {
-                    if (++holds > 2) yield return f.Error("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 둘까지(실행 때 오류 290)");
+                    if (++holds > 2) yield return raw ? f.Warn("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 원문 블록 안 확인") : f.Error("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 둘까지(실행 때 오류 290)");
                 }
-                else holds = 0;
+                else { holds = 0; raw = false; }
             }
         }
     }
+
+    [GeneratedRegex(@"(?<![A-Za-z0-9_])WHEN_(?:STABLE|ACCUM)(?![A-Za-z0-9_])")]
+    private static partial Regex HoldWordRx();
 }

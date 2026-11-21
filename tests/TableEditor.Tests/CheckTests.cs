@@ -174,7 +174,7 @@ static class CheckTests
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, ON(DEMO_MAN_LAMP), OFF(DEMO_MAN_LAMP) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, BELT( 1, CW ), ON(DEMO_CV1_DIR) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");
         yield return ("S-19", E, Seq("    SELECT_BEGIN\n    WHEN_STABLE( IN( ON(DEMO_SEN_1) ), 10, DONE )\n    WHEN_ACCUM( IN( ON(DEMO_SEN_2) ), 10, DONE )\n    WHEN_STABLE( IN( ON(DEMO_SEN_3) ), 10, DONE )\n    SELECT_END\n    L( DONE )\n    END_STOP\n"), "WHEN 묶음 유지 가지 3");
-        yield return ("M-8", E, [Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IO_NONE )")], "IO_NONE");
+        yield return ("M-8", W, [Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IO_NONE )")], "IO_NONE");
         yield return ("M-9", W, [Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IN_EXT_11 )"), Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IN_EXT_11 )")], "MAN_START_SW 중복 PF_BELT");
         yield return ("M-10", E, [Manual("MANUAL_END", "MAN_FB_SW( PROFILE_SET( 3 ), IN_EXT_11 )")], "묶음 3 줄 없음");
         yield return ("M-3", E, [Manual("MAN_ELSE( PF_BELT,  IDLE,", "MAN( PF_BELT,       IDLE, IN( ON(DEMO_MAN_UP) ),      BELT( 1, CCW ) )")], "무시됨 · 중복 (1줄)");

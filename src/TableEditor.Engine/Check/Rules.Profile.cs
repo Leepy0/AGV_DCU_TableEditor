@@ -271,8 +271,8 @@ public static partial class Checker
     }
 
     /// <summary>
-    /// M-8: 코어가 컴파일은 받지만 뜻이 없는 수동 표 줄. <c>MAN_START_SW</c> 의 입력이 <c>IO_NONE</c>(미연결)이거나 <c>IN_START_SW</c> 자신(START 스위치를 START 로 되먹임),
-    /// <c>MAN_PROFILES</c> 의 열쇠가 <c>PROFILE_SET( k )</c> 가 아니다(코어 컴파일 오류), 묶음 프로파일이 0 개 또는 17 개 이상.
+    /// M-8: 코어가 컴파일은 받지만 뜻이 없는 수동 표 줄(경고). <c>MAN_START_SW</c> 의 입력이 <c>IO_NONE</c>(미연결)이거나 <c>IN_START_SW</c> 자신(START 스위치를 START 로 되먹임),
+    /// 아래 <c>MAN_PROFILES</c> 는 코어도 컴파일 오류라 오류: 열쇠가 <c>PROFILE_SET( k )</c> 가 아니다, 묶음 프로파일이 0 개 또는 17 개 이상.
     /// </summary>
     static IEnumerable<Finding> M8(Facts f)
     {
@@ -283,9 +283,9 @@ public static partial class Checker
                 var def = st.Args[1].Node is NameNode n ? f.Names.Find(n.Name) : null;
                 var v = f.Names.Value(st.Args[1].Node);
                 if (def?.Kind == NameKind.IoNone || v == CoreConstants.IoNone)
-                    yield return f.Error("M-8", st, "MAN_START_SW 입력 IO_NONE · 미연결", st.Args[1]);
+                    yield return f.Warn("M-8", st, "MAN_START_SW 입력 IO_NONE · 미연결", st.Args[1]);
                 else if (v == 16 && def is not { Kind: NameKind.Output })
-                    yield return f.Error("M-8", st, "MAN_START_SW 입력 IN_START_SW · START 스위치 자신", st.Args[1]);
+                    yield return f.Warn("M-8", st, "MAN_START_SW 입력 IN_START_SW · START 스위치 자신", st.Args[1]);
             }
             else if (st.Name == "MAN_PROFILES" && st.Args.Count >= 1)
             {

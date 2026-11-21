@@ -264,7 +264,8 @@ public sealed class ManualVm : BlockHost
     public ICommand EditCond { get; }
     public ICommand Pick { get; }
 
-    string FirstInput() => Choices.For(new ArgSpec(ArgKind.Input), Site.Names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
+    // 기본 입력: 평범한 입력 별칭(IN_ACTIVE_HIGH·미연결·START 스위치 자신은 넣자마자 N-3·M-8 줄이 된다). 없으면 논리 입력 이름
+    string FirstInput() => Site.Names.Of(NameKind.Input).FirstOrDefault(d => !d.Core && !d.Weak && d.Value != 16)?.Name ?? "IN_EXT_1";
     string FirstOutput() => Choices.For(new ArgSpec(ArgKind.Output), Site.Names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "OUT_EXT_1";
 
     async Task AddCardAsync()
