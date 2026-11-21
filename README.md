@@ -14,6 +14,15 @@ AGV DCU 펌웨어의 사이트 표(프로파일, 태그, 시퀀스, 수동 표)�
 
 [Releases](https://github.com/Leepy0/AGV_DCU_TableEditor/releases) 의 `TableEditor-vX.Y.Z-net10-x64.zip` 을 풀어 `TableEditor.exe` 를 실행한다. 설치가 없다. 폴더에 `tedit.exe`(명령줄), `gcc\`(휴대용 컴파일러), `VERSION` 이 같이 있다.
 
+## v0.2.4 변경
+
+- 코어 v0.60.0·v0.61.0·v0.63.0 새 문법: 읽기(원문 블록 없음)·쓰기·검사·화면. 새 줄 쓰기는 사이트 `core/VERSION` 이 그 문법의 최소 버전 이상일 때만 목록에 보이고, 쓴 줄이 있으면 V-4(낱말마다 최소 버전)
+- v0.60.0: 수동 표 `MAN_START_SW`(입력 줄 추가, 뜻 없는 입력 M-8, 중복 M-9)
+- v0.61.0: 시퀀스 `WAIT_ACCUM(_TO)`·`WHEN_STABLE`·`WHEN_ACCUM`·`WHEN_OUT`, 유지 틱 칸의 `PARAM_TIME`(형식 칸), 조건 `STATE`(값·범위, 반전), 보고 `DISPLAY`, 파라미터 `AD`, 압축 표 스텝 한계 64 → 999(S-18), 묶음 유지 가지 셋째 오류 S-19(저장 막음), D-7
+- v0.63.0: 수동 표 프로파일 묶음 `MAN_PROFILES`·`PROFILE_SET`·모드 `ANY`(M-8·M-10), 프로파일 `STOP_BACK_FL`([후진 FL]), 태그 `SET_STATE`, 보고 `CROSS_IN`·`CROSS_OUT`
+- 수동 화면: 묶음 줄·입력 줄, 프로파일 걸러 보기가 묶음의 프로파일 합집합, [입력 추가]
+- `tedit headers`: 코어 버전(`VERSION`, 없으면 `version.h`)에 없던 이름은 안 바란다. v0.59.0·v0.60.0·v0.61.0·v0.63.0 헤더와 일치
+
 ## v0.2.3 변경
 
 - 설치 크기 줄임: 302 MB → 76 MB(zip 98 MB → 28.6 MB). 휴대용 gcc 는 쓰는 헤더·라이브러리만 남김(`unistd.h`·`io.h`·`fcntl.h`·`getopt.h`·`strings.h`·`process.h`·`dirent.h`·`sys/stat.h` 포함), .NET 런타임은 묶음에 넣지 않음
