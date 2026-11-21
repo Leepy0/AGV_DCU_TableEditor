@@ -173,6 +173,10 @@ static class CheckTests
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( ANY_PROFILE, IDLE, NO_IN, NO_OUT )"), Manual("MANUAL_END", "MAN_ELSE( ANY_PROFILE, IDLE, NO_OUT )")], "프로파일 0");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, ON(DEMO_MAN_LAMP), OFF(DEMO_MAN_LAMP) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");
         yield return ("M-2", E, [Manual("MANUAL_END", "MAN( PF_CART, IDLE, NO_IN, BELT( 1, CW ), ON(DEMO_CV1_DIR) )"), Manual("MANUAL_END", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "켜고 끔");
+        yield return ("S-19", E, Seq("    SELECT_BEGIN\n    WHEN_STABLE( IN( ON(DEMO_SEN_1) ), 10, DONE )\n    WHEN_ACCUM( IN( ON(DEMO_SEN_2) ), 10, DONE )\n    WHEN_STABLE( IN( ON(DEMO_SEN_3) ), 10, DONE )\n    SELECT_END\n    L( DONE )\n    END_STOP\n"), "WHEN 묶음 유지 가지 3");
+        yield return ("M-8", E, [Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IO_NONE )")], "IO_NONE");
+        yield return ("M-9", W, [Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IN_EXT_11 )"), Manual("MANUAL_END", "MAN_START_SW( PF_BELT, IN_EXT_11 )")], "MAN_START_SW 중복 PF_BELT");
+        yield return ("M-10", E, [Manual("MANUAL_END", "MAN_FB_SW( PROFILE_SET( 3 ), IN_EXT_11 )")], "묶음 3 줄 없음");
         yield return ("M-3", E, [Manual("MAN_ELSE( PF_BELT,  IDLE,", "MAN( PF_BELT,       IDLE, IN( ON(DEMO_MAN_UP) ),      BELT( 1, CCW ) )")], "무시됨 · 중복 (1줄)");
         yield return ("M-3", E, [Manual("MAN( PF_BOX,        JOG,", "MAN( PF_BOX,        JOG,  NO_IN,                      NO_OUT )")], "무시됨 · 중복");
         yield return ("M-4", W, [Manual("MAN_FB_SW( PF_BELT", "MAN_ELSE( PF_CART, IDLE, NO_OUT )")], "MAN 없는 사슬 PF_CART");
@@ -209,6 +213,7 @@ static class CheckTests
         yield return ("D-4", Seq("    WHEN( AND( NOT( NOT( FORWARD ) ) ), DONE )\n"), "NOT 겹침");
         yield return ("D-4", Seq("    WHEN( AND( PARAM_MIN( TFB_1, 2 ) ), DONE )\n"), "PARAM_MIN 자리 있는 파라미터 TFB_1");
         yield return ("D-4", Seq($"    WAIT_TO( IN( ON({S1}) ), PARAM_TIME( TFB_10, SEC ), DONE )\n"), "PARAM_TIME 자리 있는 파라미터 TFB_10");
+        yield return ("D-7", Seq($"    WAIT_STABLE( IN( ON({S1}) ), PARAM_TIME( AS, MIN ) )\n"), "PARAM_TIME MIN");
         yield return ("D-5", Seq("    ACS( ARRIVE, CONST )\n    END_STOP\n"), "ACS CONST");
         yield return ("D-5", Seq("    ACS( ARRIVE, (70 + 7) )\n    END_STOP\n"), "괄호로 시작하는 식 · ACS");
         yield return ("D-5", Seq("    AGV_SPEED( (20 + 10) )\n    END_STOP\n"), "괄호로 시작하는 식 · AGV_SPEED");
