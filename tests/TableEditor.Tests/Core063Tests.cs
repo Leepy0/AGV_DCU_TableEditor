@@ -170,7 +170,7 @@ static class Core063Tests
             check(ActionForms.Convert(stable, waitTo, sts[0].Args, Fill) == "WAIT_STABLE_TO( IN( ON(SEN_1) ), PARAM_TIME( XX, SEC ), 0, A )" && d1.SequenceEqual(["PARAM_TIME( AS, SEC )"]), "형식 바꾸기: 제한 파라미터 → 유지 형식은 값 버림 · " + string.Join(" / ", d1));
             var d2 = ActionForms.Dropped(waitTo, stable, sts[1].Args);
             check(d2.SequenceEqual(["PARAM_TIME( AS, SEC )", "500"]), "형식 바꾸기: 유지 파라미터 → 제한 형식은 파라미터·500 버림 · " + string.Join(" / ", d2));
-            check(ActionForms.Dropped(accumTo, stable, sts[2].Args).SequenceEqual(["PARAM_TIME( AS, SEC )"]) && ActionForms.Convert(stable, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500"), "형식 바꾸기: 안정 → 누적 파라미터는 버림, 같은 뜻은 그대로");
+            check(ActionForms.Dropped(accumTo, stable, sts[2].Args).Count == 0 && ActionForms.Convert(accumTo, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500") && ActionForms.Convert(Pm("WHEN_STABLE"), stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC )") && ActionForms.Convert(stable, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500"), "형식 바꾸기: 안정 ↔ 누적·유지 파라미터는 옮기고 제한 ↔ 나머지만 버림");
         }
 
         // 코어가 받는 값인데 편집기가 막던 줄(실제 사이트에서 나온 오탐): ACS_STATION 칸 255 = 개수만, X_PARAM_* 숫자 번호, ID 끝 칸 255
