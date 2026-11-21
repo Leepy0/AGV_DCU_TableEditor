@@ -320,7 +320,7 @@ public sealed class TagVm : BlockHost
     public IReadOnlyList<StepChoice> ActionChoices(TagRowVm row)
     {
         int left = 4 - row.CellCount;
-        return StepVm.Group(GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0 && GrammarTable.Fits(r, site.NewDsl))
+        return StepVm.Group(GrammarTable.Rows.Where(r => r.Place == Place.TagAction && r.TagCells > 0 && GrammarTable.Fits(r, site.CoreVersion))
             .OrderBy(r => GrammarTable.TagPalette.ToList().IndexOf(r.Palette)), r => r.TagCells <= left);
     }
 

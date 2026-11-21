@@ -66,7 +66,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
     List<FieldInfo> ActionFields(GrammarEntry entry, Arg a, IReadOnlyList<Arg> args, int others)
     {
         var fields = FieldsOf(entry, args).Select(f => f.Label == StationLabel && args.Count == 2 && ReferenceEquals(f.Arg, args[1]) ? TagStation(f, a, args, entry.TagCells, others) : f).ToList();
-        var forms = ActionForms.Of(entry, names.NewDsl);
+        var forms = ActionForms.OfCore(entry, names.CoreVersion);
         if (forms.Count < 2) return fields;
         var form = FormField(entry, forms, a, args);
         form = form with
@@ -99,7 +99,7 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         var entry = Facts.Fit(GrammarTable.Find(st.Name, place), st.Args);
         if (entry == null) return RawBlock(st.Text, null, MarkOf(st, null), index);
         var fields = FieldsOf(entry, st.Args);
-        var forms = ActionForms.Of(entry, names.NewDsl);
+        var forms = ActionForms.OfCore(entry, names.CoreVersion);
         if (forms.Count > 1 && st.Args.Count > 0) // 형식 칸: 맨 앞. 인자가 없는 형식은 칸이 없다
             fields = [FormField(entry, forms, st.Args[0], st.Args), .. fields.Where(f => f.Spec is not { Kind: ArgKind.Word, Words.Count: 1 })];
         return new BlockVm
@@ -272,11 +272,11 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         {
             var (name, inner) = Split(args[i].Node);
             var spec = outs && specs[i].Kind == ArgKind.Signal ? specs[i] with { Kind = ArgKind.Output, Label = "출력" } : specs[i];
-            if (spec.Kind == ArgKind.OutCond) list.Add(OutKind(args[i], spec));
+            if (spec.Kind is ArgKind.OutCond or ArgKind.OutAnd) list.Add(OutKind(args[i], spec));
             if (StationK(args[i].Node) is long sk && IsStationSpec(spec)) list.Add(StationField(args[i], sk, e.Name == "ACS"));
             else if (args[i].Node is CallNode && name != null && InnerFor(spec.Kind, name, inner) is { } ie && ie.Args.Count > 0)
-                list.AddRange(FieldsOf(ie, inner, outs || spec.Kind == ArgKind.OutCond));
-            else if (spec.Kind != ArgKind.OutCond) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
+                list.AddRange(FieldsOf(ie, inner, outs || spec.Kind is ArgKind.OutCond or ArgKind.OutAnd));
+            else if (spec.Kind is not (ArgKind.OutCond or ArgKind.OutAnd)) list.Add(SwitchField(spec, args[i]) ?? new(spec.Label, args[i], spec));
             else if (name != "NO_IN") list.Add(new(spec.Label, args[i], spec));
         }
         return list;
@@ -360,7 +360,9 @@ public sealed partial class BlockBuilder(NameDict names, IReadOnlyList<Finding> 
         Place[]? places = kind switch
         {
             ArgKind.XCond => [Place.ExtCond],
-            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.Any2 or ArgKind.AndCond or ArgKind.ParamTime => [Place.InputCond],
+            ArgKind.InCond or ArgKind.InGroup or ArgKind.OutCond or ArgKind.OutAnd or ArgKind.Any2 or ArgKind.AndCond or ArgKind.ParamTime => [Place.InputCond],
+            ArgKind.ProfileSet => [Place.Manual],
+            ArgKind.ProfileFl => [Place.Frame],
             ArgKind.AndItem => [Place.InputCond, Place.StateCond],
             ArgKind.StateCond => [Place.StateCond],
             ArgKind.FromSensor => [Place.TagAction],

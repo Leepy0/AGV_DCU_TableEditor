@@ -115,7 +115,7 @@
                             </Border>
                             <TextBlock Grid.Column="1" Text="{Binding Profile}" Style="{StaticResource ProfileHead}" Margin="{StaticResource Gap.Group}"/>
                             <ComboBox Grid.Column="2" Style="{StaticResource CellDrop}" Margin="{StaticResource Gap.R12}" MinWidth="{StaticResource FieldMinWidth}"
-                                      ItemsSource="{Binding Source={x:Static vm:ManualVm.Modes}}" SelectedItem="{Binding ModeDraft}" AutomationProperties.Name="모드"/>
+                                      ItemsSource="{Binding ModeChoices}" SelectedItem="{Binding ModeDraft}" AutomationProperties.Name="모드"/>
                             <TextBlock Grid.Column="3" Text="{Binding CountText}" Style="{StaticResource T.Faint}"/>
                             <StackPanel Grid.Column="4" Orientation="Horizontal" ToolTip="{Binding Status}" MaxWidth="{StaticResource TemplateWidth}"
                                         Visibility="{Binding Status, Converter={StaticResource Shown}}">
@@ -152,7 +152,8 @@
             <TextBlock DockPanel.Dock="Left" Text="프로파일" Style="{StaticResource T.Label}" Margin="{StaticResource Gap.R8}"/>
             <ComboBox DockPanel.Dock="Left" Style="{StaticResource Drop}" MinWidth="{StaticResource ProfileBoxWidth}" VerticalAlignment="Center"
                       ItemsSource="{Binding Filters}" SelectedItem="{Binding Filter}" AutomationProperties.Name="프로파일 거르기"/>
-            <Button DockPanel.Dock="Right" Content="추가" Style="{StaticResource Btn.Outline}" Command="{Binding AddCard}"/>
+            <Button DockPanel.Dock="Right" Content="입력 추가" Style="{StaticResource Btn.Outline}" Command="{Binding AddInput}"/>
+            <Button DockPanel.Dock="Right" Content="카드 추가" Style="{StaticResource Btn.Outline}" Command="{Binding AddCard}" Margin="{StaticResource Gap.R8}"/>
             <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Style="{StaticResource T.Faint}" Margin="{StaticResource Gap.R12}"/>
         </DockPanel>
 

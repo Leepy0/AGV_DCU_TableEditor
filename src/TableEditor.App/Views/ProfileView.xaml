@@ -13,6 +13,17 @@
             <Setter Property="Margin" Value="{StaticResource TagEdit.Margin}"/>
         </Style>
 
+        <!-- 후진 FL: 켜진 줄은 색으로(크기는 같은 줄 단추와 같다) -->
+        <Style x:Key="FlBtn" TargetType="Button" BasedOn="{StaticResource Btn.Wide}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.BackFl}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+                    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <DataTemplate x:Key="RowT" DataType="vm:ProfileRowVm">
             <Grid x:Name="Row" Height="{StaticResource RowHeight}" Background="Transparent" AllowDrop="True" Drop="OnRowDrop">
                 <Border BorderBrush="{StaticResource RowLine}" BorderThickness="{StaticResource Bd.Bottom}"/>
@@ -41,6 +52,8 @@
                     <DockPanel x:Name="Pf" Grid.Column="2" Margin="{StaticResource TextRight8}">
                         <Ellipse Width="{StaticResource Dot}" Height="{StaticResource Dot}" Fill="{Binding Color, Converter={StaticResource MapBrush}}"
                                  VerticalAlignment="Center" Margin="{StaticResource Gap.R8}"/>
+                        <TextBlock DockPanel.Dock="Right" Text="FL" ToolTip="후진 FL" Style="{StaticResource T.Faint}" VerticalAlignment="Center" Margin="{StaticResource Gap.L4}"
+                                   Visibility="{Binding BackFl, Converter={StaticResource Shown}}"/>
                         <TextBlock Text="{Binding Profile}" ToolTip="{Binding Profile}" FontSize="{StaticResource Fs.Mid}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
                     <ComboBox x:Name="PfEdit" Grid.Column="2" Style="{StaticResource CellDrop}" Visibility="Collapsed" MaxWidth="{StaticResource TemplateWidth}" Margin="{StaticResource Cell.Flush}"
@@ -240,6 +253,8 @@
             <StackPanel>
                 <DockPanel Height="{StaticResource SmallButtonHeight}" Margin="{StaticResource Gap.B8}">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="후진 FL" Style="{StaticResource FlBtn}" Command="{Binding ToggleBackFl}" Margin="{StaticResource Gap.R8}"
+                                Visibility="{Binding CanBackFl, Converter={StaticResource Shown}}" AutomationProperties.Name="후진 FL"/>
                         <Button Content="적재 조건" Style="{StaticResource Btn.Wide}" Command="{Binding EditLoad}" Margin="{StaticResource Gap.R8}"
                                 Visibility="{Binding Selected.IsLoadIf, Converter={StaticResource Shown}}"/>
                         <Button Content="이름 바꾸기" Style="{StaticResource Btn.Wide}" Command="{Binding Rename}" Margin="{StaticResource Gap.R8}"/>
