@@ -56,6 +56,12 @@ public sealed class NameDict
     /// <summary>사이트 코어가 v0.59.0 이상: 보고 종류 <c>IDLE</c> 을 고를 수 있다.</summary>
     public bool IdleOk { get; internal set; }
 
+    /// <summary><c>core/VERSION</c> 첫 칸(코어 폴더가 없으면 null). 낱말·줄마다 최소 버전이 이것 이하여야 새 줄에 쓴다.</summary>
+    public string? CoreVersion { get; internal set; }
+
+    /// <summary>사이트 코어가 그 버전 이상이다(모르면 아니다).</summary>
+    public bool Has(string minVersion) => GrammarTable.AtLeast(CoreVersion, minVersion);
+
     internal void Add(NameDef d)
     {
         all.Add(d);

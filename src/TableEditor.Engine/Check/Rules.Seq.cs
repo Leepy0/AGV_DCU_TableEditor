@@ -7,7 +7,7 @@ namespace TableEditor.Engine.Check;
 // 6.5 시퀀스·ACT
 public static partial class Checker
 {
-    static readonly HashSet<string> WhenFamily = ["WHEN", "WHEN_STATE", "WHEN_IF", "WHEN_IF_IN", "WHEN_ANY2", "WHEN_ID", "OTHERWISE", "SELECT_END_TO"];
+    static readonly HashSet<string> WhenFamily = ["WHEN", "WHEN_STATE", "WHEN_IF", "WHEN_IF_IN", "WHEN_ANY2", "WHEN_ID", "OTHERWISE", "SELECT_END_TO", "WHEN_STABLE", "WHEN_ACCUM", "WHEN_OUT"];
     static readonly HashSet<string> EndSteps = ["END_STOP", "END_RESTART", "END_ERROR", "GOTO"];
 
     /// <summary>표의 실행 스텝(SELECT_BEGIN·SELECT_END 는 스텝이 아니다).</summary>
@@ -212,8 +212,35 @@ public static partial class Checker
         }
     }
 
-    /// <summary>S-18: 표당 스텝 64 이하(SEQ_END·SELECT_BEGIN·SELECT_END 는 스텝이 아니다).</summary>
-    static IEnumerable<Finding> S18(Facts f) =>
-        f.Site.Seqs.Select(t => (t, n: RealSteps(t).Count)).Where(x => x.n > 64)
-            .Select(x => f.Error("S-18", x.t.Zone.Begin, $"스텝 {x.n} · 64 이하 {x.t.Name}"));
+    /// <summary>
+    /// S-18: 표당 스텝 한계(SEQ_END·SELECT_BEGIN·SELECT_END 는 스텝이 아니다). 코어 v0.61.0 이상 999(압축 표 생성기 한계, 대기 화면 세 자리), 그 미만 64(그 코어 문서의 한계).
+    /// 코어 폴더가 없거나 버전을 모르면 64.
+    /// </summary>
+    static IEnumerable<Finding> S18(Facts f)
+    {
+        int max = f.Site.Names.Has(GrammarTable.HoldVersion) ? 999 : 64;
+        return f.Site.Seqs.Select(t => (t, n: RealSteps(t).Count)).Where(x => x.n > max)
+            .Select(x => f.Error("S-18", x.t.Zone.Begin, $"스텝 {x.n} · {max} 이하 {x.t.Name}"));
+    }
+
+    /// <summary>
+    /// S-19: 한 묶음에 유지 가지(WHEN_STABLE·WHEN_ACCUM)가 셋 이상. 코어 매크로는 못 잡고 실차 실행 때 표 오류 290 이 난다(셈 칸이 러너 a·b 둘뿐).
+    /// 묶음 = 이어진 WHEN·WHEN_STATE·WHEN_STABLE·WHEN_ACCUM·WHEN_OUT 가지(앱 압축 표 생성기와 같다): 다른 스텝(라벨·SELECT_END_TO 포함)을 만나면 끝.
+    /// </summary>
+    static IEnumerable<Finding> S19(Facts f)
+    {
+        foreach (var t in f.Site.Seqs)
+        {
+            int holds = 0;
+            foreach (var st in RealSteps(t))
+            {
+                if (st.Name is "WHEN" or "WHEN_STATE" or "WHEN_IF" or "WHEN_IF_IN" or "WHEN_ANY2" or "WHEN_ID" or "OTHERWISE" or "WHEN_OUT") continue;
+                if (st.Name is "WHEN_STABLE" or "WHEN_ACCUM")
+                {
+                    if (++holds > 2) yield return f.Error("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 둘까지(실행 때 오류 290)");
+                }
+                else holds = 0;
+            }
+        }
+    }
 }

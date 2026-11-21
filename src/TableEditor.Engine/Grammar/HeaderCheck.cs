@@ -37,11 +37,26 @@ public static partial class HeaderCheck
         var and = Path.Combine(coreFolder, "include", "agv", AndHeader);
         bool newDsl = File.Exists(and);
         if (newDsl) texts.Add(File.ReadAllText(and));
-        return Compare(texts, newDsl);
+        return Compare(texts, newDsl, VersionOf(coreFolder));
     }
 
-    /// <summary>newDsl = false 면(v0.58.0 앞 코어) 그때 없던 문법 이름은 "문법 표에만" 으로 세지 않는다.</summary>
-    public static HeaderReport Compare(IEnumerable<string> headerTexts, bool newDsl = true)
+    [GeneratedRegex(@"#[ \t]*define[ \t]+AGV_CORE_VER[ \t]+v(\d+)_(\d+)_(\d+)")]
+    private static partial Regex VerRx();
+
+    /// <summary>코어 폴더의 버전 글(<c>v0.63.0</c>): <c>VERSION</c> 첫 칸, 없으면 <c>include/agv/version.h</c> 의 <c>AGV_CORE_VER</c>. 모르면 null(문법 표의 모든 이름을 바란다).</summary>
+    public static string? VersionOf(string coreFolder)
+    {
+        var v = Path.Combine(coreFolder, "VERSION");
+        if (File.Exists(v) && File.ReadAllText(v).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() is { } first) return first;
+        var h = Path.Combine(coreFolder, "include", "agv", "version.h");
+        return File.Exists(h) && VerRx().Match(File.ReadAllText(h)) is { Success: true } m ? $"v{m.Groups[1].Value}.{m.Groups[2].Value}.{m.Groups[3].Value}" : null;
+    }
+
+    /// <summary>
+    /// newDsl = false 면(v0.58.0 앞 코어) 그때 없던 문법 이름은 "문법 표에만" 으로 세지 않는다.
+    /// coreVersion 을 주면 그 버전에 없던 이름(<see cref="GrammarEntry.Since"/> 이 그 버전보다 높은 줄만 있는 이름)도 세지 않는다.
+    /// </summary>
+    public static HeaderReport Compare(IEnumerable<string> headerTexts, bool newDsl = true, string? coreVersion = null)
     {
         var all = new SortedSet<string>(StringComparer.Ordinal);
         var guards = new SortedSet<string>(StringComparer.Ordinal);
@@ -63,7 +78,9 @@ public static partial class HeaderCheck
         foreach (var w in words.Where(w => !w.StartsWith("DSL_", StringComparison.Ordinal) && !header.Contains(w))) header.Add(w);
         header.Sort(StringComparer.Ordinal);
         var grammar = GrammarTable.Names.ToHashSet(StringComparer.Ordinal);
-        var expected = newDsl ? GrammarTable.Names : GrammarTable.OldNames.ToList();
+        var expected = !newDsl ? GrammarTable.OldNames.ToList()
+            : coreVersion == null ? GrammarTable.Names
+            : GrammarTable.Names.Where(n => GrammarTable.SinceOf(n) is { Length: > 0 } since ? GrammarTable.AtLeast(coreVersion, since) : true).ToList();
         return new HeaderReport(all.Count, internals, guards.Count, header,
             header.Where(n => !grammar.Contains(n)).ToList(),
             expected.Where(n => !header.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToList());

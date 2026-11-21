@@ -15,8 +15,12 @@ public static class ActionForms
     /// newDsl 을 주면 그 코어 형식에 맞는 줄만(<see cref="GrammarTable.Fits"/>) + 고른 줄 자신: 새 코어는 옛 별칭 줄을 빼고, 옛 코어는 새 줄을 뺀다.
     /// </summary>
     public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e, bool? newDsl = null) =>
+        newDsl is bool nd ? OfCore(e, nd ? GrammarTable.NewVersion : null) : OfCore(e, null, filter: false);
+
+    /// <summary><see cref="Of"/> 를 코어 버전으로: 그 버전에 맞는 줄(<see cref="GrammarTable.Fits(GrammarEntry, string?)"/>) + 고른 줄 자신.</summary>
+    public static IReadOnlyList<GrammarEntry> OfCore(GrammarEntry e, string? core, bool filter = true) =>
         GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)
-            && (newDsl is not bool nd || ReferenceEquals(r, e) || GrammarTable.Fits(r, nd))).ToList();
+            && (!filter || ReferenceEquals(r, e) || GrammarTable.Fits(r, core))).ToList();
 
     /// <summary>형식 칸의 이름: 태그 동작이 한 이름 안의 변형(TAPE·cm)이면 위치, 그 밖은 형식.</summary>
     public static string FieldLabel(IReadOnlyList<GrammarEntry> forms) =>

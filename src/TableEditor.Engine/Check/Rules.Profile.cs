@@ -84,7 +84,7 @@ public static partial class Checker
 
     /// <summary>조건 칸(IN( … ), 묶음 하나, 수동 표 조건, AND( … ))의 묶음들. AND 는 상태 낱말을 빼고 입력 항목만(<c>ANY</c> 는 첫째만 <c>ANY_ON</c> 묶음으로, 상태 낱말은 건너뜀).</summary>
     static IEnumerable<(Use Use, IReadOnlyList<CallNode> Groups)> Conditions(Facts f) =>
-        f.Uses.Where(u => u.Spec.Kind is ArgKind.InCond or ArgKind.OutCond or ArgKind.ManCond or ArgKind.AndCond or ArgKind.TagCond && u.Node is CallNode)
+        f.Uses.Where(u => u.Spec.Kind is ArgKind.InCond or ArgKind.OutCond or ArgKind.OutAnd or ArgKind.ManCond or ArgKind.AndCond or ArgKind.TagCond && u.Node is CallNode)
             .Select(u => (u, (IReadOnlyList<CallNode>)(u.Node is CallNode { Name: "AND" } ac
                 ? AndGroups(ac)
                 : u.Node is CallNode { Name: "IN" } c
@@ -251,17 +251,76 @@ public static partial class Checker
         f.Site.ManualRows.GroupBy(s => s.Args[0].Text).Where(g => f.Names.Find(g.Key)?.Kind == NameKind.Profile && !f.Site.RowsOf(g.Key).Any())
             .Select(g => f.Warn("M-6", g.First(), $"프로파일 줄 없음 {g.Key}"));
 
-    /// <summary>M-7: IDLE 줄과 그 프로파일의 ACT 가 같은 출력을 쓴다.</summary>
+    /// <summary>
+    /// M-7: IDLE 줄과 그 프로파일의 ACT 가 같은 출력을 쓴다. 모드 ANY 줄(코어 v0.63.0)은 같은 틱에 시퀀스·ACT 가 쓴 출력을 덮으므로 시퀀스와도 본다.
+    /// 줄의 프로파일은 열쇠를 이름으로 푼다(묶음 <c>PROFILE_SET( k )</c> 는 그 묶음의 프로파일 모두).
+    /// </summary>
     static IEnumerable<Finding> M7(Facts f)
     {
-        var actOut = f.Site.Seqs.Where(s => s.IsAct).ToDictionary(s => s.Name, s => ActOutputs(f, s));
-        foreach (var st in f.Site.ManualRows.Where(s => s.Name is "MAN" or "MAN_ELSE" && s.Args[1].Text == "IDLE"))
+        var outs = f.Site.Seqs.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => ActOutputs(f, g.First()));
+        foreach (var st in f.Site.ManualRows.Where(s => s.Name is "MAN" or "MAN_ELSE" && s.Args[1].Text is "IDLE" or "ANY"))
         {
+            bool any = st.Args[1].Text == "ANY";
             var (on, off) = ManOutputs(f, st);
             var mine = on.Union(off).ToHashSet();
-            var acts = f.Site.ActMap.Where(m => m.AnyProfile || m.Profile == st.Args[0].Text).Select(m => m.Table);
-            var shared = acts.Where(actOut.ContainsKey).SelectMany(a => actOut[a]).Where(mine.Contains).Distinct().ToList();
-            if (shared.Count > 0) yield return f.Warn("M-7", st, $"ACT 와 같은 출력 · ID {string.Join(", ", shared)}");
+            var keys = ProfileKey.Names(f.Site, st.Args[0].Text);
+            var maps = f.Site.ActMap.Concat(any ? f.Site.SeqMap : []).Where(m => m.AnyProfile || ProfileKey.Names(f.Site, m.Profile).Intersect(keys).Any());
+            var shared = maps.Select(m => m.Table).Where(outs.ContainsKey).SelectMany(a => outs[a]).Where(mine.Contains).Distinct().ToList();
+            if (shared.Count > 0) yield return f.Warn("M-7", st, $"{(any ? "시퀀스·ACT" : "ACT")} 와 같은 출력 · ID {string.Join(", ", shared)}");
+        }
+    }
+
+    /// <summary>
+    /// M-8: 코어가 컴파일은 받지만 뜻이 없는 수동 표 줄. <c>MAN_START_SW</c> 의 입력이 <c>IO_NONE</c>(미연결)이거나 <c>IN_START_SW</c> 자신(START 스위치를 START 로 되먹임),
+    /// <c>MAN_PROFILES</c> 의 열쇠가 <c>PROFILE_SET( k )</c> 가 아니다(코어 컴파일 오류), 묶음 프로파일이 0 개 또는 17 개 이상.
+    /// </summary>
+    static IEnumerable<Finding> M8(Facts f)
+    {
+        foreach (var st in f.Site.ManualRows)
+        {
+            if (st.Name == "MAN_START_SW" && st.Args.Count == 2)
+            {
+                var def = st.Args[1].Node is NameNode n ? f.Names.Find(n.Name) : null;
+                var v = f.Names.Value(st.Args[1].Node);
+                if (def?.Kind == NameKind.IoNone || v == CoreConstants.IoNone)
+                    yield return f.Error("M-8", st, "MAN_START_SW 입력 IO_NONE · 미연결", st.Args[1]);
+                else if (v == 16 && def is not { Kind: NameKind.Output })
+                    yield return f.Error("M-8", st, "MAN_START_SW 입력 IN_START_SW · START 스위치 자신", st.Args[1]);
+            }
+            else if (st.Name == "MAN_PROFILES" && st.Args.Count >= 1)
+            {
+                if (st.Args[0].Node is not CallNode { Name: "PROFILE_SET" })
+                    yield return f.Error("M-8", st, $"MAN_PROFILES 열쇠 {st.Args[0].Text} · PROFILE_SET( k )", st.Args[0]);
+                int n = st.Args.Count - 1;
+                if (n is 0 or > 16) yield return f.Error("M-8", st, $"MAN_PROFILES 프로파일 {n}개 · 1~16");
+            }
+        }
+    }
+
+    /// <summary>M-9: 같은 (프로파일, 입력)의 <c>MAN_START_SW</c> 가 둘(OR 라서 하나는 필요 없다).</summary>
+    static IEnumerable<Finding> M9(Facts f) =>
+        f.Site.ManualRows.Where(s => s.Name == "MAN_START_SW" && s.Args.Count == 2)
+            .GroupBy(s => (Squash(s.Args[0].Text), f.Names.Value(s.Args[1].Node)?.ToString() ?? Squash(s.Args[1].Text)))
+            .SelectMany(g => g.Skip(1).Select(s => f.Warn("M-9", s, $"MAN_START_SW 중복 {s.Args[0].Text} {s.Args[1].Text}", related: [g.First().StartLine])));
+
+    /// <summary>
+    /// M-10: 프로파일 묶음 <c>PROFILE_SET( k )</c> 를 쓰는 줄이 묶음 줄(<c>MAN_PROFILES</c>)보다 앞이거나 묶음 줄이 없다.
+    /// 코어는 표를 위에서 훑으며 묶음을 읽으므로 앞 줄의 묶음은 늘 맞지 않는다(컴파일은 받는다).
+    /// </summary>
+    static IEnumerable<Finding> M10(Facts f)
+    {
+        foreach (var z in f.Site.ZonesOf("MANUAL_BEGIN"))
+        {
+            var defined = new HashSet<long>();
+            var later = z.Statements.Where(s => s.Name == "MAN_PROFILES" && s.Args.Count > 0 && ProfileKey.SetNumber(f.Site, s.Args[0].Node) is not null)
+                .Select(s => ProfileKey.SetNumber(f.Site, s.Args[0].Node)!.Value).ToHashSet();
+            foreach (var st in z.Statements)
+            {
+                if (st.Args.Count == 0 || ProfileKey.SetNumber(f.Site, st.Args[0].Node) is not long k) continue;
+                if (st.Name == "MAN_PROFILES") { defined.Add(k); continue; }
+                if (!defined.Contains(k))
+                    yield return f.Error("M-10", st, later.Contains(k) ? $"묶음 {k} 줄이 뒤에 있음 · 앞으로" : $"묶음 {k} 줄 없음 · MAN_PROFILES", st.Args[0]);
+            }
         }
     }
 

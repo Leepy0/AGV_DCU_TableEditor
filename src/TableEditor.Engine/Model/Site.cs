@@ -99,12 +99,13 @@ public sealed partial class Site
         Zones = files.SelectMany(BlocksOf).ToList();
         Names.NewDsl = NewDsl;
         Names.IdleOk = GrammarTable.IdleOk(CoreVersion);
+        Names.CoreVersion = CoreVersion;
         BuildNames();
 
         Profiles = Names.Of(NameKind.Profile).Where(d => !d.Core && d.Def is Statement)
             .Select(d => new ProfileDef(d.Name, d.Value, (Statement)d.Def!)).ToList();
         ProfileRows = ZonesOf("PROFILE_TABLE_BEGIN").SelectMany(z => z.Statements)
-            .Select(st => new ProfileRow(st, st.Args[0].Text, Num(st.Args[1]), Num(st.Args[2]), Num(st.Args[3]))).ToList();
+            .Select(st => new ProfileRow(st, ProfileKey.Name(st.Args[0]), Num(st.Args[1]), Num(st.Args[2]), Num(st.Args[3]))).ToList();
         TagRules = ZonesOf("TAG_TABLE_BEGIN").SelectMany(z => z.Statements).Select(st => new TagRule(st)).ToList();
         Seqs = Zones.Where(z => z.Open is "SEQ_BEGIN" or "ACT_BEGIN").Select(z => new SeqTable(z)).ToList();
         SeqMap = ZonesOf("SEQ_MAP_BEGIN").SelectMany(z => z.Statements.Select(st => new MapRow(st, z))).ToList();
@@ -195,7 +196,7 @@ public sealed partial class Site
         foreach (var c in CoreConstants.Outputs) Names.Add(new(c.Name, NameKind.Output, c.Value, null, null));
         foreach (var c in CoreConstants.SeqIds) Names.Add(new(c.Name, NameKind.SeqId, c.Value, null, null));
         foreach (var c in CoreConstants.Directions) Names.Add(new(c.Name, NameKind.Constant, c.Value, null, null));
-        foreach (var p in CoreConstants.Params)
+        foreach (var p in CoreConstants.Params.Where(p => p.Since.Length == 0 || GrammarTable.AtLeast(CoreVersion, p.Since) || CoreVersion == null))
         {
             Names.Add(new(p.Core, NameKind.CoreParam, p.Number, null, null));
             foreach (var t in p.TableNames) Names.Add(new(t, NameKind.FndParam, p.Number, null, null));

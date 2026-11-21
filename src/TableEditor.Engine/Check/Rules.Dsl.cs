@@ -27,7 +27,7 @@ public static partial class Checker
     /// <summary>AND 가 놓인 칸: (문장 이름, 칸 이름). 칸마다 받는 상태·둘째 ANY 한계가 다르다.</summary>
     static IEnumerable<(Use Use, AndShape Shape, string Slot)> Ands(Facts f)
     {
-        foreach (var u in f.Uses.Where(u => u.Spec.Kind is ArgKind.AndCond or ArgKind.TagCond or ArgKind.ManCond && u.Node is CallNode { Name: "AND" }))
+        foreach (var u in f.Uses.Where(u => u.Spec.Kind is ArgKind.AndCond or ArgKind.TagCond or ArgKind.ManCond or ArgKind.OutAnd && u.Node is CallNode { Name: "AND" }))
         {
             var st = u.St;
             string slot = st.Name switch
@@ -35,7 +35,7 @@ public static partial class Checker
                 "WHEN" => "WHEN",
                 "WAIT" => "WAIT",
                 "WAIT_TO" => st.Args.Count > 1 && st.Args[1].Node is CallNode { Name: "PARAM_TIME" } ? "입력만" : "WAIT_TO",
-                "WAIT_STABLE" or "WAIT_STABLE_TO" or "ERROR_HOLD" => "입력만",
+                "WAIT_STABLE" or "WAIT_STABLE_TO" or "ERROR_HOLD" or "WAIT_ACCUM" or "WAIT_ACCUM_TO" or "WHEN_STABLE" or "WHEN_ACCUM" or "WHEN_OUT" => "입력만",
                 "OUT_FLICKER_UNTIL_IN" or "OUT_FLICKER_UNTIL_IN_TO" => "점멸",
                 "TAG_IF" or "TAG_RANGE_IF" => "태그",
                 "MAN" => "수동",
@@ -115,6 +115,17 @@ public static partial class Checker
         foreach (var p in f.Site.Files.SelectMany(file => file.RawInZones.Concat(file.Statements.Where(s => s.Shape == StatementShape.Macro && s.Zone != null))))
             if (ParenArgRx().Match(CommentRx().Replace(p.Text, " ")) is { Success: true } m)
                 yield return f.Error("D-5", p, $"괄호로 시작하는 식 · {m.Value.Split('(')[0].Trim()} 은 ( 로 시작하는 칸을 못 받는다");
+    }
+
+    static readonly HashSet<string> HoldSteps = ["WAIT_STABLE", "WAIT_STABLE_TO", "WAIT_ACCUM", "WAIT_ACCUM_TO", "WHEN_STABLE", "WHEN_ACCUM"];
+
+    /// <summary>D-7: 유지·누적 틱 칸의 <c>PARAM_TIME( 파라미터, MIN )</c>. 틱 칸이 8비트 단위라 분(MIN)은 못 담는다(코어 컴파일 오류, v0.61.0).</summary>
+    static IEnumerable<Finding> D7(Facts f)
+    {
+        if (!f.Site.NewDsl) yield break;
+        foreach (var u in f.Uses.Where(u => u.Spec.Kind == ArgKind.ParamTime && u.Node is CallNode { Name: "PARAM_TIME", Args.Count: 2 } && HoldSteps.Contains(u.St.Name)))
+            if (((CallNode)u.Node).Args[1] is { Node: NameNode { Name: "MIN" } } unit)
+                yield return f.Error("D-7", u.St, $"{u.St.Name} PARAM_TIME MIN · TICK·DSEC·SEC", unit);
     }
 
     /// <summary>D-6: 제한 칸. <c>SELECT_END_TO</c> 제한 1~32767, <c>WAIT_TO</c>·<c>HANDSHAKE</c>·<c>OUT_FLICKER_UNTIL_IN_TO</c> 제한 0x8000 미만(<c>UNMATCHED</c> 는 <c>WAIT_STABLE_TO</c> 만).</summary>

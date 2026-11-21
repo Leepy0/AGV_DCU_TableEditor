@@ -14,6 +14,8 @@ public enum ArgKind
 {
     Ident,        // 새로 정하는 이름(표 이름, 배열 이름, 라벨 선언, 적재 조건 이름)
     Profile,      // 프로파일. Min 0 이면 ANY_PROFILE(0)도 된다
+    ProfileSet,   // 수동 표 열쇠: 프로파일 또는 PROFILE_SET( k )(v0.63.0)
+    ProfileFl,    // 프로파일 표 열쇠: 프로파일 또는 STOP_BACK_FL( 프로파일 )(v0.63.0)
     Input,        // 입력 별칭·코어 IN_*
     CoreInput,    // 코어 IN_* 만(IN_ACTIVE_HIGH 안)
     Signal,       // ON·OFF 안: 조건에서는 입력, 수동 표 출력 칸에서는 출력
@@ -57,6 +59,7 @@ public enum ArgKind
     ParamTime,    // PARAM_TIME( 파라미터, 단위 )
     ParamAny,     // PARAM_TIME 의 파라미터: FND 이름 또는 P_… 코어 이름
     OutMask,      // OUT_SET 의 출력 묶음: OUTS( … ), NO_OUT, 벨트 이름
+    OutAnd,       // WHEN_OUT 의 출력 조건: IN( … ), 묶음 하나, NO_IN, AND( … )(v0.61.0)
 }
 
 /// <summary>인자 칸 하나. Least·Most = 이 칸이 몇 번 오는가(1·1 하나, 0·1 생략 가능, 1·16 여러 개).</summary>
@@ -121,13 +124,60 @@ public static class GrammarTable
     /// <summary>보고 종류 <c>IDLE</c>(<c>DSL_INFO_IDLE</c> = 'X')이 들어온 코어 버전. 이 미만 사이트는 IDLE 을 고를 수 없고 쓴 줄은 V-4 오류다.</summary>
     public const string IdleVersion = "v0.59.0";
 
+    /// <summary>수동 표 <c>MAN_START_SW</c> 가 들어온 코어 버전.</summary>
+    public const string StartSwVersion = "v0.60.0";
+
+    /// <summary>시퀀스 대기 계열(<c>WAIT_ACCUM</c>·<c>WHEN_STABLE</c>·<c>WHEN_OUT</c>)·상태 칸 조건 <c>STATE</c>·보고 종류 <c>DISPLAY</c>·압축 표 스텝 999 가 들어온 코어 버전.</summary>
+    public const string HoldVersion = "v0.61.0";
+
+    /// <summary>수동 표 묶음·모드 <c>ANY</c>, 프로파일 <c>STOP_BACK_FL</c>, 태그 <c>SET_STATE</c>, 보고 종류 <c>CROSS_IN</c>·<c>CROSS_OUT</c> 가 들어온 코어 버전.</summary>
+    public const string CrossVersion = "v0.63.0";
+
     /// <summary>코어 버전 글(<c>v0.58.0</c>)이 <see cref="NewVersion"/> 이상인가. 모르면(null) 아니다.</summary>
     public static bool IsNew(string? coreVersion) => AtLeast(coreVersion, NewVersion);
+
+    /// <summary>이름이 생긴 코어 버전 가운데 가장 낮은 것(옛 줄이 한 줄이라도 있으면 빈 글자).</summary>
+    public static string SinceOf(string name)
+    {
+        var rows = Find(name).ToList();
+        return rows.Count == 0 || rows.Any(r => r.Since.Length == 0) ? "" : rows.Select(r => r.Since).Aggregate((a, b) => Compare(a, b) <= 0 ? a : b);
+    }
+
+    /// <summary>코어 버전 글 둘의 순서.</summary>
+    public static int Compare(string a, string b)
+    {
+        static int[] Parts(string v) => v.TrimStart('v').Split('.').Select(x => int.TryParse(x, out var n) ? n : 0).ToArray();
+        var (x, y) = (Parts(a), Parts(b));
+        for (int i = 0; i < Math.Max(x.Length, y.Length); i++)
+        {
+            int c = (i < x.Length ? x[i] : 0).CompareTo(i < y.Length ? y[i] : 0);
+            if (c != 0) return c;
+        }
+        return 0;
+    }
+
+    /// <summary>보고 종류 낱말이 처음 생긴 코어 버전(<c>IDLE</c> v0.59.0, <c>DISPLAY</c> v0.61.0, <c>CROSS_IN</c>·<c>CROSS_OUT</c> v0.63.0).</summary>
+    public static readonly IReadOnlyDictionary<string, string> ReportSince = new Dictionary<string, string>
+    {
+        ["IDLE"] = IdleVersion, ["DISPLAY"] = HoldVersion, ["CROSS_IN"] = CrossVersion, ["CROSS_OUT"] = CrossVersion,
+    };
+
+    /// <summary>수동 표 모드 <c>ANY</c> 가 생긴 코어 버전.</summary>
+    public const string ModeAnyVersion = CrossVersion;
+
+    /// <summary>
+    /// 고정 낱말 칸의 낱말이 그 코어에서 되는가. 보고 종류 칸(<c>LOADING</c> 이 든 목록)은 <see cref="ReportSince"/>,
+    /// 수동 표 모드 칸(<c>JOG</c> 이 든 목록)의 <c>ANY</c> 는 <see cref="ModeAnyVersion"/>. 코어 버전을 모르면(null) 새 낱말은 안 된다.
+    /// </summary>
+    public static bool WordOk(string word, IReadOnlyList<string> words, string? core) =>
+        words.Contains("LOADING") ? !ReportSince.TryGetValue(word, out var v) || AtLeast(core, v)
+        : words.Contains("JOG") && word == "ANY" ? AtLeast(core, ModeAnyVersion)
+        : true;
 
     /// <summary>코어 버전에서 보고 종류 IDLE 을 쓸 수 있다(<see cref="IdleVersion"/> 이상). 모르면(null) 아니다.</summary>
     public static bool IdleOk(string? coreVersion) => AtLeast(coreVersion, IdleVersion);
 
-    static bool AtLeast(string? coreVersion, string min)
+    public static bool AtLeast(string? coreVersion, string min)
     {
         static int[] Parts(string v) => v.TrimStart('v').Split('.').Select(x => int.TryParse(x, out var n) ? n : 0).ToArray();
         if (coreVersion == null) return false;
@@ -140,8 +190,12 @@ public static class GrammarTable
         return true;
     }
 
-    /// <summary>코어 형식에 맞는 줄인가: 새 코어는 옛 별칭을 뺀 줄, 옛 코어는 새 줄을 뺀 줄(팔레트·형식 칸·새 줄 쓰기).</summary>
-    public static bool Fits(GrammarEntry r, bool newDsl) => newDsl ? !r.Legacy : r.Since.Length == 0;
+    /// <summary>코어 형식에 맞는 줄인가: 새 코어(v0.58.0 이상)는 옛 별칭을 뺀 줄, 옛 코어는 새 줄을 뺀 줄(팔레트·형식 칸·새 줄 쓰기).</summary>
+    public static bool Fits(GrammarEntry r, bool newDsl) => Fits(r, newDsl ? NewVersion : null);
+
+    /// <summary>코어 버전에 맞는 줄인가: 새 코어는 옛 별칭을 뺀 줄 가운데 줄의 최소 버전(<see cref="GrammarEntry.Since"/>) 이상인 것, 옛 코어(또는 모름)는 옛 줄만.</summary>
+    public static bool Fits(GrammarEntry r, string? core) =>
+        IsNew(core) ? !r.Legacy && (r.Since.Length == 0 || AtLeast(core, r.Since)) : r.Since.Length == 0;
 
     const int Lots = 255; // shortcut: "…" 의 개수 한계가 사양에 없는 칸(SEQ_LABELS)은 255 로 둔다. 한계가 정해지면 바꾼다
 
@@ -153,22 +207,24 @@ public static class GrammarTable
     static readonly string[] TurnOptTag = ["ALIGN", "TAPE", "OBS"];
     static readonly string[] MoveOpt = ["TAPE", "TAPE_GD"];
     static readonly string[] TimeUnits = ["TICK", "DSEC", "SEC", "MIN"];
-    static readonly string[] Reports = ["LOADING", "UNLOADING", "NEXT", "ARRIVE", "FINISH", "PROCESSING", "STANDBY", "CALL", "IDLE"];
+    static readonly string[] Reports = ["LOADING", "UNLOADING", "NEXT", "ARRIVE", "FINISH", "PROCESSING", "STANDBY", "CALL", "IDLE", "DISPLAY", "CROSS_IN", "CROSS_OUT"];
     static readonly string[] ReportsTag = [.. Reports, "STANDBY_RESET"];
 
     /// <summary>보고 종류 낱말 전부(<c>ACS( 종류, … )</c> 의 종류 칸).</summary>
     public static IReadOnlySet<string> ReportKinds { get; } = new HashSet<string>(ReportsTag, StringComparer.Ordinal);
-    static readonly string[] Modes = ["IDLE", "JOG"];
+    static readonly string[] Modes = ["IDLE", "JOG", "ANY"];
     static readonly string[] Keys = ["MODE", "SHIFT", "UP", "RESET", "SET", "DOWN"];
     static readonly string[] BeltMan = ["CW", "CCW", "OFF"];
 
     static readonly HashSet<string> TightNames =
         ["ON", "OFF", "ANY_ON", "ANY2_ON", "STATION", "AGV_ID_MINUS", "LOAD_SENSORS", "MOD", "ANY", "ID", "STATION_MOD", "STATION_DIV", "TAG_IS",
-         "ERR_IS", "KEY", "NOT", "PARAM", "PARAM_MIN", "PARAM_MAX"];
+         "ERR_IS", "KEY", "NOT", "PARAM", "PARAM_MIN", "PARAM_MAX", "STATE"];
 
     static ArgSpec A(ArgKind k) => new(k);
     static ArgSpec N(long min, long max, string unit = "") => new(ArgKind.Number, min, max, unit);
     static ArgSpec Pf(long min) => new(ArgKind.Profile, min, 63);
+    static readonly ArgSpec PfSet = new(ArgKind.ProfileSet, 1, 63);
+    static readonly ArgSpec PfFl = new(ArgKind.ProfileFl, 1, 63);
     static ArgSpec W(params string[] words) => new(ArgKind.Word, Words: words);
     static readonly ArgSpec T = new(ArgKind.Time, 0, 65535, "틱");
     static readonly ArgSpec TO = new(ArgKind.Timeout, 0, 65535, "틱");
@@ -179,6 +235,7 @@ public static class GrammarTable
     static readonly ArgSpec Id = new(ArgKind.Number, 0, 99, "호기");
     static readonly ArgSpec Slot = new(ArgKind.Number, 0, 23, "칸");
     static readonly ArgSpec U16 = new(ArgKind.Number, 0, 65535);
+    static readonly ArgSpec TH = new(ArgKind.Time, 0, 65534, "틱");
 
     static GrammarEntry E(string name, Place place, Role role, string form, string head, string cat, params ArgSpec[] args)
     {
@@ -221,8 +278,9 @@ public static class GrammarTable
         "AGV_SPEED_MMIN" => "m/min",
         "ACS" => "스테이션",
         "ACS_SEND" => "숫자",
-        "WAIT" or "WAIT_STABLE" or "OUT_FLICKER_UNTIL_IN" or "SELECT_END" => "없음",
-        "WAIT_TO" or "WAIT_STABLE_TO" or "OUT_FLICKER_UNTIL_IN_TO" or "SELECT_END_TO" => "시간",
+        "WAIT" or "WAIT_STABLE" or "WAIT_ACCUM" or "OUT_FLICKER_UNTIL_IN" or "SELECT_END" => "없음",
+        "WAIT_TO" or "WAIT_STABLE_TO" or "WAIT_ACCUM_TO" or "OUT_FLICKER_UNTIL_IN_TO" or "SELECT_END_TO" => "시간",
+        "WHEN_STABLE" or "WHEN_ACCUM" => "틱",
         _ => "",
     };
 
@@ -234,7 +292,7 @@ public static class GrammarTable
             _ when a.Switch => "ON·OFF",
             ArgKind.Word => string.Join("·", a.Words ?? []),
             ArgKind.Number or ArgKind.Time or ArgKind.Timeout or ArgKind.StopDist or ArgKind.AcsNumber or ArgKind.AcsStation => string.Join(" ", new[] { a.Unit, range }.Where(s => s.Length > 0)),
-            ArgKind.Profile => "프로파일",
+            ArgKind.Profile or ArgKind.ProfileSet or ArgKind.ProfileFl => "프로파일",
             ArgKind.Input or ArgKind.CoreInput or ArgKind.FromSensor => "입력",
             ArgKind.Signal => "신호",
             ArgKind.Output => "출력",
@@ -250,9 +308,10 @@ public static class GrammarTable
             ArgKind.AndCond => "조건",
             ArgKind.AndItem => "항목",
             ArgKind.StateCond => "상태",
-            ArgKind.ParamTime => "제한",
+            ArgKind.ParamTime => a.Label == "제한" ? "제한" : "파라미터 시간",
             ArgKind.ParamAny => "파라미터",
             ArgKind.OutMask => "출력 묶음",
+            ArgKind.OutAnd => "출력 조건",
             ArgKind.XCond or ArgKind.TagCond => "차량 상태",
             _ => "",
         };
@@ -326,7 +385,14 @@ public static class GrammarTable
     }
 
     static GrammarEntry Cells(this GrammarEntry e, int n) => e with { TagCells = n };
-    static GrammarEntry Added(this GrammarEntry e) => e with { Since = NewVersion };
+    static GrammarEntry Added(this GrammarEntry e, string? since = null) => e with { Since = since ?? NewVersion };
+
+    /// <summary>칸 i 의 라벨을 바꾼다(꼴 글자에서 나온 라벨이 뜻과 다를 때). 설명도 다시 만든다.</summary>
+    static GrammarEntry Relabel(this GrammarEntry e, int i, string label)
+    {
+        var args = e.Args.Select((a, j) => j == i ? a with { Label = label } : a).ToList();
+        return e with { Args = args, Note = NoteOf([.. args]) };
+    }
     static GrammarEntry Alias(this GrammarEntry e) => e with { Legacy = true };
     static GrammarEntry Form(this GrammarEntry e, string word) => e with { FormName = word };
 
@@ -342,11 +408,12 @@ public static class GrammarTable
     [
         // ---- 4.1 표 틀 (23) ----
         E("PROFILE_TABLE_BEGIN", F, St, "PROFILE_TABLE_BEGIN( 이름 )", "프로파일 표", "틀", A(ArgKind.Ident)),
-        E("PROFILE", F, St, "PROFILE( 프로파일, 타입, 처음, 끝 )", "프로파일", "틀", Pf(1), N(0, 999, "타입"), Id, Id),
-        E("PROFILE_LOAD", F, St, "PROFILE_LOAD( 프로파일, 타입, 처음, 끝, 묶음 )", "프로파일 적재", "틀", Pf(1), N(0, 999, "타입"), Id, Id, A(ArgKind.LoadSensors)),
+        E("PROFILE", F, St, "PROFILE( 프로파일, 타입, 처음, 끝 )", "프로파일", "틀", PfFl, N(0, 999, "타입"), Id, Id),
+        E("PROFILE_LOAD", F, St, "PROFILE_LOAD( 프로파일, 타입, 처음, 끝, 묶음 )", "프로파일 적재", "틀", PfFl, N(0, 999, "타입"), Id, Id, A(ArgKind.LoadSensors)),
         E("LOAD_SENSORS", F, Pt, "LOAD_SENSORS( 입력… )", "적재 센서", "틀", A(ArgKind.Input).Many(1, 16)),
         E("LOAD_IF", F, St, "LOAD_IF( 이름, 조건[, 조건] )", "적재 조건", "틀", A(ArgKind.Ident), Cond, Cond.Opt()),
-        E("PROFILE_LOAD_IF", F, St, "PROFILE_LOAD_IF( 프로파일, 타입, 처음, 끝, 이름 )", "프로파일 조건", "틀", Pf(1), N(0, 999, "타입"), Id, Id, A(ArgKind.LoadIf)),
+        E("PROFILE_LOAD_IF", F, St, "PROFILE_LOAD_IF( 프로파일, 타입, 처음, 끝, 이름 )", "프로파일 조건", "틀", PfFl, N(0, 999, "타입"), Id, Id, A(ArgKind.LoadIf)),
+        E("STOP_BACK_FL", F, Pt, "STOP_BACK_FL( 프로파일 )", "후진 FL", "틀", Pf(1)).Added(CrossVersion),
         E("PROFILE_TABLE_END", F, St, "PROFILE_TABLE_END", "프로파일 표 끝", "틀"),
         E("SEQ_LABELS", F, St, "SEQ_LABELS( 라벨… )", "라벨 목록", "틀", A(ArgKind.Ident).Many(1, Lots)),
         E("SEQ_BEGIN", F, St, "SEQ_BEGIN( 이름 )", "시퀀스 표", "틀", A(ArgKind.Ident)),
@@ -424,6 +491,8 @@ public static class GrammarTable
         E("STATION_DIV", SC, Pt, "STATION_DIV( 칸, n, m )", "스테이션 몫", "차량 상태", Slot, N(1, 65535), U16).Added(),
         E("TAG_IS", SC, Pt, "TAG_IS( 식 )", "태그 번호 = 식", "차량 상태", A(ArgKind.StationExpr)).Added(),
         E("NOT", SC, Pt, "NOT( 상태 )", "반전", "차량 상태", A(ArgKind.StateCond)).Added(),
+        E("STATE", SC, Pt, "STATE( 칸, 값 )", "상태 칸 값", "차량 상태", A(ArgKind.State), U16).Added(HoldVersion),
+        E("STATE", SC, Pt, "STATE( 칸, 처음, 끝 )", "상태 칸 범위", "차량 상태", A(ArgKind.State), U16, U16).Added(HoldVersion),
 
         // ---- 4.4 시퀀스·ACT 스텝 (62) ----
         // 라벨·분기(12)
@@ -436,6 +505,11 @@ public static class GrammarTable
         E("WHEN_IF_IN", S, St, "WHEN_IF_IN( 차량 상태, 조건, 라벨 )", "WHEN", "분기", X, Cond, Lb).Alias(),
         E("WHEN_ANY2", S, St, "WHEN_ANY2( 조건, ANY2_ON( … ), 라벨 )", "WHEN", "분기", Cond, A(ArgKind.Any2), Lb).Alias(),
         E("WHEN_ID", S, St, "WHEN_ID( 처음, 끝, 라벨 )", "WHEN", "분기", Id, Id, Lb),
+        E("WHEN_STABLE", S, St, "WHEN_STABLE( 조건, 유지, 라벨 )", "WHEN 유지", "분기", AndC, TH, Lb).Added(HoldVersion),
+        E("WHEN_STABLE", S, St, "WHEN_STABLE( 조건, PARAM_TIME( 파라미터, 단위 ), 라벨 )", "WHEN 유지(파라미터)", "분기", AndC, A(ArgKind.ParamTime), Lb).Added(HoldVersion).Form("파라미터").Relabel(1, "유지"),
+        E("WHEN_ACCUM", S, St, "WHEN_ACCUM( 조건, 누적, 라벨 )", "WHEN 누적", "분기", AndC, TH, Lb).Added(HoldVersion),
+        E("WHEN_ACCUM", S, St, "WHEN_ACCUM( 조건, PARAM_TIME( 파라미터, 단위 ), 라벨 )", "WHEN 누적(파라미터)", "분기", AndC, A(ArgKind.ParamTime), Lb).Added(HoldVersion).Form("파라미터").Relabel(1, "누적"),
+        E("WHEN_OUT", S, St, "WHEN_OUT( 출력 조건, 라벨 )", "WHEN 출력", "분기", A(ArgKind.OutAnd), Lb).Added(HoldVersion),
         E("OTHERWISE", S, St, "OTHERWISE( 라벨 )", "그 밖", "분기", Lb),
         E("SELECT_END", S, St, "SELECT_END", "고르기 끝", "분기"),
         E("SELECT_END_TO", S, St, "SELECT_END_TO( 시간, 라벨 )", "고르기 제한", "분기", T, Lb),
@@ -461,6 +535,12 @@ public static class GrammarTable
         E("WAIT_TO", S, St, "WAIT_TO( 조건, PARAM_TIME( 파라미터, 단위 ), 라벨 )", "대기·제한(파라미터)", "대기", AndC, A(ArgKind.ParamTime), Lb).Added().Form("파라미터"),
         E("WAIT_STABLE", S, St, "WAIT_STABLE( 조건, 안정 )", "유지 대기", "대기", AndC, T),
         E("WAIT_STABLE_TO", S, St, "WAIT_STABLE_TO( 조건, 안정, 제한, 라벨 )", "유지 대기·제한", "대기", AndC, T, TO, Lb),
+        E("WAIT_STABLE", S, St, "WAIT_STABLE( 조건, PARAM_TIME( 파라미터, 단위 ) )", "유지 대기(파라미터)", "대기", AndC, A(ArgKind.ParamTime)).Added(HoldVersion).Form("파라미터").Relabel(1, "안정"),
+        E("WAIT_STABLE_TO", S, St, "WAIT_STABLE_TO( 조건, PARAM_TIME( 파라미터, 단위 ), 제한, 라벨 )", "유지 대기·제한(파라미터)", "대기", AndC, A(ArgKind.ParamTime), TO, Lb).Added(HoldVersion).Form("시간·파라미터").Relabel(1, "안정"),
+        E("WAIT_ACCUM", S, St, "WAIT_ACCUM( 조건, 누적 )", "누적 대기", "대기", AndC, TH).Added(HoldVersion),
+        E("WAIT_ACCUM_TO", S, St, "WAIT_ACCUM_TO( 조건, 누적, 제한, 라벨 )", "누적 대기·제한", "대기", AndC, TH, TO, Lb).Added(HoldVersion),
+        E("WAIT_ACCUM", S, St, "WAIT_ACCUM( 조건, PARAM_TIME( 파라미터, 단위 ) )", "누적 대기(파라미터)", "대기", AndC, A(ArgKind.ParamTime)).Added(HoldVersion).Form("파라미터").Relabel(1, "누적"),
+        E("WAIT_ACCUM_TO", S, St, "WAIT_ACCUM_TO( 조건, PARAM_TIME( 파라미터, 단위 ), 제한, 라벨 )", "누적 대기·제한(파라미터)", "대기", AndC, A(ArgKind.ParamTime), TO, Lb).Added(HoldVersion).Form("시간·파라미터").Relabel(1, "누적"),
         E("WAIT_OUT", S, St, "WAIT_OUT( 조건 )", "출력 대기", "대기", A(ArgKind.OutCond)),
         E("DELAY", S, St, "DELAY( 시간 )", "지연", "대기", T),
         E("WAIT_IF", S, St, "WAIT_IF( 차량 상태 )", "대기", "대기", X).Alias(),
@@ -505,11 +585,14 @@ public static class GrammarTable
         E("END_ERROR", S, St, "END_ERROR( 코드 )", "오류 끝", "공통", U16),
 
         // ---- 4.5 수동 표 (5) ----
-        E("MAN", M, St, "MAN( 프로파일, 모드, 조건, 출력… )", "가지", "수동", Pf(1), W(Modes), A(ArgKind.ManCond), A(ArgKind.ManOut).Many(1, 16)),
-        E("MAN_ELSE", M, St, "MAN_ELSE( 프로파일, 모드, 출력… )", "사슬 끝", "수동", Pf(1), W(Modes), A(ArgKind.ManOut).Many(1, 16)),
+        E("MAN", M, St, "MAN( 프로파일, 모드, 조건, 출력… )", "가지", "수동", PfSet, W(Modes), A(ArgKind.ManCond), A(ArgKind.ManOut).Many(1, 16)),
+        E("MAN_ELSE", M, St, "MAN_ELSE( 프로파일, 모드, 출력… )", "사슬 끝", "수동", PfSet, W(Modes), A(ArgKind.ManOut).Many(1, 16)),
         E("BELT", M, Pt, "BELT( 벨트, 방향 )", "벨트", "수동", A(ArgKind.Belt), W(BeltMan)),
-        E("MAN_FB_SW", M, St, "MAN_FB_SW( 프로파일, 입력 )", "방향 스위치", "수동", Pf(1), A(ArgKind.Input)),
-        E("MAN_OBS_B", M, St, "MAN_OBS_B( 프로파일, 입력 )", "후방 장애물", "수동", Pf(1), A(ArgKind.Input)),
+        E("MAN_FB_SW", M, St, "MAN_FB_SW( 프로파일, 입력 )", "방향 스위치", "수동", PfSet, A(ArgKind.Input)),
+        E("MAN_OBS_B", M, St, "MAN_OBS_B( 프로파일, 입력 )", "후방 장애물", "수동", PfSet, A(ArgKind.Input)),
+        E("MAN_START_SW", M, St, "MAN_START_SW( 프로파일, 입력 )", "시작 스위치", "수동", PfSet, A(ArgKind.Input)).Added(StartSwVersion),
+        E("MAN_PROFILES", M, St, "MAN_PROFILES( 묶음, 프로파일… )", "프로파일 묶음", "수동", PfSet, Pf(1).Many(0, Lots)).Added(CrossVersion),
+        E("PROFILE_SET", M, Pt, "PROFILE_SET( 번호 )", "묶음", "수동", N(0, 15, "묶음")).Added(CrossVersion),
 
         // ---- 4.6 태그 규칙(4) ----
         E("TAG", TR, St, "TAG( 태그, 프로파일, 동작… )", "태그", "태그", N(0, 1023, "태그"), Pf(0), A(ArgKind.Action).Many(1, 16)),
@@ -568,6 +651,7 @@ public static class GrammarTable
         E("ACS", TA, Pt, "ACS( 종류, 칸 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsStation, 0, 23)).Cells(2).Added().Word("STANDBY 정지 중엔 정지 없음"),
         E("ACS", TA, Pt, "ACS( 종류, 번호 )", "보고", "동작", W(ReportsTag), new ArgSpec(ArgKind.AcsNumber, 0, 255)).Cells(2).Added().Form("숫자").Word("STANDBY 정지 중엔 정지 없음"),
         E("STATION_RESET", TA, Pt, "STATION_RESET", "스테이션 초기화", "동작").Cells(1),
+        E("SET_STATE", TA, Pt, "SET_STATE( 상태, 값 )", "상태 설정", "동작", A(ArgKind.State), U16).Cells(2).Added(CrossVersion),
         E("OBS_ON", TA, Pt, "OBS_ON", "장애물 감지 켬", "동작").Cells(1),
         E("OBS_OFF", TA, Pt, "OBS_OFF", "장애물 감지 끔", "동작").Cells(1),
         E("OBS_OFF_AUTO", TA, Pt, "OBS_OFF_AUTO", "장애물 감지 일시 중지", "동작").Cells(1),
