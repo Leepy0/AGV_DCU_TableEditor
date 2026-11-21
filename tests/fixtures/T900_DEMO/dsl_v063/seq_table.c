@@ -16,12 +16,20 @@
 
 SEQ_LABELS( DONE, REQ, RUN, ERR, BELT_STOP )
 
+/* 표 밖 enum 라벨: 한 줄·여러 줄, 값 있음·없음, 주석 섞임 */
+enum { DEMO_X1 = 1012, DEMO_X2 = 1013 };
+enum {
+    DEMO_M1 = 1014, /* 값 있음 */
+    DEMO_M2         // 값 없음 = 1015
+};
+
 /* ---- 벨트 적재 ---- */
 SEQ_BEGIN( belt_load )
 
     /* 0. 자재가 있으면 그대로 재출발 */
     SELECT_BEGIN
         WHEN( IN( OFF(DEMO_SEN_1, DEMO_SEN_2) ), REQ )
+        WHEN( IN( ON(DEMO_SEN_2) ), DEMO_X1 )
         OTHERWISE( DONE )
     SELECT_END
 
@@ -46,6 +54,21 @@ SEQ_BEGIN( belt_load )
     L( DONE )
         OBS_ON
         END_RESTART
+
+    L( DEMO_X1 )
+        DELAY(10)
+        GOTO( DEMO_X2 )
+
+    L( DEMO_X2 )
+        DELAY(10)
+        GOTO( DEMO_M1 )
+
+    L( DEMO_M1 )
+        DELAY(10)
+        GOTO( DEMO_M2 )
+
+    L( DEMO_M2 )
+        END_STOP
 
 SEQ_END
 

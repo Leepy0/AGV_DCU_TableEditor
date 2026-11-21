@@ -63,7 +63,7 @@ public static partial class Checker
             foreach (var x in targets) used.Add((t.Zone.File, x));
         }
         foreach (var d in f.Names.Of(NameKind.Label).Where(d => !used.Contains((d.File!, d.Name))))
-            yield return f.Warn("S-3", d.Def!, $"안 쓰는 라벨 {d.Name}", ((Statement)d.Def!).Args[(int)d.Value!.Value - 1]);
+            yield return f.Warn("S-3", d.Def!, $"안 쓰는 라벨 {d.Name}", d.LabelCell);
     }
 
     /// <summary>S-4: 한 표에 같은 L( ) 이 둘.</summary>

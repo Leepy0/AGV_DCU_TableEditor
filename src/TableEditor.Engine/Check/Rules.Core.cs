@@ -166,7 +166,7 @@ public static partial class Checker
         static bool Clash(NameDef a, NameDef b) =>
             a.File == b.File || !PerFile(a) && !PerFile(b) || (PerFile(a) ? b : a).File!.Name.EndsWith(".h", StringComparison.Ordinal);
         static bool PerFile(NameDef d) => d.Kind is NameKind.Label or NameKind.SeqTable or NameKind.ActTable;
-        static Arg? LabelArg(NameDef d) => d.Kind == NameKind.Label && d.Def is Statement s && d.Value is long i ? s.Args[(int)i - 1] : null;
+        static Arg? LabelArg(NameDef d) => d.LabelCell;
     }
 
     static readonly Dictionary<string, string> FixedArrays = new()
@@ -204,7 +204,7 @@ public static partial class Checker
         {
             bool macro = d.Def is Statement { Shape: StatementShape.Define };
             var core = macro ? NameDict.CoreNamesAndWords : NameDict.CoreNames;
-            Arg? cell = d.Kind == NameKind.Label && d.Def is Statement s && d.Value is long i ? s.Args[(int)i - 1] : null;
+            Arg? cell = d.LabelCell;
             if (core.Contains(d.Name)) yield return f.Error("N-5", d.Def!, $"코어 이름과 겹침 {d.Name}", cell);
             else if (d.Kind == NameKind.Profile && !ProfileNameRx().IsMatch(d.Name)) yield return f.Error("N-5", d.Def!, $"이름 형식 {d.Name} · PF_ 대문자");
         }

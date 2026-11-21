@@ -173,6 +173,26 @@ static class Core063Tests
             check(ActionForms.Dropped(accumTo, stable, sts[2].Args).SequenceEqual(["PARAM_TIME( AS, SEC )"]) && ActionForms.Convert(stable, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500"), "형식 바꾸기: 안정 → 누적 파라미터는 버림, 같은 뜻은 그대로");
         }
 
+        // 표 밖 enum 라벨(읽기만): 한 줄·여러 줄·값 있음/없음·주석 섞임, S-1 안 걸림, 중복·미사용 검사가 안 깨짐
+        {
+            string Tbl(string head, params string[] body) => head + "\nSEQ_BEGIN( n )\n" + string.Concat(body.Select(l => "    " + l + "\n")) + "SEQ_END\n";
+            const string en = "enum { E_ONE = 1012, E_TWO = 1013 };\nenum {\n    E_M1 = 1014, /* c, d */\n    E_M2         // e, f = 9\n};\n";
+            var es = CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A )\n" + en, "WAIT_TO( IN( ON(SEN_1) ), 5, E_ONE )", "GOTO( A )", "L( E_ONE )", "GOTO( E_TWO )", "L( E_TWO )", "GOTO( E_M1 )", "L( E_M1 )", "GOTO( E_M2 )", "L( E_M2 )", "END_STOP", "L( A )", "END_STOP"));
+            var labels = es.Names.Of(NameKind.Label).ToDictionary(d => d.Name, d => d.Value);
+            check(labels.Count == 5 && labels["A"] == 1 && labels["E_ONE"] == 1012 && labels["E_TWO"] == 1013 && labels["E_M1"] == 1014 && labels["E_M2"] == 1015, "enum 라벨: 한 줄·여러 줄·값 없음 이어 세기·주석 속 쉼표 무시 · " + string.Join(",", labels.Select(kv => kv.Key + "=" + kv.Value)));
+            var ef = Checker.Run(es).Where(f => f.Rule is "S-1" or "S-2" or "S-3" or "S-4" or "N-4" or "N-5").ToList();
+            check(ef.Count == 0, "enum 라벨을 쓰는 표: 라벨 검사 0 · " + CoreKit.Dump(ef));
+            check(es.Names.Of(NameKind.Label).Where(d => d.Name.StartsWith("E_", StringComparison.Ordinal)).All(d => d.LabelCell == null && d.Def is { Kind: PieceKind.Raw }), "enum 라벨: 정의는 원문 조각, 칸 없음");
+            var bad = Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A )\n" + en, "GOTO( E_NOPE )", "L( A )", "END_STOP"))).Where(f => f.Rule is "S-1" or "S-3").ToList();
+            check(bad.Count(f => f.Rule == "S-1") == 1 && bad.Count(f => f.Rule == "S-3" && f.Text.Contains("E_", StringComparison.Ordinal)) == 4, "없는 이름은 S-1, 안 쓰는 enum 라벨은 S-3 경고(칸 없이) · " + CoreKit.Dump(bad));
+            var dup = Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A, E_ONE )\n" + en, "GOTO( A )", "L( A )", "END_STOP"))).Where(f => f.Rule == "N-4").ToList();
+            check(dup.Count == 1 && dup[0].Text.Contains("E_ONE", StringComparison.Ordinal), "SEQ_LABELS 와 enum 라벨 이름 겹침 = N-4 · " + CoreKit.Dump(dup));
+            var add = BundleEdit.AddLabel(es, "seq_table.c", "E_TWO");
+            check(!add.Ok && add.Error!.Contains("N-4", StringComparison.Ordinal) && BundleEdit.AddLabel(es, "seq_table.c", "E_NEW") is { Ok: true }, "라벨 추가: enum 라벨 이름은 이미 있음, 새 이름은 SEQ_LABELS 끝에");
+            var other = CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A )", "GOTO( A )", "L( A )", "END_STOP"));
+            check(other.Names.Of(NameKind.Label).Count() == 1, "enum 없는 표는 그대로");
+        }
+
         // fixture(지어낸 새 문법 한 벌): 가짜 코어 v0.63.0 에서 결과 0, 옛 코어에서는 V-4
         var fx = Path.Combine(root, "tests", "fixtures", "T900_DEMO", "dsl_v063");
         // 지어낸 core 폴더에는 헤더가 없어 fixture 가 정의한 NO_ACTION 의 겹침 경고가 하나 난다(다른 시험과 같다)

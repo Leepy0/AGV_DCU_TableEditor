@@ -261,6 +261,53 @@ public sealed partial class Site
                         break;
                 }
             }
+
+        foreach (var f in Files.Where(f => FileZones.For(f.Name).Top.Contains("SEQ_LABELS"))) EnumLabels(f);
+    }
+
+    [GeneratedRegex(@"/\*.*?\*/|//[^\n]*", RegexOptions.Singleline)]
+    private static partial Regex CommentRx();
+
+    [GeneratedRegex(@"\benum\b[^{};]*\{([^{}]*)\}")]
+    private static partial Regex EnumRx();
+
+    [GeneratedRegex(@"^\s*([A-Za-z_]\w*)\s*(?:=\s*(.+?))?\s*$", RegexOptions.Singleline)]
+    private static partial Regex EnumItemRx();
+
+    /// <summary>
+    /// 시퀀스 표 파일 안 <c>enum { 이름 = 값, … }</c>(표 구역 밖 원문, 한 줄·여러 줄, 주석 섞임)의 열거자도 그 파일의 라벨이다.
+    /// 읽기만 한다: 정의 조각은 이름이 시작하는 원문 줄이고 편집기는 선언을 고치지 않는다.
+    /// </summary>
+    void EnumLabels(SourceFile f)
+    {
+        var sb = new System.Text.StringBuilder();
+        var starts = new List<(int At, Piece P)>();
+        foreach (var p in f.Pieces.Where(p => p.Kind != PieceKind.Statement)) { starts.Add((sb.Length, p)); sb.Append(p.Text); }
+        var text = CommentRx().Replace(sb.ToString(), m => new string(' ', m.Length));
+        foreach (Match m in EnumRx().Matches(text))
+        {
+            long? next = 0;
+            var body = m.Groups[1].Value;
+            int depth = 0, from = 0;
+            for (int i = 0; i <= body.Length; i++)
+            {
+                char c = i < body.Length ? body[i] : ',';
+                if (c == '(') depth++;
+                else if (c == ')') depth--;
+                else if (c == ',' && depth == 0)
+                {
+                    if (EnumItemRx().Match(body[from..i]) is { Success: true } it)
+                    {
+                        var expr = it.Groups[2];
+                        long? value = !expr.Success ? next : Expr.Parse(expr.Value) is { } node ? Names.Value(node, f) : null;
+                        var piece = starts.Last(s => s.At <= m.Groups[1].Index + from + it.Groups[1].Index).P;
+                        Names.Add(new(it.Groups[1].Value, NameKind.Label, value, f, piece));
+                        next = value + 1;
+                    }
+                    from = i + 1;
+                }
+            }
+        }
     }
 
     /// <summary>C 정수 글자(<see cref="CNum.Value"/>: 10진, 0x 16진, 앞자리 0 = 8진, 접미사 u·l).</summary>

@@ -21,6 +21,9 @@ public sealed record NameDef(string Name, NameKind Kind, long? Value, SourceFile
 {
     public bool Core => File == null;
 
+    /// <summary><c>SEQ_LABELS( … )</c> 안 라벨 칸(값 = 칸 번호). enum 라벨(원문 조각이 정의, 값 = 열거자 값)이나 라벨이 아니면 null.</summary>
+    public Arg? LabelCell => Kind == NameKind.Label && Def is Statement { Name: "SEQ_LABELS" } s && Value is long i ? s.Args[(int)i - 1] : null;
+
     /// <summary>정의 줄의 꼬리 주석(쓰는 호기 등).</summary>
     public string Comment => IoProfile.StripComment((Def as Statement)?.TailComment ?? "");
 
