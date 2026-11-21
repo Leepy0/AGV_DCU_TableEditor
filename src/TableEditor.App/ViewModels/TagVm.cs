@@ -36,7 +36,15 @@ public sealed class TagVm : BlockHost
         CommitTag = new Command(p => CommitTagText(p as TagRowVm ?? Selected));
         CancelTag = new Command(p => (p as TagRowVm ?? Selected)?.ResetDrafts());
         CommitComment = new Command(p => CommitCommentText(p as TagRowVm ?? Selected));
-        EditCond = new Command(p => { if (p is TagRowVm r) { SelectOnly(r); _ = main.EditConditionAsync(r); } });
+        EditCond = new Command(p =>
+        {
+            if (main.HasDialog || p is not TagRowVm r) return;
+            // 다른 줄의 칩이면 줄을 고르기 전에 지금 줄의 확정 안 한 칸부터 확정(고르면 칸이 버려진다). 확정이 줄을 다시 쓰면 새 줄로
+            if (main.CommitKeep(r.Piece) is not { } kept) return;
+            if (!ReferenceEquals(kept, r.Piece)) r = Rows.FirstOrDefault(x => ReferenceEquals(x.Piece, kept)) ?? r;
+            SelectOnly(r);
+            _ = main.EditConditionAsync(r);
+        });
         EditRaw = new Command(() => { if (Selected != null) _ = main.EditRawAsync(Selected.Piece); }, () => main.Settings.Advanced && Selected != null);
     }
 
@@ -287,7 +295,7 @@ public sealed class TagVm : BlockHost
             : TagEdit.Renumber(site, rules, first);
         if (r.Ok && r.Touched.Count > 0 && row.Rule.IsRange && m.Groups[2].Success && long.Parse(m.Groups[2].Value) is var last && rules.Count == 1
             && r.Touched.OfType<Statement>().FirstOrDefault() is { } moved && new TagRule(moved) is var nr && r.Site!.Num(nr.LastArg) != last)
-            r = SiteEdit.SetArg(r.Site, moved, nr.LastArg, last.ToString());
+            r = SiteEdit.SetArg(r.Site, moved, nr.LastArg, last.ToString()) with { Base = site };
         if (!main.Apply(r)) row.ResetDrafts();
     }
 
@@ -320,6 +328,8 @@ public sealed class TagVm : BlockHost
     public async Task AddActionAsync(TagRowVm row)
     {
         if (row.Rule == null) return;
+        if (main.CommitKeep(row.Rule.St) is not Statement kept) return;
+        if (!ReferenceEquals(kept, row.Rule.St)) row = Rows.FirstOrDefault(r => ReferenceEquals(r.Piece, kept)) ?? row; // 칸 확정이 줄을 다시 쓰면 새 줄로
         var d = new StepVm("동작 추가", "추가", ActionChoices(row), GrammarTable.TagPalette, null, e => Choices.DefaultText(e, site.Names));
         if (await main.Show(d) == "ok") AddAction(row, d.Command.Entry);
     }
@@ -358,7 +368,7 @@ public sealed class TagVm : BlockHost
     /// <summary>동작의 시퀀스 이름을 두 번 누름: 시퀀스 화면의 그 시퀀스(줄의 프로파일 대응표 먼저).</summary>
     public void OpenSeq(TagRowVm row, string seq)
     {
-        if (row.Rule == null) return;
+        if (row.Rule == null || main.HasDialog) return;
         if (!main.GoSeq(row.IsAny ? null : row.Rule.Profile, "SEQ_" + seq)) main.Notify("없는 시퀀스 " + seq);
     }
 

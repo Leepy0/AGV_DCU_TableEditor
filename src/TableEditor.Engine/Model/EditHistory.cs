@@ -25,10 +25,11 @@ public sealed class EditHistory
 
     public bool Dirty => Changes != 0;
 
-    /// <summary>편집 결과를 쌓는다(다시 하기 줄은 버린다). 성공한 결과만 넣는다.</summary>
+    /// <summary>편집 결과를 쌓는다(다시 하기 줄은 버린다). 성공한 결과만, 기준(<see cref="EditResult.Base"/>)이 지금 사이트일 때만 넣는다.</summary>
     public Site Push(EditResult r)
     {
         if (!r.Ok) return Current;
+        if (r.Base != null && !ReferenceEquals(r.Base, Current)) return Current; // 낡은 기준에서 만든 결과는 쌓지 않는다
         if (ReferenceEquals(r.Site, Current)) return Current;
         sites.RemoveRange(index + 1, sites.Count - index - 1);
         if (saved > index) saved = -1;

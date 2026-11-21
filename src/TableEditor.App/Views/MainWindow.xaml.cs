@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using TableEditor.App.ViewModels;
+using TableEditor.Engine.Model;
 
 namespace TableEditor.App.Views;
 
@@ -29,7 +30,9 @@ public partial class MainWindow : Window
         DataContext = vm;
         CommandBindings.Add(new CommandBinding(SwitchPane, (_, _) => Switch()));
         vm.Went += _ => FocusPane();
-        vm.DialogShown += _ => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog);
+        vm.DialogShown += _ => { focusBack.Push(BackSpot()); Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FocusDialog); };
+        vm.DialogClosed += OnDialogClosed;
+        vm.CommitFocused = CommitFocus;
         vm.PickRepoRequested = () => _ = PickFolderAsync(repoOnly: true);
         vm.Update.CloseForUpdate += () => { closeConfirmed = updateDone = true; Close(); }; // 도우미를 띄웠다
         Activated += (_, _) => vm.CheckExternal(); // 바깥에서 바뀐 파일(사양 5.7절)
@@ -45,22 +48,103 @@ public partial class MainWindow : Window
     public bool HandleUndoKey(Key key, ModifierKeys mods)
     {
         if (mods != ModifierKeys.Control || key is not (Key.Z or Key.Y) || vm.HasDialog || vm.IsSettingsTab) return false;
-        if (Keyboard.FocusedElement is TextBox or ComboBox)
-        {
-            int fails = vm.ApplyFailures;
-            bool bad = (Keyboard.FocusedElement as FrameworkElement)?.DataContext is FieldVm { Invalid: true };
-            Keyboard.ClearFocus(); // 확정은 칸이 포커스를 잃을 때
-            if (bad || vm.HasDialog || vm.ApplyFailures != fails) return true;
-        }
+        if (!CommitFocus()) return true;
         var cmd = key == Key.Z ? vm.Undo : vm.Redo;
         if (cmd.CanExecute(null)) cmd.Execute(null);
         return true;
     }
 
+    /// <summary>칸(글 상자·목록)을 고치는 중이면 포커스를 풀어 확정한다(확정은 칸이 포커스를 잃을 때). 확정이 실패했거나(빨간 칸·막힘) 팝업이 떴으면 false.</summary>
+    bool CommitFocus()
+    {
+        if (Keyboard.FocusedElement is not (TextBox or ComboBox) || vm.HasDialog) return true;
+        int fails = vm.ApplyFailures;
+        bool bad = (Keyboard.FocusedElement as FrameworkElement)?.DataContext is FieldVm { Invalid: true };
+        Keyboard.ClearFocus();
+        return !(bad || vm.HasDialog || vm.ApplyFailures != fails);
+    }
+
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+        if (BlockedByDialog(e)) return;
         if (HandleUndoKey(e.Key, Keyboard.Modifiers)) e.Handled = true;
+    }
+
+    protected override void OnPreviewKeyUp(KeyEventArgs e)
+    {
+        base.OnPreviewKeyUp(e);
+        BlockedByDialog(e);
+    }
+
+    protected override void OnPreviewTextInput(TextCompositionEventArgs e)
+    {
+        base.OnPreviewTextInput(e);
+        BlockedByDialog(e);
+    }
+
+    // ---- 팝업 아래로 키·포커스가 닿지 않게 ----
+    // 큰 영역에 IsEnabled 를 걸면 UI 자동화(UIA) 이벤트가 트리 전체로 퍼져 팝업이 0.6~0.9초 걸린다. 그래서 입력 쪽에서 막는다:
+    // 마우스는 오버레이가, 키·포커스는 여기서(팝업 밖 대상이면 취소).
+
+    readonly Stack<(IInputElement? El, Site? Site)> focusBack = new();
+    (IInputElement? El, Site? Site)? returning; // 방금 닫혀 포커스 복귀를 기다리는 자리: 연달아 뜨는 팝업이 이어받는다
+
+    /// <summary>팝업이 뜰 때 돌아올 자리(요소와 그때의 사이트). 포커스가 팝업 안이거나 트리에서 떨어진 요소(앞 팝업이 닫히며 복귀 전)면 원래 자리를 이어받는다.</summary>
+    (IInputElement? El, Site? Site) BackSpot()
+    {
+        var f = Keyboard.FocusedElement;
+        bool away = f is not DependencyObject d || InDialog(d) || PresentationSource.FromDependencyObject(d) == null;
+        return away && returning is { } r ? r : (f, vm.Site);
+    }
+
+    /// <summary>팝업이 닫혔다: 원래 자리로. 팝업이 편집을 냈으면(사이트가 바뀜) 그 요소는 다시 쓰인 줄일 수 있으니 선택 줄 기준(<see cref="FocusPane"/>)으로.</summary>
+    void OnDialogClosed()
+    {
+        var back = focusBack.Count > 0 ? focusBack.Pop() : default;
+        returning = back;
+        var el = ReferenceEquals(back.Site, vm.Site) ? back.El : null;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { RestoreFocus(el); if (!vm.HasDialog) returning = null; });
+    }
+    /// <summary>이 대상이 팝업 안인가. 다른 창(드롭다운·메뉴 팝업)에 있는 것은 팝업이 연 것으로 본다(밖에서 연 메뉴는 포커스를 잃으며 닫힌다).</summary>
+    public bool InDialog(DependencyObject? d)
+    {
+        if (d == null) return false;
+        if (PresentationSource.FromDependencyObject(d) is { } src && !ReferenceEquals(src, PresentationSource.FromVisual(this))) return true;
+        for (; d != null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (ReferenceEquals(d, DialogHost)) return true;
+        return false;
+    }
+
+    /// <summary>팝업이 떠 있고 입력 대상이 팝업 밖이면 막는다(Esc 는 팝업 취소). 막았으면 true.</summary>
+    bool BlockedByDialog(RoutedEventArgs e)
+    {
+        if (!vm.HasDialog || InDialog(e.OriginalSource as DependencyObject)) return false;
+        e.Handled = true;
+        if (e is KeyEventArgs { Key: Key.Escape, IsDown: true }) vm.Dialog?.Cancel.Execute(null);
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, FocusDialogIfOut);
+        return true;
+    }
+
+    protected override void OnPreviewGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnPreviewGotKeyboardFocus(e);
+        if (!vm.HasDialog || e.NewFocus is not DependencyObject now || InDialog(now)) return;
+        e.Handled = true;
+        if (e.OldFocus is not DependencyObject old || !InDialog(old)) Dispatcher.BeginInvoke(DispatcherPriority.Input, FocusDialogIfOut);
+    }
+
+    void FocusDialogIfOut()
+    {
+        if (vm.HasDialog && !InDialog(Keyboard.FocusedElement as DependencyObject)) FocusDialog();
+    }
+
+    /// <summary>팝업이 닫힌 뒤 원래 자리로. 그 자리가 사라졌으면 지금 탭의 줄 목록.</summary>
+    void RestoreFocus(IInputElement? back)
+    {
+        if (vm.HasDialog) { FocusDialogIfOut(); if (back is DependencyObject b && InDialog(b) && back is UIElement { IsVisible: true } u) Keyboard.Focus(u); return; }
+        if (back is UIElement { IsVisible: true, Focusable: true, IsEnabled: true } ue && Keyboard.Focus(ue) != null) return;
+        FocusPane();
     }
 
     /// <summary>위 줄 칩(변경·바깥 변경)을 누르면 작은 메뉴.</summary>
@@ -134,6 +218,12 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
+        if (!closeConfirmed && !vm.CommitPending()) // 확정 안 한 칸이 있으면 먼저 확정(변경 수에 들어가게). 안 되면(값 버림 팝업·빨간 칸) 닫지 않는다
+        {
+            e.Cancel = true;
+            if (!vm.HasDialog) vm.Notify("막힘");
+            return;
+        }
         if (!closeConfirmed && vm.Dirty)
         {
             e.Cancel = true;

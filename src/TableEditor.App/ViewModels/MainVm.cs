@@ -29,7 +29,12 @@ public sealed class TabVm(string name, int group, MainVm owner) : Observable
     public bool IsSelected
     {
         get => owner.Tab == this;
-        set { if (value) owner.Tab = this; }
+        set
+        {
+            if (!value) return;
+            if (owner.HasDialog) { System.Windows.Application.Current?.Dispatcher.BeginInvoke(Changed); return; } // 팝업 중 탭 전환(UIA)은 안 함: 라디오 모양만 되돌린다
+            owner.Tab = this;
+        }
     }
 
     internal void Changed() => Raise(nameof(IsSelected));
@@ -86,7 +91,7 @@ public sealed partial class MainVm : Observable
         Io = new IoVm(this);
         Config = new SettingsVm(settings, this);
         Update = new UpdateVm(this, settings);
-        GoTo = new Command(p => { if (p is FindingVm f) Go(f); });
+        GoTo = new Command(p => { if (!HasDialog && p is FindingVm f) Go(f); });
         Fix = new Command(p => { if (p is FindingVm f) FixFinding(f.Finding); }, _ => CanEdit);
         ToggleCheck = new Command(() => CheckOpen = !CheckOpen);
         Undo = new Command(() => Step(h => h.Undo()), () => CanEdit && history?.CanUndo == true);
@@ -249,9 +254,10 @@ public sealed partial class MainVm : Observable
         if (history == null) return false;
         if (IsReadOnly) { ApplyFailures++; Notify("읽기 전용"); Refresh(null, draft: false); return false; }
         if (!r.Ok) { ApplyFailures++; Notify(r.Error ?? "막힘"); return false; }
+        if (r.Base != null && !ReferenceEquals(r.Base, history.Current)) { ApplyFailures++; Notify("화면 다시 읽음"); Refresh(null, draft: false); return false; }
         if (ReferenceEquals(r.Site, history.Current)) return true;
         history.Push(r);
-        Refresh(r.Touched);
+        Refresh(r.Touched, defer: true);
         return true;
     }
 
@@ -259,7 +265,7 @@ public sealed partial class MainVm : Observable
     {
         if (history == null) return;
         f(history);
-        Refresh(null);
+        Refresh(null, defer: true);
     }
 
     public ICommand Undo { get; }
@@ -270,23 +276,55 @@ public sealed partial class MainVm : Observable
     public bool HasChanges => ChangeCount > 0;
     public bool Dirty => history?.Dirty == true;
 
-    /// <summary>검사 다시 → 태그 화면·검사 목록·변경 수.</summary>
-    void Refresh(IReadOnlyList<Piece>? touched, bool draft = true)
+    /// <summary>
+    /// 검사 다시 → 표 화면들·검사 목록·변경 수. defer = 편집 한 번(안 보이는 표 화면은 그 탭이 보일 때까지 미룬다:
+    /// 숨은 화면의 목록이 편집마다 요소 수천 개를 다시 만들어 한 번에 0.7~1초가 들었다). 검사 목록·변경 수·탭 배지는 바로 갱신한다.
+    /// </summary>
+    void Refresh(IReadOnlyList<Piece>? touched, bool draft = true, bool defer = false)
     {
         var s = Site!;
         var list = Checker.Run(s);
-        Tag.Reload(s, list, baseline, touched);
-        Profile.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Manual.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Seq.Reload(s, list, baseline, touched);
-        Map.Reload(s, list, BlockHost.ChangedBy(baseline), touched);
-        Io.Reload(s, list);
+        (staleSite, staleList) = (s, list);
+        foreach (var name in TableTabNames)
+        {
+            if (defer && Tab.Name != name) { stale.Add(name); staleTouched[name] = touched; continue; }
+            stale.Remove(name);
+            ReloadTab(name, s, list, touched);
+        }
         SetFindings(s, list.Concat(packFindings).ToList());
         Raise(nameof(Site));
         Raise(nameof(ChangeCount));
         Raise(nameof(HasChanges));
         CommandManager.InvalidateRequerySuggested();
         if (draft) { draftTimer.Stop(); draftTimer.Start(); }
+    }
+
+    static readonly string[] TableTabNames = [TagTab, ProfileTab, ManualTab, SeqTab, MapTab, IoTab];
+
+    readonly HashSet<string> stale = [];
+    readonly Dictionary<string, IReadOnlyList<Piece>?> staleTouched = []; // 미룬 탭이 마지막 편집으로 골라야 할 줄(되돌리기·다시 하기는 null)
+    Site? staleSite;
+    IReadOnlyList<Finding> staleList = [];
+
+    void ReloadTab(string name, Site s, IReadOnlyList<Finding> list, IReadOnlyList<Piece>? touched)
+    {
+        switch (name)
+        {
+            case TagTab: Tag.Reload(s, list, baseline, touched); break;
+            case ProfileTab: Profile.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case ManualTab: Manual.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case SeqTab: Seq.Reload(s, list, baseline, touched); break;
+            case MapTab: Map.Reload(s, list, BlockHost.ChangedBy(baseline), touched); break;
+            case IoTab: Io.Reload(s, list); break;
+        }
+    }
+
+    /// <summary>미뤄 둔 그 탭의 화면을 지금 사이트로 만든다(탭이 보이기 전·그 화면 VM 을 건드리기 전).</summary>
+    public void Flush(string name)
+    {
+        if (!stale.Remove(name) || staleSite is not { } s) return;
+        staleTouched.Remove(name, out var touched);
+        ReloadTab(name, s, staleList, touched);
     }
 
     /// <summary>초안: 편집을 잠깐 묶어 쓴다. 변경이 없으면 지운다.</summary>
@@ -344,6 +382,7 @@ public sealed partial class MainVm : Observable
     /// </summary>
     public async Task<bool> SaveAsync()
     {
+        if (!CommitPending()) return false; // 확정 안 한 칸이 있으면 먼저 확정(실패하면 저장 안 함): 저장 뒤 그 편집이 사라지지 않게
         if (Site is not { } s || !CanEdit || op == "save") return false;
         string? reason = null;
         if (Repo != null && siteName != null && !Checker.Run(s).Any(f => f.Severity == Severity.Error))
@@ -352,8 +391,41 @@ public sealed partial class MainVm : Observable
             var rv = new ReasonVm();
             if (await Show(rv) != "ok") return false;
             reason = rv.Text.Trim();
+            if (!ReferenceEquals(Site, s)) return StaleSite(); // 팝업 중 사이트가 바뀜: 옛 사이트로 저장하면 새 편집을 덮는다
         }
         return await Locked("save", "저장", () => SaveFilesAsync(s, reason));
+    }
+
+    bool StaleSite()
+    {
+        ApplyFailures++;
+        Notify("화면 다시 읽음 · 저장 안 함");
+        Refresh(null, draft: false);
+        return false;
+    }
+
+    /// <summary>
+    /// 칸을 고치는 중이면 확정한다(창이 포커스를 풀어 칸 확정 명령을 낸다). 확정이 실패했거나(빨간 칸·막힘) 못 하면 false: 호출한 명령은 아무것도 하지 않는다.
+    /// 팝업 중이면 아무것도 안 한다. 사이트를 잡고 팝업을 띄워 쓰는 명령은 사이트를 잡기 전에 부른다.
+    /// </summary>
+    public bool CommitPending() => HasDialog || CommitFocused?.Invoke() != false;
+
+    /// <summary>창이 단다: 포커스가 칸에 있으면 풀어 확정, 성공 여부.</summary>
+    public Func<bool>? CommitFocused { get; set; }
+
+    /// <summary>조각 p 를 가진 채 칸을 확정하고 새 사이트의 같은 자리 조각을 돌려준다(확정이 칸의 문장을 다시 쓰기 때문). 실패면 null.</summary>
+    public Piece? CommitKeep(Piece p)
+    {
+        if (Site is not { } s) return null;
+        (string File, int Index)? key = null;
+        try { key = BlockHost.Locate(s, p); } catch (InvalidOperationException) { }
+        if (!CommitPending()) return null;
+        if (key is not { } k) return p;
+        if (Site?.File(k.File) is not { } f || k.Index >= f.Pieces.Count) return null;
+        var now = f.Pieces[k.Index];
+        // 다시 잡은 조각이 확정 전과 다른 종류·이름이면 엉뚱한 줄이다: 명령은 아무것도 안 한다
+        bool same = now.Kind == p.Kind && (p is not Statement a || now is Statement b && a.Name == b.Name);
+        return same ? now : null;
     }
 
     async Task<bool> SaveFilesAsync(Site s, string? reason)
@@ -369,6 +441,7 @@ public sealed partial class MainVm : Observable
                 [new("reload", "다시 읽기"), new("overwrite", "내 것으로 덮기"), new("cancel", "취소", Default: true)]));
             if (key == "reload") { await ReloadAsync(); return false; }
             if (key != "overwrite") return false;
+            if (!ReferenceEquals(Site, s)) return StaleSite();
             IsBusy = true;
             try { r = await Task.Run(() => SaveFiles.Save(s, overwrite: true)); }
             finally { IsBusy = false; }
@@ -405,6 +478,7 @@ public sealed partial class MainVm : Observable
     /// <summary>저장 안 한 변경이 있으면 [저장][버리기][취소]. 나가도 되는가. reload = 버리면 디스크에서 다시 연다(받기·되돌리기 전).</summary>
     public async Task<bool> ConfirmLeaveAsync(bool reload = false)
     {
+        if (!CommitPending()) return false;
         if (!Dirty) return true;
         var key = await Show(new AskVm("저장 안 함", [$"변경 {ChangeCount}"],
             [new("save", "저장", Primary: true), new("drop", "버리기"), new("cancel", "취소", Default: true)]));
@@ -436,14 +510,18 @@ public sealed partial class MainVm : Observable
         Dialog = d;
         DialogShown?.Invoke(d);
         try { return await d.Result; }
-        finally { Dialog = prev; }
+        finally { Dialog = prev; DialogClosed?.Invoke(); }
     }
+
+    /// <summary>팝업이 닫혔다(앞 팝업이 있으면 그것으로 돌아간 뒤). 창이 포커스를 돌려놓는다.</summary>
+    public event Action? DialogClosed;
 
     /// <summary>팝업이 떴다(자체 시험·캡처가 기다린다).</summary>
     public event Action<DialogVm>? DialogShown;
 
     public async Task AddRowsAsync()
     {
+        if (!CommitPending()) return;
         if (Site is not { } s) return;
         var vm = new AddVm(s, Tag.SelectedRows);
         if (await Show(vm) == "ok") Apply(TagEdit.Add(s, vm.Tags, vm.ProfileList, vm.Template.Rule, vm.Mode));
@@ -451,14 +529,20 @@ public sealed partial class MainVm : Observable
 
     public async Task EditConditionAsync(TagRowVm row)
     {
-        if (Site is not { } s || row.Rule == null || !CanEdit) return;
-        var vm = new CondVm(row.Rule, s.Names, TagVm.ScopeOf(s, row.Rule));
-        if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, row.Rule, vm.X, vm.Input));
+        if (row.Rule == null || !CanEdit) return;
+        var rule = row.Rule;
+        if (CommitKeep(rule.St) is not Statement st) return; // 칸 확정이 줄을 다시 쓰면 새 사이트의 같은 줄로
+        if (Site is not { } s) return;
+        if (!ReferenceEquals(st, rule.St)) rule = new TagRule(st);
+        var vm = new CondVm(rule, s.Names, TagVm.ScopeOf(s, rule));
+        if (await Show(vm) == "ok") Apply(TagEdit.SetCondition(s, rule, vm.X, vm.Input));
     }
 
     public async Task EditRawAsync(Piece p)
     {
-        if (Site is not { } s || !Settings.Advanced) return;
+        if (!Settings.Advanced || CommitKeep(p) is not { } kept) return;
+        p = kept;
+        if (Site is not { } s) return;
         var vm = new RawVm(p.Text.TrimEnd('\r', '\n'));
         if (await Show(vm) == "ok") Apply(SiteEdit.ReplaceText(s, p, vm.Text));
     }
@@ -545,6 +629,7 @@ public sealed partial class MainVm : Observable
         {
             var old = tab;
             if (!Set(ref tab, value)) return;
+            Flush(value.Name);
             old.Changed();
             value.Changed();
             foreach (var n in new[] { nameof(IsTagTab), nameof(IsSettingsTab), nameof(IsBuildTab), nameof(IsHistoryTab), nameof(IsProfileTab), nameof(IsIoTab), nameof(IsSeqTab), nameof(IsMapTab), nameof(IsManualTab) })
@@ -598,6 +683,7 @@ public sealed partial class MainVm : Observable
     /// <summary>대응표의 표 이름 → 시퀀스 화면의 그 표.</summary>
     public void GoTable(string name)
     {
+        if (HasDialog) return;
         Tab = Tabs.First(t => t.Name == SeqTab);
         Seq.SelectTable(name);
     }
@@ -605,6 +691,8 @@ public sealed partial class MainVm : Observable
     /// <summary>태그 동작의 시퀀스 → 시퀀스 화면의 그 시퀀스 ID 표. 대응표에 없으면 화면을 안 바꾸고 false.</summary>
     public bool GoSeq(string? profile, string id)
     {
+        if (HasDialog) return false;
+        Flush(SeqTab);
         if (!Seq.HasSeq(id)) return false;
         Tab = Tabs.First(t => t.Name == SeqTab);
         return Seq.SelectSeq(profile, id);

@@ -146,6 +146,7 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
     /// </summary>
     public static EditResult Chain(Site s, IReadOnlyList<Piece> pieces, Func<Site, Piece, EditResult> step)
     {
+        var first = s;
         var keys = pieces.Select(p => Locate(s, p)).ToList();
         var touched = new List<Piece>();
         foreach (var (file, index) in keys)
@@ -155,7 +156,7 @@ public abstract partial class BlockHost(MainVm main) : Observable, IFieldHost
             s = r.Site!;
             touched.Add(s.File(file)!.Pieces[index]);
         }
-        return new EditResult(s, null, touched);
+        return new EditResult(s, null, touched, first);
     }
 
     /// <summary>(파일, 조각 순번): 명령 뒤 새 사이트에서 같은 자리를 다시 찾는 열쇠.</summary>

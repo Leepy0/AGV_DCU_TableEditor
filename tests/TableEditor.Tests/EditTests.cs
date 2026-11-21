@@ -423,6 +423,17 @@ static class EditTests
         var before = h.Current;
         h.Push(EditResult.Fail("x") with { });
         check(ReferenceEquals(h.Current, before), "실패한 결과는 안 쌓음");
+
+        // M1: 낡은 사이트(s)를 기준으로 만든 편집은 그 사이 편집(지금 사이트)을 지우지 않게 쌓지 않는다
+        var live = h.Current;
+        int steps = h.Changes;
+        var stale = SiteEdit.SetComment(s, St(s, "tag_table.c", "TAG ( 2,"), "낡음");
+        check(stale.Ok && ReferenceEquals(stale.Base, s) && !ReferenceEquals(stale.Base, live), "편집 결과가 기준 사이트를 가짐");
+        h.Push(stale);
+        check(ReferenceEquals(h.Current, live) && h.Changes == steps && !h.CanRedo, "낡은 기준 편집은 안 쌓음(지금 사이트·변경 수 그대로)");
+        var fresh = SiteEdit.SetComment(live, St(live, "tag_table.c", "TAG ( 2,"), "새");
+        h.Push(fresh);
+        check(ReferenceEquals(h.Current, fresh.Site) && h.Changes == steps + 1, "지금 사이트 기준 편집은 쌓음");
     }
 
     // ---- 저장 ----

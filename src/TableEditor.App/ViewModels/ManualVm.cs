@@ -79,7 +79,15 @@ public sealed class ManualVm : BlockHost
         DeleteRow = new Command(DeleteSelected, () => Main.CanEdit && Selected != null && !Selected.IsElse);
         DeleteCard = new Command(DeleteSelectedCard, () => Main.CanEdit && Selected?.Card != null);
         DeleteBlock = new Command(() => DeleteOut(Picked), () => Main.CanEdit && Picked is { Index: >= 0 } && Selected is { IsInput: false, Blocks.Count: > 1 });
-        EditCond = new Command(p => { if (p is ManRowVm r) { Select(r, false); _ = EditCondAsync(r); } });
+        EditCond = new Command(p =>
+        {
+            if (Main.HasDialog || p is not ManRowVm r) return;
+            // 줄을 고르기 전에 지금 줄의 확정 안 한 칸부터 확정(고르면 칸이 버려진다). 확정이 줄을 다시 쓰면 새 줄로
+            if (Main.CommitKeep(r.St) is not Statement kept) return;
+            if (!ReferenceEquals(kept, r.St)) r = Cards.SelectMany(c => c.Rows).FirstOrDefault(x => ReferenceEquals(x.St, kept)) ?? r;
+            Select(r, false);
+            _ = EditCondAsync(r);
+        });
         Pick = new Command(p => { if (p is ManRowVm r) Select(r, false); });
     }
 
@@ -236,6 +244,7 @@ public sealed class ManualVm : BlockHost
 
     async Task AddCardAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
         var vm = new CardAddVm(Profiles, Site.ManualChains.Where(c => z.Statements.Contains(c.Rows[0])).ToList(), Selected?.Card?.Profile);
         if (await Main.Show(vm) != "ok" || vm.Profile is not { } pf) return;
@@ -278,9 +287,10 @@ public sealed class ManualVm : BlockHost
     async Task EditCondAsync(ManRowVm r)
     {
         if (r.St.Name != "MAN" || r.St.Args.Count < 3) return;
-        var vm = new ManCondVm(r.St.Args[2], Site.Names, ScopeOf(Site, r.St));
+        if (Main.CommitKeep(r.St) is not Statement st || st.Args.Count < 3) return; // 칸 확정이 줄을 다시 쓰면 새 사이트의 같은 줄로
+        var vm = new ManCondVm(st.Args[2], Site.Names, ScopeOf(Site, st));
         if (await Main.Show(vm) != "ok") return;
-        Main.Apply(SiteEdit.SetArg(Site, r.St, r.St.Args[2], vm.Text));
+        Main.Apply(SiteEdit.SetArg(Site, st, st.Args[2], vm.Text));
     }
 
     /// <summary>[+] 메뉴: 켬 / 끔 / 벨트 / 출력 없음.</summary>

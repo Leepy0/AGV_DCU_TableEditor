@@ -236,7 +236,7 @@ public static partial class TagEdit
             if (r.IsRange) spans.Add((r.LastArg.Offset, r.LastArg.Text.Length, newLast.ToString()));
             moves.Add((r, Form.Spans(r.St.Text, spans)));
         }
-        if (moves.Count == 0) return new EditResult(site, null, []);
+        if (moves.Count == 0) return new EditResult(site, null, [], site);
         var skip = new HashSet<Piece>(moves.Select(m => (Piece)m.Rule.St), ReferenceEqualityComparer.Instance);
         var sp = new Splice(site);
         foreach (var m in moves) sp.Delete(m.Rule.St);
@@ -436,7 +436,7 @@ public static partial class TagEdit
         input = string.IsNullOrWhiteSpace(input) ? null : input;
         if (x.FirstOrDefault(c => !XNames.Contains(c.Name)) is { } bad) return EditResult.Fail($"차량 상태 아님 · {bad.Name}");
         if (x.SelectMany(c => c.Args).Concat(input == null ? [] : [input]).FirstOrDefault(t => Form.BadText(t) != null) is { } bt) return EditResult.Fail($"{Form.BadText(bt)} · {bt}");
-        if (CondKey(x, input) == CondKey(rule)) return new EditResult(site, null, []); // 뜻이 같으면 줄을 쓰지 않는다(옛 형식을 새 형식으로 몰래 바꾸지 않는다)
+        if (CondKey(x, input) == CondKey(rule)) return new EditResult(site, null, [], site); // 뜻이 같으면 줄을 쓰지 않는다(옛 형식을 새 형식으로 몰래 바꾸지 않는다)
         var cond = CondText(x, input, newDsl);
         if (cond != null && IsMixed(cond)) return EditResult.Fail("한 줄에 못 씀 · 옛·새 낱말 섞임");
         var st = rule.St;

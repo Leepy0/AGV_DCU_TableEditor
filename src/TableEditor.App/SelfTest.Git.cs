@@ -192,11 +192,11 @@ public sealed partial class SelfTest
         sure.Close("ok");
         await pullDone;
         await Idle();
+        Check(vm.HasNotice && vm.Notice!.Contains("keep/") && !vm.NoticeIsError, $"보관 가지 알림 ({vm.Notice})"); // 알림은 4초 타이머로 사라진다: git 호출 전에 본다(PC 가 바쁘면 뒤에서는 이미 지워져 있다)
         var keep = await G(a, "branch", "--list", "keep/*");
         Check(keep.Contains("keep/"), $"보관 가지 ({keep})");
         Check(await G(a, "rev-parse", "HEAD") == await G(a, "rev-parse", "origin/master"), "HEAD = origin/master");
         Check(Row(22).Rule!.St.Text.Contains("CCW, 60,") && vm.Pending == 0, $"원격 값 60 · 대기 0 ({vm.Pending})");
-        Check(vm.HasNotice && vm.Notice!.Contains("keep/") && !vm.NoticeIsError, $"보관 가지 알림 ({vm.Notice})");
 
         Step("빌드: 도구 없음 팝업 → 설정");
         vm.Probe = _ => Task.FromResult<IReadOnlyList<ToolStatus>>([new("gcc", false, "gcc.exe", null, "파일 없음"), allTools[1], allTools[2]]);

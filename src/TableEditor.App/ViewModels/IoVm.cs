@@ -47,6 +47,8 @@ public sealed class IoVm(MainVm main) : Observable
     public async Task EditPfAsync(AliasVm? a)
     {
         if (a?.Def == null || current == null) return;
+        if (main.CommitKeep(a.Def) is not Statement def) return; // 칸 확정이 줄을 다시 쓰면 새 사이트의 같은 줄로
+        a = a with { Def = def };
         var s = current;
         var vm = new PfPickVm(a.Name, s.Profiles.Select(p => p.Name).Union(a.Profiles ?? []).ToList(), a.Profiles ?? []);
         if (await main.Show(vm) == "ok") main.Apply(IoProfile.Set(s, a.Def, vm.List));

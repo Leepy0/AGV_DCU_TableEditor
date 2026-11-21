@@ -10,7 +10,20 @@ AGV DCU 펌웨어의 사이트 표(프로파일, 태그, 시퀀스, 수동 표)�
 
 ## 받기
 
-[Releases](https://github.com/Leepy0/AGV_DCU_TableEditor/releases) 의 `TableEditor-vX.Y.Z-win-x64.zip` 을 풀어 `TableEditor.exe` 를 실행한다. 설치가 없다. 폴더에 `tedit.exe`(명령줄), `gcc\`(휴대용 컴파일러), `VERSION` 이 같이 있다.
+**먼저 .NET 10 Desktop Runtime (x64) 을 설치한다**: https://dotnet.microsoft.com/download/dotnet/10.0
+
+[Releases](https://github.com/Leepy0/AGV_DCU_TableEditor/releases) 의 `TableEditor-vX.Y.Z-net10-x64.zip` 을 풀어 `TableEditor.exe` 를 실행한다. 설치가 없다. 폴더에 `tedit.exe`(명령줄), `gcc\`(휴대용 컴파일러), `VERSION` 이 같이 있다.
+
+## v0.2.3 변경
+
+- 설치 크기 줄임: 302 MB → 76 MB(zip 98 MB → 28.6 MB). 휴대용 gcc 는 쓰는 헤더·라이브러리만 남김(`unistd.h`·`io.h`·`fcntl.h`·`getopt.h`·`strings.h`·`process.h`·`dirent.h`·`sys/stat.h` 포함), .NET 런타임은 묶음에 넣지 않음
+- .NET 10 Desktop Runtime (x64) 을 PC 에 따로 설치한다. 없으면 실행할 때 Windows 가 받는 곳을 알려 준다
+- 팝업 지연 수정: 팝업이 뜰 때 아래 화면 전체를 끄던 방식을 없애고 입력 쪽에서 막는다. 팝업 열기 약 0.6\~0.9 초 → 0.05 초(이 PC·가장 큰 사이트 측정). 팝업을 닫으면 포커스가 원래 자리로 돌아온다
+- 편집 지연 수정: 안 보이는 표 화면은 탭이 보일 때 다시 그린다. 칸 고치기 약 1.4 초 → 0.5 초(이 PC·가장 큰 사이트 측정)
+- 낡은 화면이 낸 편집은 쌓지 않는다(알림 "화면 다시 읽음")
+- 칸을 확정하지 않고 저장(Ctrl+S)·빌드·팝업 명령을 눌러도 그 편집이 사라지지 않는다(먼저 칸을 확정하고, 확정이 안 되면 그 명령을 하지 않는다)
+- 업데이트 확인 파일을 둘로 나눔: `TableEditor.net10.json`(v0.2.3 이상이 읽는다, 필요한 .NET 버전 `runtime` 포함), `TableEditor.json`(v0.2.2 이하가 읽는다, 버전 알림만). 필요한 .NET 이 없는 PC 는 받지 않고 "런타임 필요 · .NET N Desktop" 알림
+- **v0.2.2 이하 사용자**: 자동 업데이트가 받지 않고 "새 버전" 알림만 나온다. .NET 10 Desktop Runtime 을 먼저 설치하고 v0.2.3 zip 을 손으로 한 번 받아 바꿔 넣는다. 이후는 자동.
 
 ## v0.2.2 변경
 

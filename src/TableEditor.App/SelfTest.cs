@@ -27,6 +27,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
     {
         log.Add((ok ? "통과  " : "실패  ") + what);
         if (!ok) failures++;
+        try { File.WriteAllLines(Path.Combine(work, "selftest.log"), log); } catch (IOException) { } // 멈춰도 어디까지 갔는지 남는다
     }
 
     void Step(string name)
@@ -316,7 +317,12 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await V021();
         await V058();
         await V022();
+        await V023();
+        await V023Defer();
+        await V023Stale();
+        await V023Leftovers();
         await Review();
+        await V023Commit();
 
         // 끝: 남은 변경 버리기(닫기 팝업 없이 끝낸다)
         while (vm.Undo.CanExecute(null)) vm.Undo.Execute(null);
@@ -453,6 +459,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await Shot("io.png");
 
         Step("검사 줄(P-2 죽은 줄) → 프로파일 화면 그 줄");
+        vm.Flush(MainVm.ProfileTab); // 안 보이는 탭 화면은 건드리기 전에 현재 사이트로(낡은 사이트 기준 편집은 거부된다)
         P.Select(P.Rows[2], false);
         P.Rows[2].FirstDraft = "10";
         P.Rows[2].LastDraft = "12";
@@ -466,11 +473,14 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         Step("되돌리기 전부");
         while (vm.Undo.CanExecute(null)) { vm.Undo.Execute(null); await Idle(); }
         Check(vm.ChangeCount == 0 && ChangedFiles() == 0, $"변경 0, 파일 그대로 ({ChangedFiles()})");
+        vm.Flush(MainVm.SeqTab); // 안 보이는 탭 화면은 보일 때까지 미룬다
+        vm.Flush(MainVm.ManualTab);
         S.SelectTable("belt_unload");
         S.SelectTable("belt_load");
         Check(S.Steps.All(r => !r.IsChanged) && P.Rows.All(r => !r.IsChanged) && vm.Manual.Cards.All(c => c.Rows.All(r => !r.IsChanged)), "바뀐 줄 점 없음(다시 연 표 포함)");
 
         Step("저장: 프로파일 끝 호기");
+        vm.Flush(MainVm.ProfileTab);
         P.Select(P.Rows[0], false);
         P.Rows[0].LastDraft = "8";
         P.CommitNumbers(P.Rows[0]);

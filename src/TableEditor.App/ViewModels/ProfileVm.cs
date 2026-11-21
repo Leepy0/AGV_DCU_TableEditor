@@ -275,7 +275,7 @@ public sealed class ProfileVm : BlockHost
             res = SiteEdit.SetArg(res.Site, st, st.Args[i], text);
             if (!res.Ok) break;
         }
-        if (!Main.Apply(res)) r.ResetDrafts();
+        if (!Main.Apply(res with { Base = Site })) r.ResetDrafts();
     }
 
     public void SetProfile(ProfileRowVm r, string name)
@@ -297,7 +297,7 @@ public sealed class ProfileVm : BlockHost
             res = SiteEdit.Delete(res.Site, [added]);
             if (res.Ok && res.Site!.File(key.File)!.Pieces[key.Index] is Statement st) res = SiteEdit.SetArg(res.Site, st, st.Args[0], name);
         }
-        if (!Main.Apply(res)) r.ResetDrafts();
+        if (!Main.Apply(res with { Base = Site })) r.ResetDrafts();
     }
 
     async Task<string?> AskName(string title, string text, string ok)
@@ -323,6 +323,7 @@ public sealed class ProfileVm : BlockHost
     /// <summary>[추가]: 고른 줄 아래 한 줄. 프로파일은 고른 줄 것, 호기는 지도의 첫 빈 칸.</summary>
     async Task AddRowAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
         var free = Cells.FirstOrDefault(c => c.IsEmpty)?.Id ?? 0;
         if (Site.Profiles.Count == 0)
@@ -358,6 +359,7 @@ public sealed class ProfileVm : BlockHost
 
     async Task RenameAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Selected?.Row is not { } row) return;
         var old = row.Profile;
         var name = await AskName("이름 바꾸기", old, "다음");
@@ -372,6 +374,7 @@ public sealed class ProfileVm : BlockHost
 
     async Task DeleteProfileAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Selected?.Row is not { } row) return;
         var s = Site;
         var r = BundleEdit.DeleteProfile(s, row.Profile);
@@ -386,6 +389,7 @@ public sealed class ProfileVm : BlockHost
     /// <summary>적재 조건(LOAD_IF) 팝업: 조건 둘.</summary>
     async Task EditLoadAsync()
     {
+        if (!Main.CommitPending()) return;
         if (Selected is not { IsLoadIf: true } r) return;
         var def = Site.Names.Find(r.LoadText);
         if (def?.Def is not Statement st || st.Name != "LOAD_IF") { Main.Notify("적재 조건 없음 · " + r.LoadText); return; }
@@ -401,7 +405,9 @@ public sealed class ProfileVm : BlockHost
 public static class ProfileEdit
 {
     /// <summary>적재: 매크로 이름(name)과 다섯째 칸(arg, null = 없음).</summary>
-    public static EditResult SetLoad(Site site, Statement st, string name, string? arg)
+    public static EditResult SetLoad(Site site, Statement st, string name, string? arg) => SetLoadFrom(site, st, name, arg) with { Base = site };
+
+    static EditResult SetLoadFrom(Site site, Statement st, string name, string? arg)
     {
         var key = BlockHost.Locate(site, st);
         Statement At(Site s) => (Statement)s.File(key.File)!.Pieces[key.Index];
@@ -415,7 +421,9 @@ public static class ProfileEdit
     }
 
     /// <summary>LOAD_IF 조건 둘: 둘째가 null 이면 지운다.</summary>
-    public static EditResult SetLoadIf(Site site, Statement st, string? first, string? second)
+    public static EditResult SetLoadIf(Site site, Statement st, string? first, string? second) => SetLoadIfFrom(site, st, first, second) with { Base = site };
+
+    static EditResult SetLoadIfFrom(Site site, Statement st, string? first, string? second)
     {
         if (first == null) return new EditResult(null, "조건 1 없음", []);
         var key = BlockHost.Locate(site, st);

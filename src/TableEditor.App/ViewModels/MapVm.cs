@@ -74,7 +74,7 @@ public sealed class MapVm : BlockHost
     {
         Add = new Command(AddRow, () => Main.CanEdit && Zones.Any());
         Delete = new Command(DeleteRow, () => Main.CanEdit && Selected != null);
-        GoTable = new Command(p => { if (p is MapRowVm r && r.Row != null) Main.GoTable(r.Row.Table); });
+        GoTable = new Command(p => { if (!Main.HasDialog && p is MapRowVm r && r.Row != null) Main.GoTable(r.Row.Table); });
     }
 
     protected override Piece? CodePiece => Selected?.Piece;

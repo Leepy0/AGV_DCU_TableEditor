@@ -1,7 +1,7 @@
 ﻿<#
 배포 묶음을 만든다(GitHub Release 는 만들지 않는다).
   tools\release.ps1 -Version v0.2.0 [-Gcc <mingw64 폴더>] [-Out publish] [-AppRepo <앱 저장소>] [-Site <사이트 폴더 이름>] [-Notes <변경 내용>]
-차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트
+차례: 1 빌드·시험  2 게시(두 실행 파일을 한 폴더, .NET 런타임은 넣지 않는다: PC 에 .NET 10 Desktop Runtime 이 있어야 한다)  3 휴대용 gcc 추리기  4 라이선스·출처  5 묶음 시험  6 VERSION·files.txt·zip·해시·매니페스트 둘
 작업 트리가 깨끗해야 한다(커밋 하나에서 묶음).
 -AppRepo 가 없으면 5 의 (나)(다)는 건너뛴다. -Site 는 -AppRepo 와 같이 준다.
 -Notes 가 없으면 지난 태그 뒤 커밋 제목. 끝에 올리기 명령(gh release create …)을 찍기만 한다.
@@ -32,9 +32,16 @@ $V = $null   # gcc 버전 폴더 이름(아래에서 정함)
 $dllsGcc = 'libiconv-2.dll', 'libwinpthread-1.dll'
 $dllsBin = 'libintl-8.dll', 'zlib1.dll', 'libzstd.dll', 'libwinpthread-1.dll', 'libiconv-2.dll'
 $dllsCc1 = 'libgmp-10.dll', 'libmpfr-6.dll', 'libmpc-3.dll', 'libisl-23.dll', 'libiconv-2.dll', 'libzstd.dll', 'zlib1.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll'
-$importLibs = 'mingw32', 'mingwex', 'moldname', 'msvcrt', 'ucrt', 'ucrtbase', 'kernel32', 'advapi32', 'shell32', 'user32', 'gdi32',
-    'ws2_32', 'wsock32', 'winmm', 'ole32', 'oleaut32', 'uuid', 'comdlg32', 'comctl32', 'shlwapi', 'psapi', 'bcrypt', 'ntdll', 'm', 'pthread', 'winpthread',
-    'mingwthrd', 'gmon', 'imagehlp', 'dbghelp', 'version', 'iphlpapi', 'setupapi', 'secur32', 'crypt32', 'userenv', 'shcore', 'mswsock'
+# 링크에 드는 라이브러리(기본 링크 + -lm). Windows API 용 수백 개와 디버그·옛 런타임 판은 뺀다
+$libsKeep = 'libmingw32.a', 'libmingwex.a', 'libmoldname.a', 'libmsvcrt.a', 'libucrt.a', 'libm.a', 'libpthread.a', 'libpthread.dll.a', 'libwinpthread.a', 'libwinpthread.dll.a',
+    'libkernel32.a', 'libadvapi32.a', 'libshell32.a', 'libuser32.a'
+# 컴파일에 드는 헤더(x86_64-w64-mingw32\include 바로 아래). ISO C 표준 헤더 전체와 흔한 POSIX 헤더(unistd·io·fcntl·getopt·strings·process·dirent·sys\stat)가 끌어오는 것을 gcc -H 로 쟀다(C99~C2x, 확장 옵션 포함)
+$hdrKeep = 'assert.h', 'complex.h', 'ctype.h', 'errno.h', 'fenv.h', 'float.h', 'inttypes.h', 'limits.h', 'locale.h', 'malloc.h', 'math.h', 'setjmp.h', 'signal.h',
+    'stdarg.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h', 'string.h', 'time.h', 'uchar.h', 'wchar.h', 'wctype.h', 'vadefs.h', 'swprintf.inl',
+    'crtdefs.h', '_*.h', 'corecrt*.h', 'pthread_compat.h', 'pthread_signal.h', 'pthread_time.h',
+    'unistd.h', 'io.h', 'fcntl.h', 'getopt.h', 'strings.h', 'process.h', 'dirent.h', 'pthread_unistd.h'   # 흔한 C/POSIX 헤더(sys\ 는 폴더 통째). windows.h 계열은 뺀다
+# 목록을 다시 만드는 법: 앱 저장소의 clone 에서 사이트마다 tools\*_pack_gen.c 빌드(SitePack 과 같은 인자)와 표준 헤더마다 빈 main 을
+# gcc -H -Wl,--trace 로 컴파일·링크해 나온 "." 줄(헤더)과 링크 줄(.a .o)을 모은다. 모자라면 여기에 더한다
 function GccParts {
     param($g)
     # (원본 상대 경로, 묶음 상대 경로, 글 패턴 또는 $null=폴더 통째, 뺄 하위 폴더)
@@ -42,11 +49,13 @@ function GccParts {
         @("bin", "bin", (@('gcc.exe') + $dllsGcc), $null),
         @("$T\bin", "$T\bin", (@('as.exe', 'ld.exe') + $dllsBin), $null),
         @("libexec\gcc\$T\$V", "libexec\gcc\$T\$V", (@('cc1.exe', 'collect2.exe', 'liblto_plugin.dll') + $dllsCc1), $null),
-        @("lib\gcc\$T\$V", "lib\gcc\$T\$V", @('crtbegin.o', 'crtend.o', 'libgcc.a', 'libgcc_eh.a'), $null),
+        @("lib\gcc\$T\$V", "lib\gcc\$T\$V", @('crtbegin.o', 'crtend.o', 'crtfastmath.o', 'libgcc.a', 'libgcc_eh.a'), $null),
         @("lib\gcc\$T\$V\include", "lib\gcc\$T\$V\include", $null, @()),
         @("lib\gcc\$T\$V\include-fixed", "lib\gcc\$T\$V\include-fixed", $null, @()),
-        @("$T\lib", "$T\lib", (@('*.o') + ($importLibs | ForEach-Object { "lib$_.a" })), $null),
-        @("$T\include", "$T\include", $null, @('c++', 'ddk', '*.idl'))
+        @("$T\lib", "$T\lib", (@('*.o') + $libsKeep), $null),
+        @("$T\include", "$T\include", $hdrKeep, $null),
+        @("$T\include\sec_api", "$T\include\sec_api", $null, @()),
+        @("$T\include\sys", "$T\include\sys", $null, @())
     )
 }
 # ----------------------------------------------------------------------------------------------
@@ -56,7 +65,7 @@ function Native($exe, [string[]]$a) { & $exe @a; if ($LASTEXITCODE -ne 0) { thro
 function Size($p) { '{0:N1} MB' -f ((Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum / 1MB) }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $num = $Version.TrimStart('v')
-$name = "TableEditor-$Version-win-x64"
+$name = "TableEditor-$Version-net10-x64"   # 옛 클라이언트(v0.2.2 이하)의 API 폴백이 찾는 -win-x64.zip 규칙과 겹치지 않게
 $outFull = if ([IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path $root $Out }
 $pack = Join-Path $outFull $name
 $zip = "$pack.zip"
@@ -84,7 +93,7 @@ $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'git rev-parse 실패' }
 foreach ($p in 'TableEditor.App', 'TableEditor.Cli') {
     # BuildChannel=release: 이 묶음만 스스로 업데이트한다(dotnet build 는 local). SourceRevisionId = 정보 화면의 커밋
-    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', "-p:Version=$num", '-p:BuildChannel=release',
+    Native dotnet @('publish', "src\$p", '-c', 'Release', '-r', 'win-x64', '--self-contained', 'false', "-p:Version=$num", '-p:BuildChannel=release',
         "-p:SourceRevisionId=$commit", '-p:DebugType=none', '-p:DebugSymbols=false', '-o', $pack, '-nologo')
 }
 Get-ChildItem $pack -Recurse -Filter *.pdb | Remove-Item -Force
@@ -135,7 +144,7 @@ gcc: $gccLine
 배포판 버전 글(version_info.txt)에서, 이 폴더에 들어 있는 구성 요소:
 $($verLines -join "`n")
 
-이 폴더의 바이너리는 위 배포판에서 C 컴파일·링크에 필요한 파일만 추린 것이다(C++, Fortran, gdb, 문서, 로캘 등은 뺐다). 바이너리는 고치지 않았다.
+이 폴더의 바이너리는 위 배포판에서 C 컴파일·링크에 필요한 파일만 추린 것이다(ISO C 표준 헤더와 기본 링크 라이브러리만 두고, Windows API 헤더·라이브러리, C++, Fortran, gdb, 문서, 로캘 등은 뺐다). 바이너리는 고치지 않았다.
 
 소스를 받는 곳
   배포판 소개   https://winlibs.com/
@@ -229,32 +238,48 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 [IO.File]::WriteAllText("$zip.sha256", "$hash  $(Split-Path -Leaf $zip)`n", (New-Object Text.UTF8Encoding $false))
 if ($hash -notmatch '^[0-9a-f]{64}$') { throw 'sha256 형식 틀림' }
 
-# 매니페스트(프로그램이 releases/latest/download/TableEditor.json 으로 확인한다. api.github.com 이 막힌 망 대비)
+# 매니페스트 둘(프로그램이 releases/latest/download/ 로 확인한다. api.github.com 이 막힌 망 대비)
+#  TableEditor.net10.json  v0.2.3 이상이 읽는다: 전체 정보 + runtime(필요한 .NET 메이저)
+#  TableEditor.json        v0.2.2 이하(런타임을 묶음에 넣던 때)가 읽는다: 버전 알림만. file·sha256·size·unpacked 를 넣지 않아 받기·자동 교체가 안 되고
+#                          런타임 없는 PC 에 런타임 필요 버전이 깔려 켜지지 않는 일이 없다. notes 첫 줄 = 설치 안내
 if (-not $Notes) {
     $prev = cmd /c 'git describe --tags --abbrev=0 2>nul'
     $range = if ($LASTEXITCODE -eq 0 -and $prev) { @("$prev..HEAD") } else { @('-n', '20', 'HEAD') }   # 태그가 없으면(받지 않은 클론) 최근 20개
     $Notes = (git log --format=%s @range | Where-Object { $_ }) -join "`n"
 }
-$manifest = Join-Path $outFull 'TableEditor.json'
+$Notes = $Notes -replace '\\~', '~'   # README 에서 가져온 마크다운 이스케이프(\~)는 매니페스트·릴리스 본문에 그대로 넣지 않는다
+$manifest = Join-Path $outFull 'TableEditor.net10.json'
+$legacy = Join-Path $outFull 'TableEditor.json'
 $notesFile = Join-Path $outFull 'notes.txt'
+$published = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$page = "https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/$Version"
 $m = [ordered]@{
     version   = $num
+    runtime   = '10'
     file      = Split-Path -Leaf $zip
     sha256    = $hash
     size      = (Get-Item $zip).Length
     unpacked  = $unpacked
-    published = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    page      = "https://github.com/Leepy0/AGV_DCU_TableEditor/releases/tag/$Version"
+    published = $published
+    page      = $page
     notes     = $Notes
 }
+$l = [ordered]@{
+    version   = $num
+    published = $published
+    page      = $page
+    notes     = ".NET 10 Desktop Runtime 설치 후 zip 을 받아 교체`n$Notes"
+}
 [IO.File]::WriteAllText($manifest, ($m | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($legacy, ($l | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 [IO.File]::WriteAllText($notesFile, $Notes, (New-Object Text.UTF8Encoding $false))
 Write-Host "묶음   $(Size $pack)  ($pack)"
 Write-Host "gcc    $(Size $gdst)"
 Write-Host ("zip    {0:N1} MB  ({1})" -f ((Get-Item $zip).Length / 1MB), $zip)
 Write-Host "sha256 $hash"
 Write-Host "매니페스트 $manifest"
+Write-Host "매니페스트(옛 클라이언트용) $legacy"
 Write-Host ("걸린 시간 {0:N0}초" -f $sw.Elapsed.TotalSeconds)
-# 올리기는 손으로(이 스크립트는 릴리스·태그를 만들지 않는다). zip 과 TableEditor.json 을 같은 릴리스에 올린다
+# 올리기는 손으로(이 스크립트는 릴리스·태그를 만들지 않는다). zip 과 매니페스트 둘을 같은 릴리스에 올린다
 Write-Host "`n올리기:"
-Write-Host "  gh release create $Version `"$zip`" `"$zip.sha256`" `"$manifest`" --target $commit --title $Version --notes-file `"$notesFile`" --latest"
+Write-Host "  gh release create $Version `"$zip`" `"$zip.sha256`" `"$manifest`" `"$legacy`" --target $commit --title $Version --notes-file `"$notesFile`" --latest"
