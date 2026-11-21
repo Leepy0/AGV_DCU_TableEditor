@@ -192,8 +192,18 @@ static class Core063Tests
             check(ef.Count == 0, "enum 라벨을 쓰는 표: 라벨 검사 0 · " + CoreKit.Dump(ef));
             check(es.Names.Of(NameKind.Label).Where(d => d.Name.StartsWith("E_", StringComparison.Ordinal)).All(d => d.LabelCell == null && d.Def is { Kind: PieceKind.Raw }), "enum 라벨: 정의는 원문 조각, 칸 없음");
             var bad = Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A )\n" + en, "GOTO( E_NOPE )", "L( A )", "END_STOP"))).Where(f => f.Rule is "S-1" or "S-3").ToList();
-            check(bad.Count(f => f.Rule == "S-1") == 1 && bad.Count(f => f.Rule == "S-3" && f.Text.Contains("E_", StringComparison.Ordinal)) == 4, "없는 이름은 S-1, 안 쓰는 enum 라벨은 S-3 경고(칸 없이) · " + CoreKit.Dump(bad));
-            var dup = Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A, E_ONE )\n" + en, "GOTO( A )", "L( A )", "END_STOP"))).Where(f => f.Rule == "N-4").ToList();
+            check(bad.Count(f => f.Rule == "S-1") == 1 && !bad.Any(f => f.Text.Contains("E_", StringComparison.Ordinal) && f.Rule == "S-3"), "없는 이름은 S-1, 표에서 안 쓴 열거자는 라벨이 아니라 S-3 도 없다 · " + CoreKit.Dump(bad));
+            // 표에서 라벨로 쓰지 않은 열거자(상수)·#if 0 안 enum: 라벨 목록·S-3 에 안 나온다
+            var cs = CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A )\nenum { DLY = 30, E_ONE = 1012 };\n#if 0\nenum { DEAD_ONE = 1013 };\n#endif\n", "DELAY( DLY )", "GOTO( E_ONE )", "L( E_ONE )", "END_STOP", "L( A )", "END_STOP"));
+            check(cs.Names.Of(NameKind.Label).Select(d => d.Name).OrderBy(x => x).SequenceEqual(["A", "E_ONE"]) && cs.Names.Find("DLY", cs.File("seq_table.c")) is { Kind: NameKind.Constant, Value: 30 } && cs.Names.Get("DEAD_ONE").Count == 0
+                  && Checker.Run(cs).Where(f => f.Rule is "S-1" or "N-4" || f.Rule == "S-3" && f.Text.Contains("E_", StringComparison.Ordinal)).Count() == 0, "enum: 라벨은 L( )·라벨 칸에 쓴 것만, 나머지는 상수, #if 0 안은 안 읽음");
+            // 라벨 번호: SEQ_LABELS 자리 번호 + enum 값 겹침·0·65535 초과(S-4)
+            List<Finding> S4n(string en2, params string[] body) => Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A, B )\n" + en2, body))).Where(f => f.Rule == "S-4").ToList();
+            var ov = S4n("enum { C = 2 };\n", "GOTO( C )", "L( C )", "GOTO( B )", "L( B )", "GOTO( A )", "L( A )", "END_STOP");
+            check(ov is [{ Severity: Severity.Error }] && ov[0].Text.Contains("겹침", StringComparison.Ordinal) && ov[0].Text.Contains("C", StringComparison.Ordinal), "S-4: SEQ_LABELS 자리 번호와 enum 값이 같으면 오류 · " + CoreKit.Dump(ov));
+            check(S4n("enum { Z = 0, BIG = 65536 };\n", "GOTO( Z )", "L( Z )", "GOTO( BIG )", "L( BIG )", "GOTO( A )", "L( A )", "GOTO( B )", "L( B )", "END_STOP").Count(f => f.Text.Contains("번호 밖", StringComparison.Ordinal)) == 2, "S-4: 라벨 번호 0·65536 은 범위 밖");
+            check(S4n("enum { C = 1012, D = 65535 };\n", "GOTO( C )", "L( C )", "GOTO( D )", "L( D )", "GOTO( A )", "L( A )", "GOTO( B )", "L( B )", "END_STOP").Count == 0, "S-4: 겹치지 않는 enum 값(65535 까지)은 통과");
+            var dup = Checker.Run(CoreKit.Mk(c63, seq: Tbl("SEQ_LABELS( A, E_ONE )\n" + en, "GOTO( A )", "L( A )", "GOTO( E_ONE )", "L( E_ONE )", "END_STOP"))).Where(f => f.Rule == "N-4").ToList();
             check(dup.Count == 1 && dup[0].Text.Contains("E_ONE", StringComparison.Ordinal), "SEQ_LABELS 와 enum 라벨 이름 겹침 = N-4 · " + CoreKit.Dump(dup));
             var add = BundleEdit.AddLabel(es, "seq_table.c", "E_TWO");
             check(!add.Ok && add.Error!.Contains("N-4", StringComparison.Ordinal) && BundleEdit.AddLabel(es, "seq_table.c", "E_NEW") is { Ok: true }, "라벨 추가: enum 라벨 이름은 이미 있음, 새 이름은 SEQ_LABELS 끝에");

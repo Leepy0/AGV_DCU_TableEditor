@@ -274,6 +274,27 @@ public sealed partial class Site
     [GeneratedRegex(@"^\s*([A-Za-z_]\w*)\s*(?:=\s*(.+?))?\s*$", RegexOptions.Singleline)]
     private static partial Regex EnumItemRx();
 
+    /// <summary><c>#if 0 … #endif</c>(컴파일 안 되는 덩어리, 안쪽 <c>#if</c> 짝 포함)를 같은 길이 빈칸으로 바꾼다.</summary>
+    static string DeadIf(string text)
+    {
+        var lines = text.Split('\n');
+        int dead = 0;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var t = lines[i].TrimStart();
+            bool open = Regex.IsMatch(t, @"^#\s*if(def|ndef)?\b");
+            bool zero = Regex.IsMatch(t, @"^#\s*if\s+0\b");
+            bool close = Regex.IsMatch(t, @"^#\s*endif\b");
+            if (dead == 0 && zero) { dead = 1; lines[i] = new string(' ', lines[i].Length); continue; }
+            if (dead > 0)
+            {
+                if (open) dead++; else if (close) dead--;
+                lines[i] = new string(' ', lines[i].Length);
+            }
+        }
+        return string.Join('\n', lines);
+    }
+
     /// <summary>
     /// 시퀀스 표 파일 안 <c>enum { 이름 = 값, … }</c>(표 구역 밖 원문, 한 줄·여러 줄, 주석 섞임)의 열거자도 그 파일의 라벨이다.
     /// 읽기만 한다: 정의 조각은 이름이 시작하는 원문 줄이고 편집기는 선언을 고치지 않는다.
@@ -283,7 +304,19 @@ public sealed partial class Site
         var sb = new System.Text.StringBuilder();
         var starts = new List<(int At, Piece P)>();
         foreach (var p in f.Pieces.Where(p => p.Kind != PieceKind.Statement)) { starts.Add((sb.Length, p)); sb.Append(p.Text); }
-        var text = CommentRx().Replace(sb.ToString(), m => new string(' ', m.Length));
+        var text = DeadIf(CommentRx().Replace(sb.ToString(), m => new string(' ', m.Length)));
+        // 표 안에서 L( 이름 ) 로 놓였거나 라벨 칸으로 쓰인 열거자만 라벨, 나머지는 상수(원문에서 글자로 찾은 정의라 Weak)
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var st in f.Statements.Where(s => s.Zone is "SEQ_BEGIN" or "ACT_BEGIN" && GrammarTable.Names.Contains(s.Name)))
+        {
+            if (st.Name == "L" && st.Args.Count == 1) { used.Add(st.Args[0].Text.Trim()); continue; }
+            foreach (var row in GrammarTable.Find(st.Name, Place.Step))
+                if (Check.Facts.Expand(row, st.Args.Count) is { } specs)
+                {
+                    for (int i = 0; i < specs.Count; i++) if (specs[i].Kind == ArgKind.Label) used.Add(st.Args[i].Text.Trim());
+                    break;
+                }
+        }
         foreach (Match m in EnumRx().Matches(text))
         {
             long? next = 0;
@@ -301,7 +334,8 @@ public sealed partial class Site
                         var expr = it.Groups[2];
                         long? value = !expr.Success ? next : Expr.Parse(expr.Value) is { } node ? Names.Value(node, f) : null;
                         var piece = starts.Last(s => s.At <= m.Groups[1].Index + from + it.Groups[1].Index).P;
-                        Names.Add(new(it.Groups[1].Value, NameKind.Label, value, f, piece));
+                        var en = it.Groups[1].Value;
+                        Names.Add(used.Contains(en) ? new(en, NameKind.Label, value, f, piece) : new(en, NameKind.Constant, value, f, piece, Weak: true));
                         next = value + 1;
                     }
                     from = i + 1;

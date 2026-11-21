@@ -67,10 +67,29 @@ public static partial class Checker
             yield return f.Warn("S-3", d.Def!, $"안 쓰는 라벨 {d.Name}", d.LabelCell);
     }
 
-    /// <summary>S-4: 한 표에 같은 L( ) 이 둘.</summary>
+    /// <summary>
+    /// S-4: 한 표에 같은 L( ) 이 둘. 그리고 표 파일마다 라벨 번호(<c>SEQ_LABELS</c> 자리 번호 1부터 + 표 밖 enum 값)가 겹치거나 1~65535 밖이다
+    /// (코어 jump 는 번호가 같은 첫 L 로 가고, 0 은 SEQ_NO_LABEL, 라벨 값은 16비트).
+    /// </summary>
     static IEnumerable<Finding> S4(Facts f) =>
         f.Site.Seqs.SelectMany(t => Ls(t).GroupBy(s => s.Args[0].Text).SelectMany(g => g.Skip(1)
-            .Select(s => f.Error("S-4", s, $"라벨 두 번 {g.Key} ({t.Zone.Ordinal(g.First())}줄)", s.Args[0], related: [g.First().StartLine]))));
+            .Select(s => f.Error("S-4", s, $"라벨 두 번 {g.Key} ({t.Zone.Ordinal(g.First())}줄)", s.Args[0], related: [g.First().StartLine]))))
+        .Concat(LabelNumbers(f));
+
+    static IEnumerable<Finding> LabelNumbers(Facts f)
+    {
+        foreach (var g in f.Names.Of(NameKind.Label).Where(d => d.Value != null).GroupBy(d => d.File!))
+        {
+            var seen = new Dictionary<long, NameDef>();
+            foreach (var d in g)
+            {
+                long v = d.Value!.Value;
+                if (v is < 1 or > 65535) yield return f.Error("S-4", d.Def!, $"라벨 번호 밖 {d.Name} = {v} · 1~65535", d.LabelCell);
+                else if (seen.TryGetValue(v, out var first)) yield return f.Error("S-4", d.Def!, $"라벨 번호 겹침 {d.Name} = {first.Name} = {v}", d.LabelCell, related: [first.Def!.StartLine]);
+                else seen[v] = d;
+            }
+        }
+    }
 
     /// <summary>S-5: 닿지 않는 스텝. END_…·GOTO·분기 묶음 바로 뒤의 라벨 아닌 스텝, OTHERWISE 뒤의 WHEN.</summary>
     static IEnumerable<Finding> S5(Facts f)
