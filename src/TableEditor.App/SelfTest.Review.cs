@@ -51,14 +51,14 @@ public sealed partial class SelfTest
         Check(form1.Drops!("숫자").SequenceEqual(["STATION0"]) && form1.Drops("스테이션").Count == 0, $"5 STATION0 → 숫자는 값 버림 ({string.Join(",", form1.Drops("숫자"))})");
 
         Step("리뷰 7 조건 팝업: 열었을 때 값 그대로인 칸은 범위 밖이어도 막지 않는다");
-        var idr = Mem(core8, ("tag_table.c", RvTag("TAG_IF( 5, ANY_PROFILE, IF_ID( 3, 150 ), OBS_ON )")));
+        var idr = Mem(core8, ("tag_table.c", RvTag("TAG_IF( 5, ANY_PROFILE, IF_ID( 3, 300 ), OBS_ON )")));
         var cv = new CondVm(idr.TagRules[0], idr.Names);
         var idBox = cv.XRows[0].Args[1];
-        Check(idBox.Text == "150" && !idBox.Invalid && cv.Ok.CanExecute(null), "150 그대로 = 막지 않음");
+        Check(idBox.Text == "300" && !idBox.Invalid && cv.Ok.CanExecute(null), "300 그대로 = 막지 않음");
         cv.XRows[0].Args[0].Text = "4";
         Check(cv.Ok.CanExecute(null), "다른 칸만 고쳐도 열림");
-        idBox.Text = "151";
-        Check(idBox.Invalid && !cv.Ok.CanExecute(null), "바꾼 칸은 범위 검사(151 = 막힘)");
+        idBox.Text = "301";
+        Check(idBox.Invalid && !cv.Ok.CanExecute(null), "바꾼 칸은 범위 검사(301 = 막힘)");
         idBox.Text = "99";
         Check(!idBox.Invalid && cv.Ok.CanExecute(null), "범위 안 값 = 열림");
 
