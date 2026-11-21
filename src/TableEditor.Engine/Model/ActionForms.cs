@@ -107,7 +107,8 @@ public static class ActionForms
     /// <summary>입력 조건 칸(<c>IN( … )</c> 만 / <c>AND( … )</c> 도)은 같은 조건 칸이다.</summary>
     static bool CondLike(ArgSpec s) => s.Kind is ArgKind.InCond or ArgKind.AndCond;
 
-    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit);
+    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit)
+        && (a.Kind != ArgKind.ParamTime || a.Label == b.Label); // PARAM_TIME 은 뜻(제한·안정·누적)이 같을 때만 같은 칸
 
     /// <summary>옮길 인자가 새 칸에 맞는가: 낱말 칸은 그 낱말, 숫자 칸에 거리 FL 은 안 맞다.</summary>
     static bool Fits(Node n, ArgSpec spec) => spec.Kind switch

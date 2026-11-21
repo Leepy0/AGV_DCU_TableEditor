@@ -159,6 +159,20 @@ static class Core063Tests
         var delC = BundleEdit.DeleteProfile(CoreKit.Mk(c63, man: CoreKit.ManText("MAN_START_SW( PF_A, SEN_1 )"), prof: CoreKit.ProfText("PROFILE( STOP_BACK_FL( PF_C ), 0, 1, 2 )", "PROFILE( PF_A, 0, 5, 6 )")), "PF_C");
         check(delC.Ok && !Text(delC, "profiles.c").Contains("PF_C") && Text(delC, "profiles.c").Contains("PF_A"), "삭제: STOP_BACK_FL 줄도 그 프로파일의 줄로 같이 지움 " + delC.Error);
 
+        // 형식 바꾸기: PARAM_TIME 칸은 뜻(제한·안정·누적)이 같을 때만 옮긴다
+        {
+            var ws = CoreKit.Seq(c63, "WAIT_TO( IN( ON(SEN_1) ), PARAM_TIME( AS, SEC ), A )", "WAIT_STABLE_TO( IN( ON(SEN_1) ), PARAM_TIME( AS, SEC ), 500, A )", "WAIT_STABLE_TO( IN( ON(SEN_1) ), PARAM_TIME( AS, SEC ), 500, A )");
+            var sts = ws.File("seq_table.c")!.Statements.Where(x => x.Name.StartsWith("WAIT")).ToList();
+            GrammarEntry Pm(string n) => GrammarTable.Find(n, Place.Step).First(e => e.Args.Any(a => a.Kind == ArgKind.ParamTime));
+            static string Fill(ArgSpec s) => s.Kind == ArgKind.ParamTime ? "PARAM_TIME( XX, SEC )" : s.Kind == ArgKind.Label ? "A" : "0";
+            var waitTo = Pm("WAIT_TO"); var stable = Pm("WAIT_STABLE_TO"); var accumTo = Pm("WAIT_ACCUM_TO");
+            var d1 = ActionForms.Dropped(stable, waitTo, sts[0].Args);
+            check(ActionForms.Convert(stable, waitTo, sts[0].Args, Fill) == "WAIT_STABLE_TO( IN( ON(SEN_1) ), PARAM_TIME( XX, SEC ), 0, A )" && d1.SequenceEqual(["PARAM_TIME( AS, SEC )"]), "형식 바꾸기: 제한 파라미터 → 유지 형식은 값 버림 · " + string.Join(" / ", d1));
+            var d2 = ActionForms.Dropped(waitTo, stable, sts[1].Args);
+            check(d2.SequenceEqual(["PARAM_TIME( AS, SEC )", "500"]), "형식 바꾸기: 유지 파라미터 → 제한 형식은 파라미터·500 버림 · " + string.Join(" / ", d2));
+            check(ActionForms.Dropped(accumTo, stable, sts[2].Args).SequenceEqual(["PARAM_TIME( AS, SEC )"]) && ActionForms.Convert(stable, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500"), "형식 바꾸기: 안정 → 누적 파라미터는 버림, 같은 뜻은 그대로");
+        }
+
         // fixture(지어낸 새 문법 한 벌): 가짜 코어 v0.63.0 에서 결과 0, 옛 코어에서는 V-4
         var fx = Path.Combine(root, "tests", "fixtures", "T900_DEMO", "dsl_v063");
         // 지어낸 core 폴더에는 헤더가 없어 fixture 가 정의한 NO_ACTION 의 겹침 경고가 하나 난다(다른 시험과 같다)
