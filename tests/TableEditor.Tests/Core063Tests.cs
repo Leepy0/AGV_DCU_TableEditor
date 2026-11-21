@@ -173,6 +173,14 @@ static class Core063Tests
             check(ActionForms.Dropped(accumTo, stable, sts[2].Args).SequenceEqual(["PARAM_TIME( AS, SEC )"]) && ActionForms.Convert(stable, stable, sts[2].Args, Fill).Contains("PARAM_TIME( AS, SEC ), 500"), "형식 바꾸기: 안정 → 누적 파라미터는 버림, 같은 뜻은 그대로");
         }
 
+        // 코어가 받는 값인데 편집기가 막던 줄(실제 사이트에서 나온 오탐): ACS_STATION 칸 255 = 개수만, X_PARAM_* 숫자 번호, ID 끝 칸 255
+        CoreKit.Ok(check, "ACS_STATION 칸 255·24 = 개수만", c63, "seq", ["ACS_STATION( 255, 0, 3 )", "ACS_STATION( 24, 0, 0 )", "ACS_STATION( 3, 7, 4 )"], ref gcc);
+        CoreKit.Ok(check, "X_PARAM 숫자 번호", c63, "seq", ["WHEN_IF( X_PARAM_EQ(33, 1), A )", "WHEN_IF( X_PARAM_GE(255, 1), A )", "DELAY_PARAM( 33, SEC )"], ref gcc);
+        CoreKit.Ok(check, "ID 끝 칸 255 = 그 이상 모두", c63, "seq", ["WHEN_ID( 65, 255, A )", "WHEN_IF( X_ID(65, 255), A )", "WAIT( AND( ID(65, 255) ) )"], ref gcc);
+        CoreKit.Neg(check, "ACS_STATION 칸 256", c63, "seq", ["ACS_STATION( 256, 0, 3 )"], "", ref gcc, coreRejects: false);
+        CoreKit.Neg(check, "X_PARAM 번호 256", c63, "seq", ["WHEN_IF( X_PARAM_EQ(256, 1), A )"], "", ref gcc);
+        CoreKit.Neg(check, "DELAY_PARAM 번호 0", c63, "seq", ["DELAY_PARAM( 0, SEC )"], "", ref gcc);
+        CoreKit.Neg(check, "ID 끝 칸 256", c63, "seq", ["WHEN_ID( 65, 256, A )"], "", ref gcc, coreRejects: false);
         // 표 밖 enum 라벨(읽기만): 한 줄·여러 줄·값 있음/없음·주석 섞임, S-1 안 걸림, 중복·미사용 검사가 안 깨짐
         {
             string Tbl(string head, params string[] body) => head + "\nSEQ_BEGIN( n )\n" + string.Concat(body.Select(l => "    " + l + "\n")) + "SEQ_END\n";

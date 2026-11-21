@@ -65,6 +65,9 @@ public enum ArgKind
 /// <summary>인자 칸 하나. Least·Most = 이 칸이 몇 번 오는가(1·1 하나, 0·1 생략 가능, 1·16 여러 개).</summary>
 public sealed record ArgSpec(ArgKind Kind, long Min = 0, long Max = 0, string Unit = "", IReadOnlyList<string>? Words = null, int Least = 1, int Most = 1)
 {
+    /// <summary>칸 설명 뒤에 붙는 낱말(범위 밖 값의 뜻).</summary>
+    public string Hint { get; init; } = "";
+
     /// <summary>칸 라벨(화면 낱말). 문법 줄의 꼴 글자에서 나온다. 없으면 빈 글자.</summary>
     public string Label { get; init; } = "";
 
@@ -234,6 +237,8 @@ public static class GrammarTable
     static readonly ArgSpec X = new(ArgKind.XCond);
     static readonly ArgSpec Id = new(ArgKind.Number, 0, 99, "호기");
     static readonly ArgSpec Slot = new(ArgKind.Number, 0, 23, "칸");
+    static readonly ArgSpec SlotAcs = Slot with { Max = 255, Hint = "24 이상 개수만" }; // acs_station_set: 칸 < 24 일 때만 값을 쓰고 개수는 늘 바꾼다
+    static readonly ArgSpec IdHi = Id with { Max = 255 }; // 코어는 처음 ≤ 호기 ≤ 끝 비교만 한다: 255 = 그 이상 모두
     static readonly ArgSpec U16 = new(ArgKind.Number, 0, 65535);
     static readonly ArgSpec TH = new(ArgKind.Time, 0, 65534, "틱");
 
@@ -317,6 +322,7 @@ public static class GrammarTable
         };
         var label = a.Label;
         var text = desc.Length == 0 ? label : label.Length == 0 || desc.StartsWith(label, StringComparison.Ordinal) ? desc : $"{label} {desc}";
+        if (a.Hint.Length > 0) text += $" ({a.Hint})";
         return a.Most > 1 ? text + "…" : text;
     }
 
@@ -460,7 +466,7 @@ public static class GrammarTable
         E("X_PARAM_EQ", XC, Pt, "X_PARAM_EQ( 파라미터, 값 )", "파라미터 =", "차량 상태", A(ArgKind.CoreParam), N(-32768, 65535)),
         E("X_PARAM_GE", XC, Pt, "X_PARAM_GE( 파라미터, 값 )", "파라미터 ≥", "차량 상태", A(ArgKind.CoreParam), N(-32768, 65535)),
         E("X_PARAM_LE", XC, Pt, "X_PARAM_LE( 파라미터, 값 )", "파라미터 ≤", "차량 상태", A(ArgKind.CoreParam), N(-32768, 65535)),
-        E("X_ID", XC, Pt, "X_ID( 처음, 끝 )", "호기 범위", "차량 상태", Id, Id),
+        E("X_ID", XC, Pt, "X_ID( 처음, 끝 )", "호기 범위", "차량 상태", Id, IdHi),
         E("X_KEY", XC, Pt, "X_KEY( 키 )", "키 눌림", "차량 상태", W(Keys)),
         E("X_STATION", XC, Pt, "X_STATION( 칸, 하한, 상한 )", "스테이션 범위", "차량 상태", Slot, U16, U16),
         E("X_STATION_RUNNING", XC, Pt, "X_STATION_RUNNING( 칸, 하한, 상한 )", "스테이션 범위·주행 중", "차량 상태", Slot, U16, U16),
@@ -484,7 +490,7 @@ public static class GrammarTable
         E("PARAM", SC, Pt, "PARAM( FND 이름, 값 )", "파라미터 =", "차량 상태", A(ArgKind.FndParam), N(-32768, 65535)).Added(),
         E("PARAM_MIN", SC, Pt, "PARAM_MIN( FND 이름, 값 )", "파라미터 ≥", "차량 상태", A(ArgKind.FndParam), N(-32768, 65535)).Added(),
         E("PARAM_MAX", SC, Pt, "PARAM_MAX( FND 이름, 값 )", "파라미터 ≤", "차량 상태", A(ArgKind.FndParam), N(-32768, 65535)).Added(),
-        E("ID", SC, Pt, "ID( 처음, 끝 )", "호기 범위", "차량 상태", Id, Id).Added(),
+        E("ID", SC, Pt, "ID( 처음, 끝 )", "호기 범위", "차량 상태", Id, IdHi).Added(),
         E("KEY", SC, Pt, "KEY( 키 )", "키 눌림", "차량 상태", W(Keys)).Added(),
         E("STATION", SC, Pt, "STATION( 칸, 하한, 상한 )", "스테이션 범위", "차량 상태", Slot, U16, U16).Added(),
         E("STATION_MOD", SC, Pt, "STATION_MOD( 칸, n, m )", "스테이션 나머지", "차량 상태", Slot, N(1, 65535), U16).Added(),
@@ -504,7 +510,7 @@ public static class GrammarTable
         E("WHEN_IF", S, St, "WHEN_IF( 차량 상태, 라벨 )", "WHEN", "분기", X, Lb).Alias(),
         E("WHEN_IF_IN", S, St, "WHEN_IF_IN( 차량 상태, 조건, 라벨 )", "WHEN", "분기", X, Cond, Lb).Alias(),
         E("WHEN_ANY2", S, St, "WHEN_ANY2( 조건, ANY2_ON( … ), 라벨 )", "WHEN", "분기", Cond, A(ArgKind.Any2), Lb).Alias(),
-        E("WHEN_ID", S, St, "WHEN_ID( 처음, 끝, 라벨 )", "WHEN", "분기", Id, Id, Lb),
+        E("WHEN_ID", S, St, "WHEN_ID( 처음, 끝, 라벨 )", "WHEN", "분기", Id, IdHi, Lb),
         E("WHEN_STABLE", S, St, "WHEN_STABLE( 조건, 유지, 라벨 )", "WHEN 유지", "분기", AndC, TH, Lb).Added(HoldVersion),
         E("WHEN_STABLE", S, St, "WHEN_STABLE( 조건, PARAM_TIME( 파라미터, 단위 ), 라벨 )", "WHEN 유지(파라미터)", "분기", AndC, A(ArgKind.ParamTime), Lb).Added(HoldVersion).Form("파라미터").Relabel(1, "유지"),
         E("WHEN_ACCUM", S, St, "WHEN_ACCUM( 조건, 누적, 라벨 )", "WHEN 누적", "분기", AndC, TH, Lb).Added(HoldVersion),
@@ -559,7 +565,7 @@ public static class GrammarTable
         E("ACS_SEND", S, St, "ACS_SEND( 종류, 칸 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsStation, 0, 23)).Alias().Form("스테이션"),
         E("ACS_SEND", S, St, "ACS_SEND( 종류, 번호 )", "보고", "보고", W(Reports), new ArgSpec(ArgKind.AcsNumber, 0, 65535)).Alias(),
         E("ACS_WAIT_ACK", S, St, "ACS_WAIT_ACK( 제한, 라벨 )", "응답 대기", "보고", TO, Lb),
-        E("ACS_STATION", S, St, "ACS_STATION( 칸, 값, 길이 )", "스테이션 넣기", "보고", Slot, U16, U16),
+        E("ACS_STATION", S, St, "ACS_STATION( 칸, 값, 길이 )", "스테이션 넣기", "보고", SlotAcs, U16, U16),
         E("STATION_RESET", S, St, "STATION_RESET", "스테이션 초기화", "보고"),
         // 주행(7, ACT 금지)
         E("AGV_SPEED", S, St, "AGV_SPEED( 단계 )", "속도(단계·m/min)", "주행", W(SpeedSteps)).NoAct(),
@@ -612,7 +618,7 @@ public static class GrammarTable
         E("IF_BACKWARD", TC, Pt, "IF_BACKWARD", "후진 중", "조건"),
         E("IF_STATION", TC, Pt, "IF_STATION( 칸, 하한, 상한 )", "스테이션 범위", "조건", Slot, U16, U16),
         E("IF_STATION_RUNNING", TC, Pt, "IF_STATION_RUNNING( 칸, 하한, 상한 )", "스테이션 범위·주행 중", "조건", Slot, U16, U16),
-        E("IF_ID", TC, Pt, "IF_ID( 처음, 끝 )", "호기 범위", "조건", Id, Id),
+        E("IF_ID", TC, Pt, "IF_ID( 처음, 끝 )", "호기 범위", "조건", Id, IdHi),
         E("IF_STATION_MOD", TC, Pt, "IF_STATION_MOD( 칸, n, m )", "스테이션 나머지", "조건", Slot, N(1, 65535), U16),
         E("IF_STATION_DIV", TC, Pt, "IF_STATION_DIV( 칸, n, m )", "스테이션 몫", "조건", Slot, N(1, 65535), U16),
         E("IF_TAG_NUM", TC, Pt, "IF_TAG_NUM( 식 )", "태그 번호 = 식", "조건", A(ArgKind.StationExpr)),

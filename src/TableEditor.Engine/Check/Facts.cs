@@ -362,7 +362,7 @@ public sealed class Facts
                     ArgKind.CoreParam => NameKind.CoreParam,
                     _ => NameKind.FndParam,
                 };
-                bool numberOk = spec.Kind is ArgKind.ActId or ArgKind.State or ArgKind.CallNo;
+                bool numberOk = spec.Kind is ArgKind.ActId or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam; // 코어 파라미터 번호: X_PARAM_* 는 칸 번호 < 256(DSL_SLOT), 파라미터 스텝은 1~P_COUNT-1(DSL_PARAM_OK)
                 if (nameNode != null)
                 {
                     if (def == null) { yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, Pool(want))); yield break; }
@@ -370,8 +370,9 @@ public sealed class Facts
                 }
                 else if (!(numberOk && node is NumberNode)) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 var val = Names.Value(node, u.File);
-                long max = spec.Kind == ArgKind.State ? 15 : spec.Max;
-                if (numberOk && max > 0 && val is long sv && (sv < 0 || sv > max)) yield return P("range", $"범위 밖 {sv} · 0~{max}");
+                long max = spec.Kind == ArgKind.State ? 15 : spec.Kind == ArgKind.CoreParam ? (u.Parent.StartsWith("X_PARAM", StringComparison.Ordinal) ? 255 : CoreConstants.Params.Max(p => p.Number)) : spec.Max;
+                long min = spec.Kind == ArgKind.CoreParam && !u.Parent.StartsWith("X_PARAM", StringComparison.Ordinal) ? 1 : 0;
+                if (numberOk && max > 0 && val is long sv && (sv < min || sv > max)) yield return P("range", $"범위 밖 {sv} · {min}~{max}");
                 yield break;
             }
 
