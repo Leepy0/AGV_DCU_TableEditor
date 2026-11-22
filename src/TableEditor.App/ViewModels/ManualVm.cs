@@ -8,7 +8,7 @@ using TableEditor.Engine.Text;
 
 namespace TableEditor.App.ViewModels;
 
-/// <summary>수동 표 한 줄: 가지(MAN), 끝(MAN_ELSE), 입력 줄(MAN_FB_SW·MAN_OBS_B).</summary>
+/// <summary>수동 표 한 줄: 가지(MAN), 끝(MAN_ELSE), 입력 줄(MAN_FB_SW·MAN_OBS_B·MAN_START_SW), 묶음 줄(MAN_PROFILES).</summary>
 public sealed class ManRowVm : Observable
 {
     public ManualVm Owner { get; init; } = null!;
@@ -17,7 +17,7 @@ public sealed class ManRowVm : Observable
     public int Ordinal { get; init; }
     public string OrdinalText => Ordinal.ToString();
     public bool IsElse => St.Name == "MAN_ELSE";
-    public bool IsInput => St.Name is "MAN_FB_SW" or "MAN_OBS_B";
+    public bool IsInput => ManualVm.InputNames.Contains(St.Name);
     public string Head { get; init; } = "";
     public string Profile => St.Args[0].Text;
     public IReadOnlyList<Chip> Chips { get; init; } = [];
@@ -49,6 +49,9 @@ public sealed class CardVm : Observable
     public string CountText => $"가지 {Rows.Count(r => !r.IsElse)}";
     public override string ToString() => $"{Profile} {Mode}";
 
+    /// <summary>카드 머리의 모드 목록(이 줄의 모드는 목록 밖이어도 든다).</summary>
+    public IReadOnlyList<string> ModeChoices => Owner.ModeChoices.Contains(Mode) ? Owner.ModeChoices : [Mode, .. Owner.ModeChoices];
+
     bool hot;
     /// <summary>고른 줄이 이 카드 안에 있다.</summary>
     public bool IsHot { get => hot; set => Set(ref hot, value); }
@@ -72,9 +75,16 @@ public sealed class ManualVm : BlockHost
 {
     public static readonly IReadOnlyList<string> Modes = ["IDLE", "JOG"];
 
+    /// <summary>카드 아래 "입력" 칸에 보이는 줄: 방향 전환·후방 장애물·시작 스위치 입력 줄과 프로파일 묶음 줄.</summary>
+    public static readonly IReadOnlySet<string> InputNames = new HashSet<string> { "MAN_FB_SW", "MAN_OBS_B", "MAN_START_SW", "MAN_PROFILES" };
+
+    /// <summary>이 사이트가 받는 모드: <c>IDLE</c>·<c>JOG</c>, 코어 v0.63.0 이상이면 <c>ANY</c> 도.</summary>
+    public IReadOnlyList<string> ModeChoices => Site != null && Site.Names.Has(GrammarTable.ModeAnyVersion) ? [.. Modes, "ANY"] : Modes;
+
     public ManualVm(MainVm main) : base(main)
     {
         AddCard = new Command(() => _ = AddCardAsync(), () => Main.CanEdit && Zone != null);
+        AddInput = new Command(() => _ = AddInputAsync(), () => Main.CanEdit && Zone != null);
         AddBranch = new Command(AddBranchRow, () => Main.CanEdit && Selected?.Card != null);
         DeleteRow = new Command(DeleteSelected, () => Main.CanEdit && Selected != null && !Selected.IsElse);
         DeleteCard = new Command(DeleteSelectedCard, () => Main.CanEdit && Selected?.Card != null);
@@ -97,15 +107,16 @@ public sealed class ManualVm : BlockHost
 
     protected override SignalScope? ScopeFor() => ScopeOf(Site, Selected?.St);
 
-    /// <summary>MAN·MAN_ELSE 줄은 그 프로파일, 그 밖은 전부.</summary>
+    /// <summary>프로파일을 가진 줄(MAN·MAN_ELSE·입력 줄)은 그 프로파일(묶음이면 그 묶음의 프로파일 모두), 그 밖은 전부.</summary>
     public static SignalScope ScopeOf(Site s, Statement? st) =>
-        SignalScope.Of(s, st is { Name: "MAN" or "MAN_ELSE", Args.Count: > 0 } ? st.Args[0].Text : null);
+        SignalScope.Of(s, st is { Name: "MAN" or "MAN_ELSE" or "MAN_FB_SW" or "MAN_OBS_B" or "MAN_START_SW", Args.Count: > 0 } ? st.Args[0].Text : null);
 
     IReadOnlyList<CardVm> all = [];
     public IReadOnlyList<CardVm> Cards { get; private set; } = [];
+    IReadOnlyList<ManRowVm> allInputs = [];
     public IReadOnlyList<ManRowVm> Inputs { get; private set; } = [];
     public bool HasInputs => Inputs.Count > 0;
-    public bool IsEmpty => all.Count == 0 && Inputs.Count == 0;
+    public bool IsEmpty => all.Count == 0 && allInputs.Count == 0;
     public string CountText => $"카드 {Cards.Count}";
 
     /// <summary>프로파일 거르기: 전체 + 사슬이 있는 프로파일.</summary>
@@ -117,10 +128,20 @@ public sealed class ManualVm : BlockHost
     string filter = TagVm.AllProfiles;
     public string Filter { get => filter; set { if (value != null && Set(ref filter, value)) Refilter(); } }
 
+    /// <summary>열쇠 글(프로파일·묶음)이 이 프로파일을 가리키는가. 묶음은 그 묶음의 프로파일 합집합.</summary>
+    bool KeyHas(string key, string profile) => key == profile || ProfileKey.Names(Site, key).Contains(profile);
+
+    /// <summary>입력 줄이 이 프로파일에 보이는가: 열쇠가 가리키거나, 프로파일 묶음 줄이면 묶음의 프로파일에 든다.</summary>
+    bool InputHas(ManRowVm r, string profile) =>
+        r.St.Name == "MAN_PROFILES" ? r.St.Args.Skip(1).Any(a => KeyHas(a.Text.Trim(), profile)) : KeyHas(r.Profile, profile);
+
     void Refilter()
     {
-        Cards = all.Where(c => filter == TagVm.AllProfiles || c.Profile == filter).ToList();
+        Cards = all.Where(c => filter == TagVm.AllProfiles || KeyHas(c.Profile, filter)).ToList();
+        Inputs = allInputs.Where(r => filter == TagVm.AllProfiles || InputHas(r, filter)).ToList();
         Raise(nameof(Cards));
+        Raise(nameof(Inputs));
+        Raise(nameof(HasInputs));
         Raise(nameof(CountText));
     }
 
@@ -143,7 +164,7 @@ public sealed class ManualVm : BlockHost
             var row = new ManRowVm
             {
                 Owner = this, Card = card, St = st, Ordinal = z!.Ordinal(st), Status = text, StatusSeverity = sev, IsChanged = changed(st),
-                Head = st.Name switch { "MAN_ELSE" => "그 외", "MAN" => "", _ => st.Args[0].Text },
+                Head = st.Name switch { "MAN_ELSE" => "그 외", "MAN" => "", _ => st.Args.Count > 0 ? st.Args[0].Text : "" },
                 Chips = st.Name == "MAN" && st.Args.Count > 2 ? b.ManChips(st.Args[2]) : [],
                 Comment = Strip(st.TailComment),
                 Blocks = st.Name is "MAN" or "MAN_ELSE"
@@ -167,24 +188,27 @@ public sealed class ManualVm : BlockHost
             cards.Add(card);
         }
         all = cards;
-        Inputs = z == null ? [] : z.Statements.Where(st => st.Name is "MAN_FB_SW" or "MAN_OBS_B").Select(st => Row(st, null)).ToList();
+        allInputs = z == null ? [] : z.Statements.Where(st => InputNames.Contains(st.Name)).Select(st => Row(st, null)).ToList();
         Profiles = s.Profiles.Select(p => p.Name).ToList();
-        Filters = [TagVm.AllProfiles, .. cards.Select(c => c.Profile).Distinct()];
+        // 거르기 목록: 카드·입력 줄의 열쇠를 프로파일 이름으로 푼 것(묶음은 그 묶음의 프로파일)
+        IEnumerable<string> Keys() => cards.Select(c => c.Profile).Concat(allInputs.Where(r => r.St.Name != "MAN_PROFILES").Select(r => r.Profile))
+            .Concat(allInputs.Where(r => r.St.Name == "MAN_PROFILES").SelectMany(r => r.St.Args.Skip(1).Select(a => a.Text.Trim())));
+        Filters = [TagVm.AllProfiles, .. Keys().SelectMany(k => ProfileKey.Names(s, k) is { Count: > 0 } n ? n : [k]).Distinct()];
         if (!Filters.Contains(filter)) filter = TagVm.AllProfiles;
-        foreach (var n in new[] { nameof(Inputs), nameof(HasInputs), nameof(IsEmpty), nameof(Profiles), nameof(Filters), nameof(Filter) }) Raise(n);
+        foreach (var n in new[] { nameof(IsEmpty), nameof(Profiles), nameof(Filters), nameof(Filter), nameof(ModeChoices) }) Raise(n);
         Refilter();
 
         var rows = AllRows.ToList();
         var pick = touched is { Count: > 0 } ? rows.FirstOrDefault(r => touched.Any(t => ReferenceEquals(t, r.St))) : null;
         bool same = pick == null;
-        if (pick != null && pick.Card != null && !Cards.Contains(pick.Card)) Filter = TagVm.AllProfiles;
+        if (pick != null && (pick.Card != null ? !Cards.Contains(pick.Card) : !Inputs.Contains(pick))) Filter = TagVm.AllProfiles;
         pick ??= prev is int p ? rows.FirstOrDefault(r => r.Ordinal == p) : null;
         selected = null;
         Select(pick, scroll: touched is { Count: > 0 });
         if (same && pick != null) Restore(pick.Blocks, prevBlock, prevField);
     }
 
-    IEnumerable<ManRowVm> AllRows => all.SelectMany(c => c.Rows).Concat(Inputs);
+    IEnumerable<ManRowVm> AllRows => all.SelectMany(c => c.Rows).Concat(allInputs);
 
     // ---- 고르기 ----
 
@@ -222,7 +246,7 @@ public sealed class ManualVm : BlockHost
     public void SelectPiece(Piece p)
     {
         var r = AllRows.FirstOrDefault(x => ReferenceEquals(x.St, p));
-        if (r?.Card != null && !Cards.Contains(r.Card)) Filter = TagVm.AllProfiles;
+        if (r != null && (r.Card != null ? !Cards.Contains(r.Card) : !Inputs.Contains(r))) Filter = TagVm.AllProfiles;
         Select(r, true);
     }
 
@@ -232,6 +256,7 @@ public sealed class ManualVm : BlockHost
     // ---- 명령 ----
 
     public ICommand AddCard { get; }
+    public ICommand AddInput { get; }
     public ICommand AddBranch { get; }
     public ICommand DeleteRow { get; }
     public ICommand DeleteCard { get; }
@@ -239,14 +264,15 @@ public sealed class ManualVm : BlockHost
     public ICommand EditCond { get; }
     public ICommand Pick { get; }
 
-    string FirstInput() => Choices.For(new ArgSpec(ArgKind.Input), Site.Names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "IN_EXT_1";
+    // 기본 입력: 평범한 입력 별칭(IN_ACTIVE_HIGH·미연결·START 스위치 자신은 넣자마자 N-3·M-8 줄이 된다). 없으면 논리 입력 이름
+    string FirstInput() => Site.Names.Of(NameKind.Input).FirstOrDefault(d => !d.Core && !d.Weak && d.Value != 16)?.Name ?? "IN_EXT_1";
     string FirstOutput() => Choices.For(new ArgSpec(ArgKind.Output), Site.Names).FirstOrDefault(c => c.Group == "사이트")?.Name ?? "OUT_EXT_1";
 
     async Task AddCardAsync()
     {
         if (!Main.CommitPending()) return;
         if (Zone is not { } z) return;
-        var vm = new CardAddVm(Profiles, Site.ManualChains.Where(c => z.Statements.Contains(c.Rows[0])).ToList(), Selected?.Card?.Profile);
+        var vm = new CardAddVm(Profiles, Site.ManualChains.Where(c => z.Statements.Contains(c.Rows[0])).ToList(), Selected?.Card?.Profile, ModeChoices.Contains("ANY"));
         if (await Main.Show(vm) != "ok" || vm.Profile is not { } pf) return;
         var items = vm.Template is { Chain: { } src }
             ? src.Rows.Select(st => new NewStatement(st.Name, st.Args.Select((a, i) => i == 0 ? pf : i == 1 ? vm.Mode : BlockBuilder.Collapse(a.Text)).ToList())).ToList()
@@ -255,6 +281,33 @@ public sealed class ManualVm : BlockHost
         var last = Site.ManualChains.Where(c => z.Statements.Contains(c.Rows[0])).LastOrDefault();
         int at = last != null ? z.Ordinal(last.Rows[^1]) : 0;
         Main.Apply(SiteEdit.Insert(Site, z, at, items));
+    }
+
+    /// <summary>
+    /// 입력 줄 추가: 종류 팝업(방향 전환·후방 장애물, 코어 v0.60.0 이상 시작 스위치, v0.63.0 이상 프로파일 묶음) → 표 끝에 한 줄.
+    /// 프로파일 묶음 줄은 표 맨 앞(코어가 표를 위에서 훑으며 읽는다)에 가장 작은 빈 묶음 번호로 넣는다.
+    /// </summary>
+    async Task AddInputAsync()
+    {
+        if (!Main.CommitPending()) return;
+        if (Zone is not { } z) return;
+        var buttons = new List<AskButton> { new("cancel", "취소", Default: true), new("MAN_FB_SW", "방향 전환"), new("MAN_OBS_B", "후방 장애물") };
+        if (Site.Names.Has(GrammarTable.StartSwVersion)) buttons.Add(new("MAN_START_SW", "시작 스위치"));
+        if (Site.Names.Has(GrammarTable.CrossVersion)) buttons.Add(new("MAN_PROFILES", "묶음"));
+        var kind = await Main.Show(new AskVm("입력 추가", [], buttons));
+        if (kind is null or "cancel") return;
+        var pf = Selected?.Card?.Profile is { } cp && !cp.StartsWith("PROFILE_SET", StringComparison.Ordinal) ? cp
+            : filter != TagVm.AllProfiles ? filter : Profiles.FirstOrDefault();
+        if (pf == null) { Main.Notify("프로파일 없음"); return; }
+        if (kind == "MAN_PROFILES")
+        {
+            var used = Site.ManualRows.Where(r => r.Name == "MAN_PROFILES" && r.Args.Count > 0).Select(r => ProfileKey.SetNumber(Site, r.Args[0].Node)).OfType<long>().ToHashSet();
+            var k = Enumerable.Range(0, 16).FirstOrDefault(i => !used.Contains(i), -1);
+            if (k < 0) { Main.Notify("묶음 번호 16개 모두 씀"); return; }
+            Main.Apply(SiteEdit.Insert(Site, z, 0, [new NewStatement("MAN_PROFILES", [$"PROFILE_SET( {k} )", pf])]));
+            return;
+        }
+        Main.Apply(SiteEdit.Insert(Site, z, z.Statements.Count, [new NewStatement(kind, [pf, FirstInput()])]));
     }
 
     /// <summary>가지 추가: 고른 가지 아래(끝 줄을 골랐으면 끝 줄 앞).</summary>
@@ -337,8 +390,9 @@ public sealed record ChainChoice(string Text, ManChain? Chain)
 /// <summary>카드 추가 팝업: 프로파일(1~63), 모드, 본뜰 사슬(빈 카드 / 다른 프로파일의 사슬).</summary>
 public sealed class CardAddVm : DialogVm
 {
-    public CardAddVm(IReadOnlyList<string> profiles, IReadOnlyList<ManChain> chains, string? current)
+    public CardAddVm(IReadOnlyList<string> profiles, IReadOnlyList<ManChain> chains, string? current, bool anyOk = false)
     {
+        AnyOk = anyOk;
         Profiles = profiles;
         profile = current ?? profiles.FirstOrDefault();
         Templates = [new ChainChoice("빈 카드", null), .. chains.Select(c => new ChainChoice($"{c.Profile} · {c.Mode} · 가지 {c.Rows.Count(r => r.Name == "MAN")}", c))];
@@ -349,6 +403,9 @@ public sealed class CardAddVm : DialogVm
     public override string Title => "카드 추가";
     public IReadOnlyList<string> Profiles { get; }
     public IReadOnlyList<string> Modes => ManualVm.Modes;
+
+    /// <summary>모드 ANY(코어 v0.63.0 이상).</summary>
+    public bool AnyOk { get; }
     public IReadOnlyList<ChainChoice> Templates { get; }
     public ICommand Ok { get; }
 
@@ -356,8 +413,9 @@ public sealed class CardAddVm : DialogVm
     public string? Profile { get => profile; set => Set(ref profile, value); }
 
     string mode = "IDLE";
-    public bool IsIdle { get => mode == "IDLE"; set { if (value) { mode = "IDLE"; Raise(nameof(IsJog)); } } }
-    public bool IsJog { get => mode == "JOG"; set { if (value) { mode = "JOG"; Raise(nameof(IsIdle)); } } }
+    public bool IsIdle { get => mode == "IDLE"; set { if (value) { mode = "IDLE"; Raise(nameof(IsJog)); Raise(nameof(IsAny)); } } }
+    public bool IsJog { get => mode == "JOG"; set { if (value) { mode = "JOG"; Raise(nameof(IsIdle)); Raise(nameof(IsAny)); } } }
+    public bool IsAny { get => mode == "ANY"; set { if (value) { mode = "ANY"; Raise(nameof(IsIdle)); Raise(nameof(IsJog)); } } }
     public string Mode => mode;
 
     ChainChoice template;
@@ -367,7 +425,11 @@ public sealed class CardAddVm : DialogVm
         set
         {
             if (value == null || !Set(ref template, value)) return;
-            if (value.Chain is { } c) { if (c.Mode == "JOG") IsJog = true; else IsIdle = true; Raise(nameof(IsIdle)); Raise(nameof(IsJog)); }
+            if (value.Chain is { } c)
+            {
+                if (c.Mode == "JOG") IsJog = true; else if (c.Mode == "ANY" && AnyOk) IsAny = true; else IsIdle = true;
+                Raise(nameof(IsIdle)); Raise(nameof(IsJog)); Raise(nameof(IsAny));
+            }
         }
     }
 }

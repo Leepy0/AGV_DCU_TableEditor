@@ -99,12 +99,13 @@ public sealed partial class Site
         Zones = files.SelectMany(BlocksOf).ToList();
         Names.NewDsl = NewDsl;
         Names.IdleOk = GrammarTable.IdleOk(CoreVersion);
+        Names.CoreVersion = CoreVersion;
         BuildNames();
 
         Profiles = Names.Of(NameKind.Profile).Where(d => !d.Core && d.Def is Statement)
             .Select(d => new ProfileDef(d.Name, d.Value, (Statement)d.Def!)).ToList();
         ProfileRows = ZonesOf("PROFILE_TABLE_BEGIN").SelectMany(z => z.Statements)
-            .Select(st => new ProfileRow(st, st.Args[0].Text, Num(st.Args[1]), Num(st.Args[2]), Num(st.Args[3]))).ToList();
+            .Select(st => new ProfileRow(st, ProfileKey.Name(st.Args[0]), Num(st.Args[1]), Num(st.Args[2]), Num(st.Args[3]))).ToList();
         TagRules = ZonesOf("TAG_TABLE_BEGIN").SelectMany(z => z.Statements).Select(st => new TagRule(st)).ToList();
         Seqs = Zones.Where(z => z.Open is "SEQ_BEGIN" or "ACT_BEGIN").Select(z => new SeqTable(z)).ToList();
         SeqMap = ZonesOf("SEQ_MAP_BEGIN").SelectMany(z => z.Statements.Select(st => new MapRow(st, z))).ToList();
@@ -195,7 +196,7 @@ public sealed partial class Site
         foreach (var c in CoreConstants.Outputs) Names.Add(new(c.Name, NameKind.Output, c.Value, null, null));
         foreach (var c in CoreConstants.SeqIds) Names.Add(new(c.Name, NameKind.SeqId, c.Value, null, null));
         foreach (var c in CoreConstants.Directions) Names.Add(new(c.Name, NameKind.Constant, c.Value, null, null));
-        foreach (var p in CoreConstants.Params)
+        foreach (var p in CoreConstants.Params.Where(p => p.Since.Length == 0 || GrammarTable.AtLeast(CoreVersion, p.Since) || CoreVersion == null))
         {
             Names.Add(new(p.Core, NameKind.CoreParam, p.Number, null, null));
             foreach (var t in p.TableNames) Names.Add(new(t, NameKind.FndParam, p.Number, null, null));
@@ -260,6 +261,87 @@ public sealed partial class Site
                         break;
                 }
             }
+
+        foreach (var f in Files.Where(f => FileZones.For(f.Name).Top.Contains("SEQ_LABELS"))) EnumLabels(f);
+    }
+
+    [GeneratedRegex(@"/\*.*?\*/|//[^\n]*", RegexOptions.Singleline)]
+    private static partial Regex CommentRx();
+
+    [GeneratedRegex(@"\benum\b[^{};]*\{([^{}]*)\}")]
+    private static partial Regex EnumRx();
+
+    [GeneratedRegex(@"^\s*([A-Za-z_]\w*)\s*(?:=\s*(.+?))?\s*$", RegexOptions.Singleline)]
+    private static partial Regex EnumItemRx();
+
+    /// <summary><c>#if 0 … #endif</c>(컴파일 안 되는 덩어리, 안쪽 <c>#if</c> 짝 포함)를 같은 길이 빈칸으로 바꾼다.</summary>
+    static string DeadIf(string text)
+    {
+        var lines = text.Split('\n');
+        int dead = 0;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var t = lines[i].TrimStart();
+            bool open = Regex.IsMatch(t, @"^#\s*if(def|ndef)?\b");
+            bool zero = Regex.IsMatch(t, @"^#\s*if\s+0\b");
+            bool close = Regex.IsMatch(t, @"^#\s*endif\b");
+            if (dead == 0 && zero) { dead = 1; lines[i] = new string(' ', lines[i].Length); continue; }
+            if (dead > 0)
+            {
+                if (open) dead++; else if (close) dead--;
+                lines[i] = new string(' ', lines[i].Length);
+            }
+        }
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>
+    /// 시퀀스 표 파일 안 <c>enum { 이름 = 값, … }</c>(표 구역 밖 원문, 한 줄·여러 줄, 주석 섞임)의 열거자도 그 파일의 라벨이다.
+    /// 읽기만 한다: 정의 조각은 이름이 시작하는 원문 줄이고 편집기는 선언을 고치지 않는다.
+    /// </summary>
+    void EnumLabels(SourceFile f)
+    {
+        var sb = new System.Text.StringBuilder();
+        var starts = new List<(int At, Piece P)>();
+        foreach (var p in f.Pieces.Where(p => p.Kind != PieceKind.Statement)) { starts.Add((sb.Length, p)); sb.Append(p.Text); }
+        var text = DeadIf(CommentRx().Replace(sb.ToString(), m => new string(' ', m.Length)));
+        // 표 안에서 L( 이름 ) 로 놓였거나 라벨 칸으로 쓰인 열거자만 라벨, 나머지는 상수(원문에서 글자로 찾은 정의라 Weak)
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var st in f.Statements.Where(s => s.Zone is "SEQ_BEGIN" or "ACT_BEGIN" && GrammarTable.Names.Contains(s.Name)))
+        {
+            if (st.Name == "L" && st.Args.Count == 1) { used.Add(st.Args[0].Text.Trim()); continue; }
+            foreach (var row in GrammarTable.Find(st.Name, Place.Step))
+                if (Check.Facts.Expand(row, st.Args.Count) is { } specs)
+                {
+                    for (int i = 0; i < specs.Count; i++) if (specs[i].Kind == ArgKind.Label) used.Add(st.Args[i].Text.Trim());
+                    break;
+                }
+        }
+        foreach (Match m in EnumRx().Matches(text))
+        {
+            long? next = 0;
+            var body = m.Groups[1].Value;
+            int depth = 0, from = 0;
+            for (int i = 0; i <= body.Length; i++)
+            {
+                char c = i < body.Length ? body[i] : ',';
+                if (c == '(') depth++;
+                else if (c == ')') depth--;
+                else if (c == ',' && depth == 0)
+                {
+                    if (EnumItemRx().Match(body[from..i]) is { Success: true } it)
+                    {
+                        var expr = it.Groups[2];
+                        long? value = !expr.Success ? next : Expr.Parse(expr.Value) is { } node ? Names.Value(node, f) : null;
+                        var piece = starts.Last(s => s.At <= m.Groups[1].Index + from + it.Groups[1].Index).P;
+                        var en = it.Groups[1].Value;
+                        Names.Add(used.Contains(en) ? new(en, NameKind.Label, value, f, piece) : new(en, NameKind.Constant, value, f, piece, Weak: true));
+                        next = value + 1;
+                    }
+                    from = i + 1;
+                }
+            }
+        }
     }
 
     /// <summary>C 정수 글자(<see cref="CNum.Value"/>: 10진, 0x 16진, 앞자리 0 = 8진, 접미사 u·l).</summary>

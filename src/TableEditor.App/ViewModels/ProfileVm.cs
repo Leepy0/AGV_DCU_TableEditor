@@ -33,6 +33,9 @@ public sealed class ProfileRowVm : Observable
     public int Ordinal { get; }
     public string OrdinalText => Ordinal > 0 ? Ordinal.ToString() : "";
     public string Profile { get; } = "";
+
+    /// <summary>프로파일 칸이 <c>STOP_BACK_FL( … )</c>(코어 v0.63.0): 이 줄 호기의 태그 후진 정지 거리는 <c>FL</c>.</summary>
+    public bool BackFl => Row?.BackFl == true;
     public string TypeText { get; } = "";
     public string FirstText { get; } = "";
     public string LastText { get; } = "";
@@ -144,6 +147,7 @@ public sealed class ProfileVm : BlockHost
         Rename = new Command(() => _ = RenameAsync(), () => Main.CanEdit && Selected?.Row != null);
         DeleteProfile = new Command(() => _ = DeleteProfileAsync(), () => Main.CanEdit && Selected?.Row != null);
         EditLoad = new Command(() => _ = EditLoadAsync(), () => Main.CanEdit && Selected?.IsLoadIf == true);
+        ToggleBackFl = new Command(ToggleBackFlRow, () => Main.CanEdit && CanBackFl);
         Commit = new Command(p => CommitNumbers(p as ProfileRowVm ?? Selected));
         Cancel = new Command(p => (p as ProfileRowVm ?? Selected)?.ResetDrafts());
     }
@@ -178,7 +182,7 @@ public sealed class ProfileVm : BlockHost
             foreach (var p in z.Body.Where(p => p.Kind is PieceKind.Statement or PieceKind.Raw))
             {
                 var ord = p is Statement st ? z.Ordinal(st) : 0;
-                var prof = p is Statement { Args.Count: > 0 } x ? x.Args[0].Text : "";
+                var prof = p is Statement { Args.Count: > 0 } x ? ProfileKey.Name(x.Args[0]) : "";
                 rows.Add(new ProfileRowVm(this, s, b, findings, p, ord, changed(p), ColorOf(prof)));
             }
         Rows = rows;
@@ -233,6 +237,7 @@ public sealed class ProfileVm : BlockHost
             Raise(nameof(HasSelection));
             Raise(nameof(DetailTitle));
         }
+        Raise(nameof(CanBackFl));
         Picked = r?.LoadBlock;
         foreach (var c in Cells)
             c.IsHot = r?.Row is { First: long a, Last: long b } && a <= c.Id && c.Id <= b;
@@ -256,6 +261,17 @@ public sealed class ProfileVm : BlockHost
     public ICommand Rename { get; }
     public ICommand DeleteProfile { get; }
     public ICommand EditLoad { get; }
+    public ICommand ToggleBackFl { get; }
+
+    /// <summary>[후진 FL] 을 보인다: 코어 v0.63.0 이상이거나 이 줄이 이미 쓴다.</summary>
+    public bool CanBackFl => Selected?.Row != null && (Site.Names.Has(GrammarTable.CrossVersion) || Selected.BackFl);
+
+    /// <summary>[후진 FL]: 프로파일 칸을 <c>STOP_BACK_FL( 프로파일 )</c> 로 감싸거나 푼다. 한 프로파일의 일부 호기만이면 같은 프로파일의 줄을 따로 둔다.</summary>
+    void ToggleBackFlRow()
+    {
+        if (!Main.CommitPending() || Selected?.Row is not { } row) return;
+        Main.Apply(SiteEdit.SetArg(Site, row.St, row.St.Args[0], row.BackFl ? row.Profile : $"STOP_BACK_FL( {row.Profile} )"));
+    }
     public ICommand Commit { get; }
     public ICommand Cancel { get; }
 
@@ -282,7 +298,7 @@ public sealed class ProfileVm : BlockHost
     {
         if (r.Row is not { } row) return;
         if (name == NewProfile) { _ = NewProfileAsync(r); return; }
-        if (!Main.Apply(SiteEdit.SetArg(Site, row.St, row.St.Args[0], name))) r.ResetDrafts();
+        if (!Main.Apply(SiteEdit.SetArg(Site, row.St, row.St.Args[0], row.BackFl ? $"STOP_BACK_FL( {name} )" : name))) r.ResetDrafts();
     }
 
     /// <summary>새 프로파일: 이름 팝업 → site.h enum 끝 + 이 줄의 프로파일(<see cref="BundleEdit.AddProfile"/> 가 붙인 줄은 이 줄로 대신한다).</summary>
@@ -295,7 +311,7 @@ public sealed class ProfileVm : BlockHost
         if (res.Ok && res.Site!.ZonesOf("PROFILE_TABLE_BEGIN").First().Statements[^1] is { } added)
         {
             res = SiteEdit.Delete(res.Site, [added]);
-            if (res.Ok && res.Site!.File(key.File)!.Pieces[key.Index] is Statement st) res = SiteEdit.SetArg(res.Site, st, st.Args[0], name);
+            if (res.Ok && res.Site!.File(key.File)!.Pieces[key.Index] is Statement st) res = SiteEdit.SetArg(res.Site, st, st.Args[0], row.BackFl ? $"STOP_BACK_FL( {name} )" : name);
         }
         if (!Main.Apply(res with { Base = Site })) r.ResetDrafts();
     }

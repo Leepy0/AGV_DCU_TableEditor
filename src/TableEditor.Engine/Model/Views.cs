@@ -46,6 +46,9 @@ public sealed record ProfileRow(Statement St, string Profile, long? Type, long? 
 {
     public string Load => St.Args.Count > 4 ? St.Name + ":" + Squash(St.Args[4].Text) : "";
 
+    /// <summary>프로파일 칸이 <c>STOP_BACK_FL( … )</c>: 이 줄의 호기는 태그 후진 정지 거리가 <c>FL</c>(코어 v0.63.0).</summary>
+    public bool BackFl => St.Args.Count > 0 && ProfileKey.BackFl(St.Args[0]);
+
     internal static string Squash(string s) => string.Concat(s.Where(c => !char.IsWhiteSpace(c)));
 
     /// <summary>이 줄이 그 타입을 받는가(0 = 타입 무관).</summary>

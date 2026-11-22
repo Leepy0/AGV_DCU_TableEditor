@@ -20,14 +20,12 @@ public sealed class SignalScope(Site site, IReadOnlySet<string>? profiles)
 
     public static SignalScope All(Site s) => new(s, null);
 
-    /// <summary>프로파일 글(이름·번호·ANY_PROFILE·0)로: 전체면 걸러 보지 않는다.</summary>
+    /// <summary>프로파일 글(이름·번호·ANY_PROFILE·0, 수동 표 묶음 <c>PROFILE_SET( k )</c>)로: 전체(또는 풀 수 없는 묶음)면 걸러 보지 않는다. 묶음은 그 묶음의 프로파일 합집합.</summary>
     public static SignalScope Of(Site s, string? profile)
     {
         if (profile == null) return All(s);
-        var p = profile.Trim();
-        if (p is "0" or "ANY_PROFILE" or "") return All(s);
-        if (long.TryParse(p, out var n)) p = s.Profiles.FirstOrDefault(x => x.Number == n)?.Name ?? p;
-        return new(s, new HashSet<string>([p]));
+        var names = ProfileKey.Names(s, profile);
+        return names.Count == 0 ? All(s) : new(s, new HashSet<string>(names));
     }
 
     public static bool IsPin(NameDef d) => !d.Core && d.Kind is NameKind.Input or NameKind.InputHigh or NameKind.IoNone or NameKind.Output;

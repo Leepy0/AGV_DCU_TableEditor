@@ -15,8 +15,12 @@ public static class ActionForms
     /// newDsl 을 주면 그 코어 형식에 맞는 줄만(<see cref="GrammarTable.Fits"/>) + 고른 줄 자신: 새 코어는 옛 별칭 줄을 빼고, 옛 코어는 새 줄을 뺀다.
     /// </summary>
     public static IReadOnlyList<GrammarEntry> Of(GrammarEntry e, bool? newDsl = null) =>
+        newDsl is bool nd ? OfCore(e, nd ? GrammarTable.NewVersion : null) : OfCore(e, null, filter: false);
+
+    /// <summary><see cref="Of"/> 를 코어 버전으로: 그 버전에 맞는 줄(<see cref="GrammarTable.Fits(GrammarEntry, string?)"/>) + 고른 줄 자신.</summary>
+    public static IReadOnlyList<GrammarEntry> OfCore(GrammarEntry e, string? core, bool filter = true) =>
         GrammarTable.Rows.Where(r => r.Place == e.Place && r.Role == e.Role && r.Family == e.Family && (r.TagCells > 0 || e.Place != Place.TagAction)
-            && (newDsl is not bool nd || ReferenceEquals(r, e) || GrammarTable.Fits(r, nd))).ToList();
+            && (!filter || ReferenceEquals(r, e) || GrammarTable.Fits(r, core))).ToList();
 
     /// <summary>형식 칸의 이름: 태그 동작이 한 이름 안의 변형(TAPE·cm)이면 위치, 그 밖은 형식.</summary>
     public static string FieldLabel(IReadOnlyList<GrammarEntry> forms) =>
@@ -103,7 +107,8 @@ public static class ActionForms
     /// <summary>입력 조건 칸(<c>IN( … )</c> 만 / <c>AND( … )</c> 도)은 같은 조건 칸이다.</summary>
     static bool CondLike(ArgSpec s) => s.Kind is ArgKind.InCond or ArgKind.AndCond;
 
-    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit);
+    static bool Same(ArgSpec a, ArgSpec b) => (a.Kind == b.Kind || Numeric(a) && Numeric(b) || CondLike(a) && CondLike(b)) && (!Numeric(a) || a.Unit == b.Unit)
+        && (a.Kind != ArgKind.ParamTime || (a.Label == "제한") == (b.Label == "제한")); // PARAM_TIME: 제한 칸 대 조건 유지 틱(안정·누적·유지)으로만 가른다
 
     /// <summary>옮길 인자가 새 칸에 맞는가: 낱말 칸은 그 낱말, 숫자 칸에 거리 FL 은 안 맞다.</summary>
     static bool Fits(Node n, ArgSpec spec) => spec.Kind switch

@@ -64,14 +64,16 @@ public static partial class Checker
     static readonly string[] OldAcsWords = ["CONST", "STATION0", "STATION0_PLUS1", "AGV_ID"];
 
     /// <summary>
-    /// V-4: 옛 코어(v0.58.0 미만) 사이트가 v0.58.0 에서 생긴 문법을 썼다(<c>AND</c>·<c>ANY</c>·새 상태 낱말·<c>PARAM_TIME</c>·<c>OUT_SET</c>·
-    /// 숫자 <c>AGV_SPEED</c>·번호 <c>ACS</c> 등). 줄마다 하나, 낱말을 모아 보인다. 사이트가 같은 이름을 직접 <c>#define</c> 했으면 사이트 매크로로 보고 건너뛴다.
-    /// 코어 폴더가 없거나 버전을 모르면 걸지 않는다. 낱말마다 최소 버전이 있다: 보고 종류 <c>IDLE</c> 은 v0.59.0 부터(그 미만이면 줄마다 하나 더).
+    /// V-4: 사이트 코어가 그 문법이 생긴 버전보다 낮다. 낱말마다 최소 버전이 있다: v0.58.0(<c>AND</c>·<c>ANY</c>·새 상태 낱말·<c>PARAM_TIME</c>·<c>OUT_SET</c>·
+    /// 숫자 <c>AGV_SPEED</c>·번호 <c>ACS</c> 등), 보고 종류 <c>IDLE</c> v0.59.0, <c>MAN_START_SW</c> v0.60.0, <c>WAIT_ACCUM</c>·<c>WHEN_STABLE</c>·<c>WHEN_OUT</c>·
+    /// <c>STATE</c>·<c>DISPLAY</c> v0.61.0, 수동 표 묶음·모드 <c>ANY</c>·<c>STOP_BACK_FL</c>·태그 <c>SET_STATE</c>·<c>CROSS_IN</c>·<c>CROSS_OUT</c> v0.63.0.
+    /// 줄마다 하나, 낱말을 모아 보인다. 사이트가 같은 이름을 직접 <c>#define</c> 했으면 사이트 매크로로 보고 건너뛴다. 코어 폴더가 없거나 버전을 모르면 걸지 않는다.
     /// </summary>
     static IEnumerable<Finding> V4(Facts f)
     {
         if (f.Site.CoreFolder == null || f.Site.CoreVersion == null) yield break;
-        // 보고 종류 칸: IDLE 은 v0.59.0 부터(사이트 정의와 상관없이 검사). 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다
+        var core = f.Site.CoreVersion;
+        // 보고 종류 칸: 낱말마다 최소 버전(사이트 정의와 상관없이 검사). 사이트가 보고 종류 낱말을 #define 하면 DSL_INFO_##종류 가 먼저 펼쳐져 컴파일이 깨진다
         foreach (var st in f.Site.Files.SelectMany(x => x.Statements).Where(s => s.Zone != null))
         {
             var seq = st.Name is "ACS" or "ACS_SEND" && st.Args.Count > 0 ? st.Args.Take(1) : [];
@@ -80,30 +82,39 @@ public static partial class Checker
             // gcc 실측: 종류 칸을 DSL_INFO_##종류 로 바로 붙이는 자리는 사이트 #define 이 안 펼쳐져 안 깨진다. 깨지는 자리 = 태그 ACS(모든 코어), 시퀀스 ACS·ACS_SEND(v0.58.0 이상)
             var breaks = (f.Site.NewDsl ? seq : []).Concat(tag.Where(t => t.Name == "ACS").Select(t => t.Kind))
                 .Where(a => a.Node is NameNode n && GrammarTable.ReportKinds.Contains(n.Name)).ToList();
-            if (!f.Site.Names.IdleOk && kinds.FirstOrDefault(a => ((NameNode)a.Node).Name == "IDLE") is { } idle)
-                yield return f.Error("V-4", st, $"코어 {GrammarTable.IdleVersion} 필요 · IDLE", idle);
+            foreach (var a in kinds)
+            {
+                var word = ((NameNode)a.Node).Name;
+                if (GrammarTable.ReportSince.TryGetValue(word, out var since) && !GrammarTable.AtLeast(core, since))
+                {
+                    yield return f.Error("V-4", st, $"코어 {since} 필요 · {word}", a);
+                    break;
+                }
+            }
+            if (f.AreaOf(st) == Area.Manual && st.Name is "MAN" or "MAN_ELSE" && st.Args.Count > 1 && st.Args[1].Node is NameNode { Name: "ANY" } && !f.Site.Names.Has(GrammarTable.ModeAnyVersion))
+                yield return f.Error("V-4", st, $"코어 {GrammarTable.ModeAnyVersion} 필요 · ANY", st.Args[1]);
             if (breaks.FirstOrDefault(a => f.Names.Get(((NameNode)a.Node).Name).Any(d => !d.Core)) is { } shadow)
                 yield return f.Error("V-4", st, $"사이트 #define 이 보고 종류를 덮음 · {((NameNode)shadow.Node).Name}", shadow);
         }
-        if (f.Site.NewDsl) yield break;
-        var found = new Dictionary<Statement, (Arg? Cell, List<string> Names)>(ReferenceEqualityComparer.Instance);
-        void Add(Statement st, Arg? cell, string name)
+        var found = new Dictionary<Statement, (Arg? Cell, string Ver, List<string> Names)>(ReferenceEqualityComparer.Instance);
+        void Add(Statement st, Arg? cell, string name, string since)
         {
             if (f.Names.Get(name).Any(d => !d.Core)) return;
-            if (!found.TryGetValue(st, out var x)) found[st] = x = (cell, []);
+            if (!found.TryGetValue(st, out var x)) found[st] = x = (cell, since, []);
             if (!x.Names.Contains(name)) x.Names.Add(name);
+            if (GrammarTable.Compare(since, x.Ver) > 0) found[st] = x with { Ver = since };
         }
         foreach (var (st, row) in f.Rows)
-            if (row.Since.Length > 0) Add(st, st.Args.FirstOrDefault(), row.Name);
+            if (row.Since.Length > 0 && !GrammarTable.AtLeast(core, row.Since)) Add(st, st.Args.FirstOrDefault(), row.Name, row.Since);
         foreach (var u in f.Uses)
         {
             // 수동 표 칸의 KEY( 키 ) 는 옛 코어에도 있었다(문법 표에는 새 상태 낱말 줄만 있다)
-            if (f.Inners.TryGetValue(u.Node, out var e) && e.Since.Length > 0 && !(u.Spec.Kind == ArgKind.ManCond && e.Name == "KEY")) Add(u.St, u.Loc, e.Name);
-            if (u.Spec.Kind == ArgKind.AcsSource && (u.Node is NumberNode || u.Node is NameNode n && !OldAcsWords.Contains(n.Name) && f.Names.Value(n) != null))
-                Add(u.St, u.Loc, "ACS 번호");
+            if (f.Inners.TryGetValue(u.Node, out var e) && e.Since.Length > 0 && !GrammarTable.AtLeast(core, e.Since) && !(u.Spec.Kind == ArgKind.ManCond && e.Name == "KEY")) Add(u.St, u.Loc, e.Name, e.Since);
+            if (!f.Site.NewDsl && u.Spec.Kind == ArgKind.AcsSource && (u.Node is NumberNode || u.Node is NameNode n && !OldAcsWords.Contains(n.Name) && f.Names.Value(n) != null))
+                Add(u.St, u.Loc, "ACS 번호", GrammarTable.NewVersion);
         }
         foreach (var (st, x) in found)
-            yield return f.Error("V-4", st, $"코어 {GrammarTable.NewVersion} 필요 · {string.Join(", ", x.Names)}", x.Cell);
+            yield return f.Error("V-4", st, $"코어 {x.Ver} 필요 · {string.Join(", ", x.Names)}", x.Cell);
     }
 
     /// <summary>글 파일은 CRLF 를 LF 로 맞춰, <c>.lib</c> 은 그대로 해시(앱 tools/core_manifest.ps1 과 같다).</summary>
@@ -155,7 +166,7 @@ public static partial class Checker
         static bool Clash(NameDef a, NameDef b) =>
             a.File == b.File || !PerFile(a) && !PerFile(b) || (PerFile(a) ? b : a).File!.Name.EndsWith(".h", StringComparison.Ordinal);
         static bool PerFile(NameDef d) => d.Kind is NameKind.Label or NameKind.SeqTable or NameKind.ActTable;
-        static Arg? LabelArg(NameDef d) => d.Kind == NameKind.Label && d.Def is Statement s && d.Value is long i ? s.Args[(int)i - 1] : null;
+        static Arg? LabelArg(NameDef d) => d.LabelCell;
     }
 
     static readonly Dictionary<string, string> FixedArrays = new()
@@ -193,7 +204,7 @@ public static partial class Checker
         {
             bool macro = d.Def is Statement { Shape: StatementShape.Define };
             var core = macro ? NameDict.CoreNamesAndWords : NameDict.CoreNames;
-            Arg? cell = d.Kind == NameKind.Label && d.Def is Statement s && d.Value is long i ? s.Args[(int)i - 1] : null;
+            Arg? cell = d.LabelCell;
             if (core.Contains(d.Name)) yield return f.Error("N-5", d.Def!, $"코어 이름과 겹침 {d.Name}", cell);
             else if (d.Kind == NameKind.Profile && !ProfileNameRx().IsMatch(d.Name)) yield return f.Error("N-5", d.Def!, $"이름 형식 {d.Name} · PF_ 대문자");
         }
@@ -229,7 +240,7 @@ public static partial class Checker
         return list;
     }
 
-    /// <summary>v0.58.0 에서 새로 생긴 공개 이름(상태 낱말·AND·ANY·OUT_SET·NO_ACTION …).</summary>
+    /// <summary>v0.58.0 이후 새로 생긴 공개 이름(상태 낱말·AND·ANY·OUT_SET·NO_ACTION·STATE·WAIT_ACCUM·MAN_PROFILES …).</summary>
     static readonly IReadOnlySet<string> NewNames = GrammarTable.Names.Except(GrammarTable.OldNames).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>사이트가 <c>#define</c> 한 이름(그 이름이 쓰인 곳은 매크로로 펼쳐진다). 원문 블록 안 정의(Weak)도 같다.</summary>
@@ -248,7 +259,7 @@ public static partial class Checker
             if (mine.Count == 0) continue;
             var core = DefineTokens(coreDefs.Value, d.Name);
             if (!mine.Any(m => core.Contains(m))) // 코어와 토큰열이 같으면 겹쳐 정의해도 컴파일러가 아무 말 안 한다
-                yield return f.Warn("N-5", d.Def!, $"코어와 다른 정의 {d.Name} · {GrammarTable.NewVersion} 부터 코어 낱말");
+                yield return f.Warn("N-5", d.Def!, $"코어와 다른 정의 {d.Name} · {GrammarTable.SinceOf(d.Name)} 부터 코어 낱말");
         }
         static IEnumerable<(Arg Loc, Node Node)> Inside(Arg loc) => loc.Node is CallNode c ? c.Args.SelectMany(Inside).Prepend((loc, loc.Node)) : [(loc, loc.Node)];
         foreach (var u in f.Uses.Where(u => u.Node is CallNode { Name: "AND" }))

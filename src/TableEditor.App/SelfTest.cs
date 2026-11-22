@@ -316,6 +316,7 @@ public sealed partial class SelfTest(MainWindow w, MainVm vm, string work, strin
         await Ux();
         await V021();
         await V058();
+        await V024();
         await V022();
         await V023();
         await V023Defer();

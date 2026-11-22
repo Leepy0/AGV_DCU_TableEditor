@@ -7,9 +7,9 @@ public sealed record ErrorCode(int Code, string Meaning);
 
 /// <summary>
 /// 파라미터 한 줄(사양 3.9절). Number = EEPROM 주소, TableNames = IF_PARAM·X_PARAM 에 쓰는 이름(없으면 빈 목록),
-/// Min·Max = 코어 소스 한계(null = 자리별·미사용·미확인, Note 에 적음).
+/// Min·Max = 코어 소스 한계(null = 자리별·미사용·미확인, Note 에 적음). Since = 이 파라미터가 생긴 코어 버전(빈 글자 = 처음부터).
 /// </summary>
-public sealed record ParamDef(int Number, string Core, string Fnd, IReadOnlyList<string> TableNames, int? Min, int? Max, string Note = "");
+public sealed record ParamDef(int Number, string Core, string Fnd, IReadOnlyList<string> TableNames, int? Min, int? Max, string Note = "", string Since = "");
 
 /// <summary>코어 상수 표(사양 3.9절, 코어 공개 헤더 agv/io.h·seq.h·tagact.h·ui.h 와 같은 값).</summary>
 public static class CoreConstants
@@ -145,5 +145,6 @@ public static class CoreConstants
         new(57, "P_EMPTY_DCC", "EDC", ["EDC"], null, null, "미확인"),
         new(58, "P_LOAD_DETECT", "LDS", ["LDS"], 0, 1),
         new(59, "P_DEV_TEST", "TST", [], null, null, "개발 이미지만"),
+        new(60, "P_ACT_DELAY", "AD", ["AD"], 0, 999, "시퀀스 액추에이터 지연 0.1초 단위", GrammarTable.HoldVersion),
     ];
 }

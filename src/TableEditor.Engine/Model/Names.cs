@@ -21,6 +21,9 @@ public sealed record NameDef(string Name, NameKind Kind, long? Value, SourceFile
 {
     public bool Core => File == null;
 
+    /// <summary><c>SEQ_LABELS( … )</c> 안 라벨 칸(값 = 칸 번호). enum 라벨(원문 조각이 정의, 값 = 열거자 값)이나 라벨이 아니면 null.</summary>
+    public Arg? LabelCell => Kind == NameKind.Label && Def is Statement { Name: "SEQ_LABELS" } s && Value is long i ? s.Args[(int)i - 1] : null;
+
     /// <summary>정의 줄의 꼬리 주석(쓰는 호기 등).</summary>
     public string Comment => IoProfile.StripComment((Def as Statement)?.TailComment ?? "");
 
@@ -55,6 +58,12 @@ public sealed class NameDict
 
     /// <summary>사이트 코어가 v0.59.0 이상: 보고 종류 <c>IDLE</c> 을 고를 수 있다.</summary>
     public bool IdleOk { get; internal set; }
+
+    /// <summary><c>core/VERSION</c> 첫 칸(코어 폴더가 없으면 null). 낱말·줄마다 최소 버전이 이것 이하여야 새 줄에 쓴다.</summary>
+    public string? CoreVersion { get; internal set; }
+
+    /// <summary>사이트 코어가 그 버전 이상이다(모르면 아니다).</summary>
+    public bool Has(string minVersion) => GrammarTable.AtLeast(CoreVersion, minVersion);
 
     internal void Add(NameDef d)
     {

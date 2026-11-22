@@ -162,7 +162,9 @@ public sealed class Facts
     public static IReadOnlySet<string> Allowed(ArgKind kind, Area area) => kind switch
     {
         ArgKind.InCond or ArgKind.OutCond => (HashSet<string>)["IN", "ON", "OFF", "ANY_ON", "NO_IN"],
-        ArgKind.AndCond => (HashSet<string>)["IN", "ON", "OFF", "ANY_ON", "NO_IN", "AND"],
+        ArgKind.AndCond or ArgKind.OutAnd => (HashSet<string>)["IN", "ON", "OFF", "ANY_ON", "NO_IN", "AND"],
+        ArgKind.ProfileSet => (HashSet<string>)["PROFILE_SET"],
+        ArgKind.ProfileFl => (HashSet<string>)["STOP_BACK_FL"],
         ArgKind.AndItem => AndItems,
         ArgKind.StateCond => StateWords.ToHashSet(),
         ArgKind.ParamTime => (HashSet<string>)["PARAM_TIME"],
@@ -186,7 +188,7 @@ public sealed class Facts
 
     static bool IsCallKind(ArgKind k) => k is ArgKind.InCond or ArgKind.OutCond or ArgKind.InGroup or ArgKind.Until or ArgKind.Any2
         or ArgKind.LoadSensors or ArgKind.XCond or ArgKind.TagCond or ArgKind.Action or ArgKind.ManCond or ArgKind.ManOut
-        or ArgKind.FromSensor or ArgKind.AndCond or ArgKind.AndItem or ArgKind.StateCond or ArgKind.ParamTime or ArgKind.OutMask;
+        or ArgKind.FromSensor or ArgKind.AndCond or ArgKind.AndItem or ArgKind.StateCond or ArgKind.ParamTime or ArgKind.OutMask or ArgKind.OutAnd or ArgKind.ProfileSet or ArgKind.ProfileFl;
 
     /// <summary>안쪽 이름의 문법 줄(칸 종류·자리에 맞고 인자 수가 맞는 것). 없으면 null.</summary>
     GrammarEntry? Inner(string name, IReadOnlyList<Arg> args, ArgKind kind, Area area)
@@ -208,11 +210,11 @@ public sealed class Facts
     };
 
     static bool Conditional(ArgKind k) => k is ArgKind.InCond or ArgKind.OutCond or ArgKind.Until or ArgKind.Any2 or ArgKind.LoadSensors or ArgKind.ManCond
-        or ArgKind.AndCond or ArgKind.AndItem;
+        or ArgKind.AndCond or ArgKind.AndItem or ArgKind.OutAnd;
 
     void Walk(List<Use> uses, SourceFile f, Statement st, Arg loc, Node node, ArgSpec spec, Area area, string parent, bool sigOut, bool inCond)
     {
-        sigOut |= spec.Kind is ArgKind.OutCond or ArgKind.ManOut;
+        sigOut |= spec.Kind is ArgKind.OutCond or ArgKind.ManOut or ArgKind.OutAnd;
         inCond |= Conditional(spec.Kind);
         uses.Add(new Use(f, st, loc, node, spec, area, parent, sigOut, inCond));
 
@@ -277,7 +279,10 @@ public sealed class Facts
             case ArgKind.ActTable:
                 yield break; // N-5, S-1, S-12 가 본다
 
-            case ArgKind.Profile:
+            case ArgKind.ProfileSet or ArgKind.ProfileFl when node is CallNode pc && Allowed(spec.Kind, u.Area).Contains(pc.Name):
+                break; // PROFILE_SET( k )(수동 표)·STOP_BACK_FL( 프로파일 )(프로파일 표): 안쪽 묶음으로 본다
+
+            case ArgKind.Profile or ArgKind.ProfileSet or ArgKind.ProfileFl:
                 if (nameNode != null)
                 {
                     if (def == null) { yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, Pool(NameKind.Profile))); yield break; }
@@ -357,7 +362,7 @@ public sealed class Facts
                     ArgKind.CoreParam => NameKind.CoreParam,
                     _ => NameKind.FndParam,
                 };
-                bool numberOk = spec.Kind is ArgKind.ActId or ArgKind.State or ArgKind.CallNo;
+                bool numberOk = spec.Kind is ArgKind.ActId or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam; // 코어 파라미터 번호: X_PARAM_* 는 칸 번호 < 256(DSL_SLOT), 파라미터 스텝은 1~P_COUNT-1(DSL_PARAM_OK)
                 if (nameNode != null)
                 {
                     if (def == null) { yield return P("unknown", $"없는 이름 {nameNode.Name}", NameDict.Near(nameNode.Name, Pool(want))); yield break; }
@@ -365,8 +370,9 @@ public sealed class Facts
                 }
                 else if (!(numberOk && node is NumberNode)) { yield return P("form", $"형식 {u.Loc.Text}"); yield break; }
                 var val = Names.Value(node, u.File);
-                long max = spec.Kind == ArgKind.State ? 15 : spec.Max;
-                if (numberOk && max > 0 && val is long sv && (sv < 0 || sv > max)) yield return P("range", $"범위 밖 {sv} · 0~{max}");
+                long max = spec.Kind == ArgKind.State ? 15 : spec.Kind == ArgKind.CoreParam ? (u.Parent.StartsWith("X_PARAM", StringComparison.Ordinal) ? 255 : CoreConstants.Params.Max(p => p.Number)) : spec.Max;
+                long min = spec.Kind == ArgKind.CoreParam && !u.Parent.StartsWith("X_PARAM", StringComparison.Ordinal) ? 1 : 0;
+                if (numberOk && max > 0 && val is long sv && (sv < min || sv > max)) yield return P("range", $"범위 밖 {sv} · {min}~{max}");
                 yield break;
             }
 

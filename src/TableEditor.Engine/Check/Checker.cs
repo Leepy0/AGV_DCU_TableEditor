@@ -7,7 +7,7 @@ namespace TableEditor.Engine.Check;
 /// <summary>
 /// 사이트 전체 검사(사양 6절). 규칙 하나 = 함수 하나, 번호는 사양 그대로.
 /// 넣지 않은 규칙: R-3(저장 때), N-6(이름 바꾸기·지우기 때), C-1·C-1b·C-1c(빌드 단계에서 압축 표를 다시 만든다).
-/// D-1~D-6 은 코어 v0.58.0 이상 사이트에만 건다(새 DSL 형식의 컴파일 오류를 저장 전에 잡는다). V-4 는 거꾸로 옛 코어 사이트가 새 문법을 쓴 줄을 잡는다.
+/// D-1~D-7 은 코어 v0.58.0 이상 사이트에만 건다(새 DSL 형식의 컴파일 오류를 저장 전에 잡는다). V-4 는 거꾸로 옛 코어 사이트가 새 문법을 쓴 줄을 잡는다.
 /// </summary>
 public static partial class Checker
 {
@@ -22,10 +22,10 @@ public static partial class Checker
         ("T-16", T16), ("T-17", T17),
         ("S-1", S1), ("S-2", S2), ("S-3", S3), ("S-4", S4), ("S-5", S5), ("S-6", S6), ("S-7", S7), ("S-8", S8),
         ("S-9", S9), ("S-10", S10), ("S-11", S11), ("S-12", S12), ("S-13", S13), ("S-14", S14), ("S-15", S15),
-        ("S-16", S16), ("S-16b", S16b), ("S-17", S17), ("S-18", S18),
-        ("M-1", M1), ("M-2", M2), ("M-3", M3), ("M-4", M4), ("M-5", M5), ("M-6", M6), ("M-7", M7),
+        ("S-16", S16), ("S-16b", S16b), ("S-17", S17), ("S-18", S18), ("S-19", S19),
+        ("M-1", M1), ("M-2", M2), ("M-3", M3), ("M-4", M4), ("M-5", M5), ("M-6", M6), ("M-7", M7), ("M-8", M8), ("M-9", M9), ("M-10", M10),
         ("C-2", C2), ("C-3", C3),
-        ("D-1", D1), ("D-2", D2), ("D-3", D3), ("D-4", D4), ("D-5", D5), ("D-6", D6),
+        ("D-1", D1), ("D-2", D2), ("D-3", D3), ("D-4", D4), ("D-5", D5), ("D-6", D6), ("D-7", D7),
     ];
 
     public static IReadOnlyList<Finding> Run(Site site)
@@ -64,7 +64,7 @@ public static partial class Checker
 
     static IReadOnlyList<Arg> ArgsOf(Node n) => n is CallNode c ? c.Args : [];
 
-    /// <summary>처음 ≤ 끝 짝: X_ID·IF_ID·WHEN_ID·TAG_RANGE·PROFILE.</summary>
+    /// <summary>처음 ≤ 끝 짝: X_ID·IF_ID·WHEN_ID·TAG_RANGE·PROFILE·STATE( 칸, 처음, 끝 ).</summary>
     static IEnumerable<Finding> Pairs(Facts f, string rule, Func<Area, bool> area)
     {
         foreach (var file in f.Site.Files)
@@ -77,6 +77,8 @@ public static partial class Checker
                 foreach (var (loc, c) in Calls(st))
                     if (c.Name is "X_ID" or "IF_ID" or "ID" && c.Args.Count == 2 && Bad(c.Args[0], c.Args[1]))
                         yield return f.Error(rule, st, $"처음 > 끝 {c.Name}( {c.Args[0].Text}, {c.Args[1].Text} )", loc);
+                    else if (c.Name == "STATE" && c.Args.Count == 3 && Bad(c.Args[1], c.Args[2]))
+                        yield return f.Error(rule, st, $"처음 > 끝 STATE( {c.Args[0].Text}, {c.Args[1].Text}, {c.Args[2].Text} )", loc);
             }
 
         bool Bad(Arg a, Arg b) => f.Names.Value(a.Node) is long x && f.Names.Value(b.Node) is long y && x > y;
@@ -93,17 +95,7 @@ public static partial class Checker
                 .Where(s => names.Contains(s.Name) && f.AreaOf(s) is Area.Seq or Area.Act)
                 .Select(s => (s, s.Args.Count > 0 ? s.Args[0] : null!, (Node)new CallNode(s.Name, "", s.Args), f.AreaOf(s))));
 
-    static int Compare(string a, string b)
-    {
-        static int[] Parts(string v) => v.TrimStart('v').Split('.').Select(x => int.TryParse(x, out var n) ? n : 0).ToArray();
-        var (x, y) = (Parts(a), Parts(b));
-        for (int i = 0; i < Math.Max(x.Length, y.Length); i++)
-        {
-            int c = (i < x.Length ? x[i] : 0).CompareTo(i < y.Length ? y[i] : 0);
-            if (c != 0) return c;
-        }
-        return 0;
-    }
+    static int Compare(string a, string b) => GrammarTable.Compare(a, b);
 
     static Finding CoreFinding(string rule, Severity sev, string file, string text) => new(rule, sev, "core/" + file, null, null, text, [], []);
 

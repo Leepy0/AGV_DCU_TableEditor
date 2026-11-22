@@ -163,7 +163,7 @@ static class UxTests
         var e = SiteEdit.Insert(s, Z(s, "belt_unload"), 1, [new NewStatement("DELAY", ["100"])]);
         check(e.Ok, "넣기");
         var st = (Statement)e.Touched[0];
-        var e2 = SeqEdit.Change(e.Site!, st, GrammarTable.Find("WAIT_STABLE", Place.Step).Single(), Fill);
+        var e2 = SeqEdit.Change(e.Site!, st, GrammarTable.Find("WAIT_STABLE", Place.Step).Single(r => r.Since.Length == 0), Fill);
         check(e2.Ok && ((Statement)e2.Touched[0]).Text.Trim() == "WAIT_STABLE( NO_IN, 100 )", "명령 바꾸기: 시간 옮김 " + (e2.Ok ? e2.Touched[0].Text.Trim() : e2.Error));
         var s3 = e2.Site!;
         var e3 = SiteEdit.Move(s3, [e2.Touched[0]], Z(s3, "belt_unload"), Z(s3, "belt_unload").Statements.Count);

@@ -424,6 +424,8 @@
                         <StackPanel Orientation="Horizontal">
                             <RadioButton Content="IDLE" Style="{StaticResource Seg}" Width="{StaticResource ButtonWidth}" GroupName="CardMode" IsChecked="{Binding IsIdle}"/>
                             <RadioButton Content="JOG" Style="{StaticResource Seg}" Width="{StaticResource ButtonWidth}" GroupName="CardMode" IsChecked="{Binding IsJog}"/>
+                            <RadioButton Content="ANY" Style="{StaticResource Seg}" Width="{StaticResource ButtonWidth}" GroupName="CardMode" IsChecked="{Binding IsAny}"
+                                         Visibility="{Binding AnyOk, Converter={StaticResource Shown}}"/>
                         </StackPanel>
                     </Border>
                     <TextBlock Grid.Row="2" Text="본뜰 사슬" Style="{StaticResource FrowLabel}"/>

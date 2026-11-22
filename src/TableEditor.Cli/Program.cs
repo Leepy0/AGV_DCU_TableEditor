@@ -80,7 +80,7 @@ static int Stat(string folder)
         .Count(st => st.Shape == StatementShape.Enumerator && st.Name.StartsWith("PF_", StringComparison.Ordinal));
     string[] pf = ["PROFILE", "PROFILE_LOAD", "PROFILE_LOAD_IF"];
     string[] tag = ["TAG", "TAG_IF", "TAG_RANGE", "TAG_RANGE_IF"];
-    string[] man = ["MAN", "MAN_ELSE", "MAN_FB_SW", "MAN_OBS_B"];
+    string[] man = ["MAN", "MAN_ELSE", "MAN_FB_SW", "MAN_OBS_B", "MAN_START_SW", "MAN_PROFILES"];
     var seqSteps = all.Where(st => st.Zone == "SEQ_BEGIN").ToList();
     var actSteps = all.Where(st => st.Zone == "ACT_BEGIN").ToList();
     var labels = all.Where(st => st.Name == "SEQ_LABELS").Sum(st => st.Args.Count);
@@ -103,6 +103,7 @@ static int Stat(string folder)
 static int Headers(string coreFolder)
 {
     var r = HeaderCheck.Run(coreFolder);
+    Console.WriteLine($"코어 {HeaderCheck.VersionOf(coreFolder) ?? "버전 모름(문법 표 전부를 바람)"}");
     Console.WriteLine($"#define 이름 {r.AllDefines}, DSL_ {r.Internal}, 포함 가드 {r.Guards}, 공개 {r.Header.Count}");
     Console.WriteLine($"문법 표 {GrammarTable.Names.Count}, 일치 {r.Header.Count - r.OnlyHeader.Count}");
     foreach (var n in r.OnlyHeader) Console.WriteLine($"헤더에만  {n}");

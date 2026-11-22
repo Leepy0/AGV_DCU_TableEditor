@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using TableEditor.Engine.Grammar;
 using TableEditor.Engine.Model;
 using TableEditor.Engine.Text;
@@ -7,7 +8,7 @@ namespace TableEditor.Engine.Check;
 // 6.5 시퀀스·ACT
 public static partial class Checker
 {
-    static readonly HashSet<string> WhenFamily = ["WHEN", "WHEN_STATE", "WHEN_IF", "WHEN_IF_IN", "WHEN_ANY2", "WHEN_ID", "OTHERWISE", "SELECT_END_TO"];
+    static readonly HashSet<string> WhenFamily = ["WHEN", "WHEN_STATE", "WHEN_IF", "WHEN_IF_IN", "WHEN_ANY2", "WHEN_ID", "OTHERWISE", "SELECT_END_TO", "WHEN_STABLE", "WHEN_ACCUM", "WHEN_OUT"];
     static readonly HashSet<string> EndSteps = ["END_STOP", "END_RESTART", "END_ERROR", "GOTO"];
 
     /// <summary>표의 실행 스텝(SELECT_BEGIN·SELECT_END 는 스텝이 아니다).</summary>
@@ -63,13 +64,32 @@ public static partial class Checker
             foreach (var x in targets) used.Add((t.Zone.File, x));
         }
         foreach (var d in f.Names.Of(NameKind.Label).Where(d => !used.Contains((d.File!, d.Name))))
-            yield return f.Warn("S-3", d.Def!, $"안 쓰는 라벨 {d.Name}", ((Statement)d.Def!).Args[(int)d.Value!.Value - 1]);
+            yield return f.Warn("S-3", d.Def!, $"안 쓰는 라벨 {d.Name}", d.LabelCell);
     }
 
-    /// <summary>S-4: 한 표에 같은 L( ) 이 둘.</summary>
+    /// <summary>
+    /// S-4: 한 표에 같은 L( ) 이 둘. 그리고 표 파일마다 라벨 번호(<c>SEQ_LABELS</c> 자리 번호 1부터 + 표 밖 enum 값)가 겹치거나 1~65535 밖이다
+    /// (코어 jump 는 번호가 같은 첫 L 로 가고, 0 은 SEQ_NO_LABEL, 라벨 값은 16비트).
+    /// </summary>
     static IEnumerable<Finding> S4(Facts f) =>
         f.Site.Seqs.SelectMany(t => Ls(t).GroupBy(s => s.Args[0].Text).SelectMany(g => g.Skip(1)
-            .Select(s => f.Error("S-4", s, $"라벨 두 번 {g.Key} ({t.Zone.Ordinal(g.First())}줄)", s.Args[0], related: [g.First().StartLine]))));
+            .Select(s => f.Error("S-4", s, $"라벨 두 번 {g.Key} ({t.Zone.Ordinal(g.First())}줄)", s.Args[0], related: [g.First().StartLine]))))
+        .Concat(LabelNumbers(f));
+
+    static IEnumerable<Finding> LabelNumbers(Facts f)
+    {
+        foreach (var g in f.Names.Of(NameKind.Label).Where(d => d.Value != null).GroupBy(d => d.File!))
+        {
+            var seen = new Dictionary<long, NameDef>();
+            foreach (var d in g)
+            {
+                long v = d.Value!.Value;
+                if (v is < 1 or > 65535) yield return f.Error("S-4", d.Def!, $"라벨 번호 밖 {d.Name} = {v} · 1~65535", d.LabelCell);
+                else if (seen.TryGetValue(v, out var first)) yield return f.Error("S-4", d.Def!, $"라벨 번호 겹침 {d.Name} = {first.Name} = {v}", d.LabelCell, related: [first.Def!.StartLine]);
+                else seen[v] = d;
+            }
+        }
+    }
 
     /// <summary>S-5: 닿지 않는 스텝. END_…·GOTO·분기 묶음 바로 뒤의 라벨 아닌 스텝, OTHERWISE 뒤의 WHEN.</summary>
     static IEnumerable<Finding> S5(Facts f)
@@ -212,8 +232,49 @@ public static partial class Checker
         }
     }
 
-    /// <summary>S-18: 표당 스텝 64 이하(SEQ_END·SELECT_BEGIN·SELECT_END 는 스텝이 아니다).</summary>
-    static IEnumerable<Finding> S18(Facts f) =>
-        f.Site.Seqs.Select(t => (t, n: RealSteps(t).Count)).Where(x => x.n > 64)
-            .Select(x => f.Error("S-18", x.t.Zone.Begin, $"스텝 {x.n} · 64 이하 {x.t.Name}"));
+    /// <summary>
+    /// S-18: 표당 스텝 한계(SEQ_END·SELECT_BEGIN·SELECT_END 는 스텝이 아니다). 코어 v0.61.0 이상 999(압축 표 생성기 한계, 대기 화면 세 자리), 그 미만 64(그 코어 문서의 한계).
+    /// 코어 폴더가 없거나 버전을 모르면 64.
+    /// </summary>
+    static IEnumerable<Finding> S18(Facts f)
+    {
+        int max = f.Site.Names.Has(GrammarTable.HoldVersion) ? 999 : 64;
+        return f.Site.Seqs.Select(t => (t, n: RealSteps(t).Count)).Where(x => x.n > max)
+            .Select(x => f.Error("S-18", x.t.Zone.Begin, $"스텝 {x.n} · {max} 이하 {x.t.Name}"));
+    }
+
+    /// <summary>
+    /// S-19: 한 묶음에 유지 가지(WHEN_STABLE·WHEN_ACCUM)가 셋 이상. 코어 매크로는 못 잡고 실차 실행 때 표 오류 290 이 난다(셈 칸이 러너 a·b 둘뿐).
+    /// 묶음 = 이어진 WHEN·WHEN_STATE·WHEN_STABLE·WHEN_ACCUM·WHEN_OUT 가지(앱 압축 표 생성기와 같다): 다른 스텝(라벨·SELECT_END_TO 포함)을 만나면 끝.
+    /// </summary>
+    static IEnumerable<Finding> S19(Facts f)
+    {
+        foreach (var t in f.Site.Seqs)
+        {
+            int holds = 0;
+            bool raw = false; // 묶음 사이에 표 안 원문 블록(#if 등)이 끼었다: 그 안 가지는 글자로만 세므로 확인 필요(경고)
+            foreach (var piece in t.Zone.Body)
+            {
+                if (piece.Kind == PieceKind.Raw)
+                {
+                    int n = HoldWordRx().Matches(CCommentRx().Replace(piece.Text, " ")).Count;
+                    if (n == 0) continue;
+                    raw = true;
+                    holds += n;
+                    if (holds > 2 && holds - n <= 2) yield return f.Warn("S-19", piece, $"WHEN 묶음 유지 가지 {holds} · 원문 블록 안 확인");
+                    continue;
+                }
+                if (piece is not Statement { Name: not ("SELECT_BEGIN" or "SELECT_END") } st) continue;
+                if (st.Name is "WHEN" or "WHEN_STATE" or "WHEN_IF" or "WHEN_IF_IN" or "WHEN_ANY2" or "WHEN_ID" or "OTHERWISE" or "WHEN_OUT") continue;
+                if (st.Name is "WHEN_STABLE" or "WHEN_ACCUM")
+                {
+                    if (++holds > 2) yield return raw ? f.Warn("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 원문 블록 안 확인") : f.Error("S-19", st, $"WHEN 묶음 유지 가지 {holds} · 둘까지(실행 때 오류 290)");
+                }
+                else { holds = 0; raw = false; }
+            }
+        }
+    }
+
+    [GeneratedRegex(@"(?<![A-Za-z0-9_])WHEN_(?:STABLE|ACCUM)(?![A-Za-z0-9_])")]
+    private static partial Regex HoldWordRx();
 }

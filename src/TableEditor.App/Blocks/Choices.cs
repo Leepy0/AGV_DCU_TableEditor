@@ -19,7 +19,7 @@ public static class Choices
     {
         ArgKind.Word => FieldEditor.Words,
         ArgKind.Number or ArgKind.Time or ArgKind.Timeout => FieldEditor.Number,
-        ArgKind.Profile or ArgKind.Input or ArgKind.CoreInput or ArgKind.Signal or ArgKind.Output or ArgKind.Belt or ArgKind.LoadIf
+        ArgKind.Profile or ArgKind.ProfileSet or ArgKind.ProfileFl or ArgKind.Input or ArgKind.CoreInput or ArgKind.Signal or ArgKind.Output or ArgKind.Belt or ArgKind.LoadIf
             or ArgKind.SeqId or ArgKind.SeqShort or ArgKind.SeqTable or ArgKind.Label or ArgKind.ActId or ArgKind.ActTable
             or ArgKind.State or ArgKind.CallNo or ArgKind.CoreParam or ArgKind.FndParam or ArgKind.ParamAny => FieldEditor.Names,
         _ => FieldEditor.Text,
@@ -35,7 +35,7 @@ public static class Choices
         Choice Labeled(NameDef d) => CoreConstants.ParamLabels.TryGetValue(d.Name, out var label) ? new(d.Name, label, "코어") : C(d);
         IEnumerable<Choice> list = s.Kind switch
         {
-            ArgKind.Profile => (s.Min == 0 ? [new Choice("ANY_PROFILE", "0", "전체")] : Array.Empty<Choice>())
+            ArgKind.Profile or ArgKind.ProfileSet or ArgKind.ProfileFl => (s.Min == 0 ? [new Choice("ANY_PROFILE", "0", "전체")] : Array.Empty<Choice>())
                 .Concat(Of(NameKind.Profile).Where(d => !d.Core).Select(d => C(d))),
             ArgKind.Input or ArgKind.Signal => Of(NameKind.Input, NameKind.InputHigh, NameKind.IoNone).Select(d => C(d)),
             ArgKind.CoreInput => Of(NameKind.Input).Where(d => d.Core).Select(d => C(d)),
@@ -53,8 +53,8 @@ public static class Choices
             ArgKind.CoreParam => Of(NameKind.CoreParam).Select(d => C(d)),
             ArgKind.FndParam => Of(NameKind.FndParam).Select(d => Labeled(d)),
             ArgKind.ParamAny => Of(NameKind.FndParam).Where(d => !CoreConstants.PlacedParams.Contains(d.Name)).Select(d => Labeled(d)).Concat(Of(NameKind.CoreParam).Select(d => C(d))),
-            // 보고 종류 IDLE 은 코어 v0.59.0 이상 사이트만(수동 표 모드 IDLE 은 다른 낱말이라 건드리지 않는다)
-            ArgKind.Word => (s.Words ?? []).Where(w => w != "IDLE" || names.IdleOk || !s.Words!.Contains("LOADING")).Select(w => new Choice(w, null, "")),
+            // 보고 종류 IDLE·DISPLAY·CROSS_IN·CROSS_OUT 과 수동 표 모드 ANY 는 그 낱말이 생긴 코어 버전 이상 사이트만(수동 표 모드 IDLE 은 다른 낱말이라 건드리지 않는다)
+            ArgKind.Word => (s.Words ?? []).Where(w => GrammarTable.WordOk(w, s.Words!, names.CoreVersion)).Select(w => new Choice(w, null, "")),
             _ => [],
         };
         return list.DistinctBy(c => c.Name).OrderBy(c => c.Group == "코어" ? 1 : 0).ToList();
@@ -109,7 +109,7 @@ public static class Choices
                 return "0";
             case ArgKind.FromSensor:
                 return $"FROM_SENSOR( {FirstInput(names)}, 100 )";
-            case ArgKind.InCond or ArgKind.OutCond or ArgKind.AndCond:
+            case ArgKind.InCond or ArgKind.OutCond or ArgKind.OutAnd or ArgKind.AndCond:
                 return "NO_IN";
             case ArgKind.ParamTime:
                 return "PARAM_TIME( AS, SEC )";

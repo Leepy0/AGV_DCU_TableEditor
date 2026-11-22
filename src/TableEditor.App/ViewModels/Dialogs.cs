@@ -389,7 +389,7 @@ public sealed class CondVm : DialogVm
         var read = TagEdit.ReadCondition(rule);
         var xs = (read?.X ?? []).Select(x => names.NewDsl ? StateWords.ToState(x) ?? x : x)
             .Select(Unwrap).ToList(); // (조건, 반전) : NOT( x ) → x + 반전
-        var kinds = (names.NewDsl ? XRowVm.StateKinds : XRowVm.Kinds).Where(k => !XRowVm.IsNot(k.Name)).ToList();
+        var kinds = (names.NewDsl ? XRowVm.StateKinds : XRowVm.Kinds).Where(k => !XRowVm.IsNot(k.Name) && GrammarTable.Fits(k, names.CoreVersion)).ToList();
         // 새 코어에서 옮길 수 없는 옛 조건(X_STATION_RUNNING)은 그 종류를 남긴다: 안 그러면 줄이 사라진다
         XKinds = [.. kinds, .. xs.Where(x => kinds.All(k => k.Name != x.Cond.Name)).Select(x => XRowVm.Kinds.Concat(XRowVm.StateKinds).FirstOrDefault(k => k.Name == x.Cond.Name)).OfType<GrammarEntry>().Distinct()];
         foreach (var (x, neg) in xs)
@@ -540,8 +540,8 @@ public sealed class StepVm : DialogVm
 
     /// <summary>시퀀스 스텝용. drops = 그 명령으로 바꾸면 버려지는 인자, comment = 바꿀 줄의 꼬리 주석(있으면 "주석 확인").</summary>
     public StepVm(string title, string okText, bool act, GrammarEntry? current, Func<GrammarEntry, string> preview,
-        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null, bool newDsl = false)
-        : this(title, okText, Group(SeqEdit.StepRows(act, newDsl), null), GrammarTable.StepPalette, current, preview, drops, comment) { }
+        Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null, string? core = null)
+        : this(title, okText, Group(SeqEdit.StepRows(act, core), null), GrammarTable.StepPalette, current, preview, drops, comment) { }
 
     public StepVm(string title, string okText, IReadOnlyList<StepChoice> all, IReadOnlyList<string> palette, GrammarEntry? current,
         Func<GrammarEntry, string> preview, Func<GrammarEntry, IReadOnlyList<string>>? drops = null, string? comment = null)

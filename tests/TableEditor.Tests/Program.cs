@@ -34,12 +34,12 @@ string RepoRoot()
 
 var tests = new (string Name, Action Run)[]
 {
-    ("문법 표 163 + v0.58.0 26", () =>
+    ("문법 표 163 + v0.58.0 26 + v0.60~v0.63 10", () =>
     {
         // v0.54.0 부터 있던 줄(Since 빈 글자)은 사양 4절 그대로 163개
         var oldRows = GrammarTable.Rows.Where(r => r.Since.Length == 0).ToList();
         Check(GrammarTable.OldNames.Count == 163, $"옛 공개 이름 {GrammarTable.OldNames.Count} != 163");
-        Check(GrammarTable.Names.Count == 189, $"공개 이름 {GrammarTable.Names.Count} != 189");
+        Check(GrammarTable.Names.Count == 199, $"공개 이름 {GrammarTable.Names.Count} != 199");
         int Distinct(params Place[] places) => oldRows.Where(r => places.Contains(r.Place)).Select(r => r.Name).Distinct().Count();
         Check(Distinct(Place.Frame) == 23, "4.1 표 틀 23");
         Check(Distinct(Place.InputCond) == 8, "4.2 입력 조건 8");
@@ -53,16 +53,21 @@ var tests = new (string Name, Action Run)[]
         Check(tagAct.Count(n => !step.Contains(n)) == 10, "4.7 태그 전용 10");
         Check(Distinct(Place.Packed) == 13, "4.8 압축 13");
         // v0.58.0: 상태 낱말 20(STATION 은 스텝 식과 이름이 같다), 입력 조건 4, 스텝 2, 태그 동작 1
-        var added = GrammarTable.Rows.Where(r => r.Since.Length > 0).ToList();
+        var added = GrammarTable.Rows.Where(r => r.Since == GrammarTable.NewVersion).ToList();
         Check(added.Where(r => r.Place == Place.StateCond).Select(r => r.Name).Distinct().Count() == 20, "새 상태 낱말 20");
         Check(added.Where(r => r.Place == Place.InputCond).Select(r => r.Name).SequenceEqual(["AND", "ANY", "IN_INVERTED", "PARAM_TIME"]), "새 입력 조건 4");
-        Check(GrammarTable.Names.Except(GrammarTable.OldNames).Count() == 26, "새 이름 26");
+        Check(GrammarTable.Names.Where(n => GrammarTable.SinceOf(n) == GrammarTable.NewVersion).Count() == 26, "v0.58.0 새 이름 26");
+        // 코어 v0.60.0~v0.63.0: 줄마다 최소 버전. 새 이름 10
+        var later = GrammarTable.Names.Where(n => GrammarTable.SinceOf(n) is { Length: > 0 } v && v != GrammarTable.NewVersion).Order(StringComparer.Ordinal).ToList();
+        Check(later.SequenceEqual(["MAN_PROFILES", "MAN_START_SW", "PROFILE_SET", "STATE", "STOP_BACK_FL", "WAIT_ACCUM", "WAIT_ACCUM_TO", "WHEN_ACCUM", "WHEN_OUT", "WHEN_STABLE"]), "v0.60.0~v0.63.0 새 이름 10: " + string.Join(", ", later));
+        Check(GrammarTable.Names.Except(GrammarTable.OldNames).Count() == 36, "옛 이름 아닌 것 36");
+        Check(GrammarTable.Rows.Where(r => r.Since.Length > 0).All(r => r.Since is "v0.58.0" or "v0.60.0" or "v0.61.0" or "v0.63.0"), "줄 최소 버전은 코어 릴리스 번호");
         Check(GrammarTable.Rows.Where(r => r.Legacy).Select(r => r.Name).Distinct().Order(StringComparer.Ordinal).SequenceEqual(
             ["ACS_SEND", "AGV_SPEED_MMIN", "WAIT_ANY2", "WAIT_ANY2_TO", "WAIT_IF", "WAIT_IF_IN", "WAIT_IF_IN_TO", "WAIT_IF_TO", "WAIT_PARAM_TO", "WAIT_TO_PARAM", "WHEN_ANY2", "WHEN_IF", "WHEN_IF_IN"]), "옛 이름 별칭 13");
         Check(GrammarTable.IsNew("v0.58.0") && GrammarTable.IsNew("v0.60.1") && !GrammarTable.IsNew("v0.57.0") && !GrammarTable.IsNew(null), "코어 버전 판정");
         Check(GrammarTable.Rows.Where(r => r.ActForbidden).Select(r => r.Name).Distinct().Count() == 8, "ACT 금지 8 이름");
         var tableNames = CoreConstants.Params.SelectMany(p => p.TableNames).Distinct().Count();
-        Check(tableNames == 47, $"파라미터 표 이름 {tableNames} != 47");
+        Check(tableNames == 48, $"파라미터 표 이름 {tableNames} != 48");
         Check(GrammarTable.Rows.All(r => r.MinArgs <= r.MaxArgs), "인자 수 범위");
         Check(GrammarTable.Find("ON").Single().Spacing == Spacing.Tight && GrammarTable.Find("IN").Single().Spacing == Spacing.Spaced
             && GrammarTable.Find("X_ID").Single().Spacing == Spacing.Tight && GrammarTable.Find("END_STOP").Single().Spacing == Spacing.None, "꼴(안쪽 공백)");
@@ -221,9 +226,9 @@ var tests = new (string Name, Action Run)[]
 
     ("T900_DEMO", () =>
     {
-        // 옛 형식 한 벌(폴더 바로 밑)과 코어 v0.58.0 새 형식 한 벌(dsl_v058). 둘 다 왕복 바이트가 같고, 이름이 모자라지 않다
+        // 옛 형식 한 벌(폴더 바로 밑), 코어 v0.58.0 새 형식 한 벌(dsl_v058), 코어 v0.63.0 한 벌(dsl_v063, v0.60.0~v0.63.0 새 문법). 모두 왕복 바이트가 같고, 이름이 모자라지 않다
         var root = Path.Combine(RepoRoot(), "tests", "fixtures", "T900_DEMO");
-        foreach (var (folder, label) in new[] { (root, "옛"), (Path.Combine(root, "dsl_v058"), "새") })
+        foreach (var (folder, label) in new[] { (root, "옛"), (Path.Combine(root, "dsl_v058"), "새"), (Path.Combine(root, "dsl_v063"), "v0.63") })
         {
             var files = SiteFolder.Read(folder);
             Check(files.Count == FileZones.Files.Count, $"{label} 읽기 대상 {files.Count} != {FileZones.Files.Count}");
@@ -242,8 +247,10 @@ var tests = new (string Name, Action Run)[]
             // 4.8 압축 표 이름은 생성물 자리(tag_packed.c)에만 나온다. 이 파일은 읽기 대상이 아니라 글자로 찾는다
             var packed = File.ReadAllText(Path.Combine(folder, "tag_packed.c"));
             used.UnionWith(Regex.Matches(packed, @"\b[A-Za-z_]\w*\b").Select(m => m.Value));
-            // 옛 한 벌: v0.54.0 이름 전부(옛 이름 별칭도). 새 한 벌: 새 낱말 26개 전부
-            var want = label == "옛" ? GrammarTable.OldNames.AsEnumerable() : GrammarTable.Names.Except(GrammarTable.OldNames);
+            // 옛 한 벌: v0.54.0 이름 전부(옛 이름 별칭도). 새 한 벌(v0.58.0): 그 버전 새 낱말 26개 전부. v0.63.0 한 벌: v0.60.0~v0.63.0 새 낱말 10개 전부
+            var want = label == "옛" ? GrammarTable.OldNames.AsEnumerable()
+                : label == "새" ? GrammarTable.Names.Where(n => GrammarTable.SinceOf(n) == GrammarTable.NewVersion)
+                : GrammarTable.Names.Where(n => GrammarTable.SinceOf(n) is { Length: > 0 } v && v != GrammarTable.NewVersion);
             var missing = want.Where(n => !used.Contains(n) && !(label == "옛" && n == "NO_ACTION")).Distinct().ToList();
             Check(missing.Count == 0, $"{label} fixture 에 없는 문법 이름: " + string.Join(", ", missing));
         }
@@ -258,6 +265,9 @@ var tests = new (string Name, Action Run)[]
     ("편집·저장(작업 2)", () => EditTests.Run(Check, RepoRoot())),
     ("IO 맵 프로파일(v0.2.2)", () => IoProfileTests.Run(Check, RepoRoot())),
     ("코어 v0.59.0: IDLE·수동 AND", () => Core059Tests.Run(Check)),
+    ("코어 v0.60.0: 버전별 V-4·MAN_START_SW", () => Core060Tests.Run(Check)),
+    ("코어 v0.61.0: 유지·누적 대기·STATE·S-18·S-19", () => Core061Tests.Run(Check)),
+    ("코어 v0.63.0: 묶음·ANY·STOP_BACK_FL·SET_STATE·CROSS", () => Core063Tests.Run(Check, RepoRoot())),
     ("검토 결함: 읽기·편집·저장(작업 8)", () => ReviewTests.Run(Check, RepoRoot())),
     ("화면 손질: 꼴 바꾸기·거르기·칸 고치기", () => UxTests.Run(Check, RepoRoot())),
     ("깃·회차·코어 버전 변경(작업 6)", () => GitTests.Run(Check)),
@@ -276,6 +286,7 @@ var tests = new (string Name, Action Run)[]
 
 foreach (var (name, run) in tests)
 {
+    if (args.Length > 0 && !name.Contains(args[0], StringComparison.Ordinal)) continue; // 이름에 글이 든 시험만(빠른 확인)
     int before = failures;
     try { run(); }
     catch (Exception e) { failures++; Console.WriteLine($"예외  {name}: {e}"); }

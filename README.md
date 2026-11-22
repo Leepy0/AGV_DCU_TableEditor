@@ -14,6 +14,19 @@ AGV DCU 펌웨어의 사이트 표(프로파일, 태그, 시퀀스, 수동 표)�
 
 [Releases](https://github.com/Leepy0/AGV_DCU_TableEditor/releases) 의 `TableEditor-vX.Y.Z-net10-x64.zip` 을 풀어 `TableEditor.exe` 를 실행한다. 설치가 없다. 폴더에 `tedit.exe`(명령줄), `gcc\`(휴대용 컴파일러), `VERSION` 이 같이 있다.
 
+## v0.2.4 변경
+
+- 코어 v0.60.0·v0.61.0·v0.63.0 새 문법: 읽기(원문 블록 없음)·쓰기·검사·화면. 새 줄 쓰기는 사이트 `core/VERSION` 이 그 문법의 최소 버전 이상일 때만 목록에 보이고, 쓴 줄이 있으면 V-4(낱말마다 최소 버전)
+- v0.60.0: 수동 표 `MAN_START_SW`(입력 줄 추가, 뜻 없는 입력 M-8, 중복 M-9)
+- v0.61.0: 시퀀스 `WAIT_ACCUM(_TO)`·`WHEN_STABLE`·`WHEN_ACCUM`·`WHEN_OUT`, 유지 틱 칸의 `PARAM_TIME`(형식 칸), 조건 `STATE`(값·범위, 반전), 보고 `DISPLAY`, 파라미터 `AD`, 압축 표 스텝 한계 64 → 999(S-18), 묶음 유지 가지 셋째 오류 S-19(저장 막음), D-7
+- v0.63.0: 수동 표 프로파일 묶음 `MAN_PROFILES`·`PROFILE_SET`·모드 `ANY`(M-8·M-10), 프로파일 `STOP_BACK_FL`([후진 FL]), 태그 `SET_STATE`, 보고 `CROSS_IN`·`CROSS_OUT`
+- 수동 화면: 묶음 줄·입력 줄, 프로파일 걸러 보기가 묶음의 프로파일 합집합, [입력 추가]
+- `tedit headers`: 코어 버전(`VERSION`, 없으면 `version.h`)에 없던 이름은 안 바란다. v0.59.0·v0.60.0·v0.61.0·v0.63.0 헤더와 일치
+- 표 밖 enum 라벨: 시퀀스 표 파일(`seq_table.c`·`act_table.c`)의 `enum { 이름 = 값, … }` 열거자 가운데 표 안 `L( 이름 )`·라벨 칸에 쓴 것만 그 파일의 라벨로 읽는다(읽기만, 이름 바꾸기·삭제 대상 아님). 나머지 열거자는 상수, `#if 0` 안은 안 읽는다. 라벨 번호(`SEQ_LABELS` 자리 번호 1부터 + enum 값)가 겹치거나 1~65535 밖이면 S-4 오류
+- 오탐 고침(코어가 받는 값): `ACS_STATION` 칸 24~255 = 개수만, `X_PARAM_*` 숫자 번호(0~255)·파라미터 스텝 숫자 번호(1~60), 호기 범위 끝 칸 0~255(`X_ID`·`ID`·`IF_ID`·`WHEN_ID`). 형식 바꾸기의 `PARAM_TIME` 은 제한 칸 대 유지 틱(안정·누적·유지)으로만 가른다
+- M-8 `MAN_START_SW` 입력이 `IO_NONE`·`IN_START_SW` 자신이면 경고(코어는 컴파일한다). `MAN_PROFILES` 열쇠·프로파일 0개·17개 이상은 코어도 컴파일 오류라 오류 그대로
+- 형식 바꾸기에서 `PARAM_TIME` 칸은 뜻(제한·안정·누적)이 같을 때만 옮기고 다르면 값 버림 팝업. S-19 는 표 안 원문 블록의 `WHEN_STABLE`·`WHEN_ACCUM` 낱말도 세어 합이 둘을 넘으면 경고
+
 ## v0.2.3 변경
 
 - 설치 크기 줄임: 302 MB → 76 MB(zip 98 MB → 28.6 MB). 휴대용 gcc 는 쓰는 헤더·라이브러리만 남김(`unistd.h`·`io.h`·`fcntl.h`·`getopt.h`·`strings.h`·`process.h`·`dirent.h`·`sys/stat.h` 포함), .NET 런타임은 묶음에 넣지 않음
